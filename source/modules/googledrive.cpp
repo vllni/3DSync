@@ -9,7 +9,8 @@ GoogleDrive::GoogleDrive(const std::string &clientId, const std::string &clientS
                          const std::string &refreshToken, const std::string &folderId,
                          const std::string &directToken)
     : _token(directToken), _clientId(clientId), _clientSecret(clientSecret),
-      _refreshToken(refreshToken), _folderId(folderId), _uploadCount(0)
+      _refreshToken(refreshToken), _folderId(folderId), _uploadCount(0),
+      _fatalError(false)
 {
 }
 
@@ -113,6 +114,8 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 
 std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std::string &parentId)
 {
+    if (_fatalError) return "";
+
     std::string cacheKey = parentId + "/" + name;
     auto it = _folderCache.find(cacheKey);
     if (it != _folderCache.end())
@@ -333,29 +336,80 @@ std::string GoogleDrive::_readFile(FILE *file)
 }
 
 // ---------------------------------------------------------------------------
-// _performWithRetry  — wraps _curl.perform() with up to 3 attempts and a 10 s
-// back-off when the server returns HTTP 429 (rate limit exceeded).
+// _performWithRetry  — wraps _curl.perform() with up to 3 attempts.
+// Classifies errors and sets _fatalError for conditions that will affect every
+// subsequent request (401 auth failure, 403 API-disabled / permission denied).
+// Returns 0 on success, negative on fatal error, positive HTTP status on
+// per-file / transient errors.
 // ---------------------------------------------------------------------------
 int GoogleDrive::_performWithRetry()
 {
+    // Fast-fail: a previous call already hit a fatal error.
+    if (_fatalError) return -1;
+
     for (int attempt = 0; attempt < 3; attempt++)
     {
-        int res = _curl.perform();
-        if (res == 0) return 0;
-
+        int curlRes = _curl.perform();
         long status = _curl.getStatusCode();
-        printf("  Drive API error: HTTP %ld\n", status);
 
+        // Network-level failure (timeout, DNS, TLS, …)
+        if (curlRes != 0)
+        {
+            printf("  Network error (attempt %d/3)\n", attempt + 1);
+            if (attempt < 2)
+            {
+                svcSleepThread(2000000000LL); // 2 s back-off
+                continue;
+            }
+            return curlRes;
+        }
+
+        // HTTP success
+        if (status >= 200 && status < 300) return 0;
+
+        // Extract Drive error message from the response body for display.
+        // (getResponse() returns "" when the body was streamed to a file.)
+        std::string errMsg = _extractJsonString(_curl.getResponse(), "message");
+        printf(CONSOLE_RED "  Drive API error: HTTP %ld" CONSOLE_RESET "\n", status);
+        if (!errMsg.empty())
+            printf(CONSOLE_RED "  %s" CONSOLE_RESET "\n", errMsg.c_str());
+
+        // Rate-limited — retry after a wait
         if (status == 429 && attempt < 2)
         {
             printf("  Rate limited, waiting 10 seconds...\n");
             svcSleepThread(10000000000LL);
             continue;
         }
-        return res;
+
+        // Fatal: authentication failure
+        if (status == 401)
+        {
+            printf(CONSOLE_RED "  FATAL: Authentication failed." CONSOLE_RESET "\n");
+            printf("  Your refresh token may be invalid or revoked.\n");
+            printf("  Re-run the configurator to obtain a new refresh token.\n");
+            _fatalError = true;
+            return -401;
+        }
+
+        // Fatal: API not enabled or insufficient permissions
+        if (status == 403)
+        {
+            printf(CONSOLE_RED "  FATAL: Access denied (HTTP 403)." CONSOLE_RESET "\n");
+            printf("  The Google Drive API may not be enabled,\n");
+            printf("  or this account lacks the required permissions.\n");
+            printf("  Visit console.cloud.google.com to check API settings.\n");
+            _fatalError = true;
+            return -403;
+        }
+
+        // Per-file / transient error
+        return (int)status;
     }
-    return -1;
+    return -1; // exhausted retries
 }
+
+bool GoogleDrive::hasFatalError() const { return _fatalError; }
 
 // ---------------------------------------------------------------------------
 // ensureFolderPath  — resolves or creates each '/'-separated segment of path
@@ -363,6 +417,8 @@ int GoogleDrive::_performWithRetry()
 // ---------------------------------------------------------------------------
 std::string GoogleDrive::ensureFolderPath(const std::string &path)
 {
+    if (_fatalError) return "";
+
     std::string current = _folderId.empty() ? "root" : _folderId;
     if (path.empty()) return current;
 
@@ -390,6 +446,7 @@ std::string GoogleDrive::ensureFolderPath(const std::string &path)
 std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &folderId)
 {
     std::vector<DriveFileInfo> result;
+    if (_fatalError) return result;
     std::string pageToken;
 
     do
@@ -500,6 +557,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
                                     const std::string &existingId,
                                     std::string &outMd5)
 {
+    if (_fatalError) return "";
+
     // Resolve the parent Drive folder, creating subfolders as needed
     std::string parentFolderId = rootFolderId;
     std::string fileName;
@@ -645,6 +704,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
 // ---------------------------------------------------------------------------
 bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &localPath)
 {
+    if (_fatalError) return false;
+
     std::string tmpPath = localPath + ".3dstmp";
     FILE *fp = fopen(tmpPath.c_str(), "wb");
     if (!fp)

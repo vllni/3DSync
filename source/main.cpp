@@ -165,15 +165,19 @@ static bool waitForAorB()
 
 // ---------------------------------------------------------------------------
 // performSync  — bidirectional sync for one SyncEntry
+// Returns false if a fatal Drive error occurred (caller should abort).
 // ---------------------------------------------------------------------------
-static void performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry)
+static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry)
 {
+    if (drive.hasFatalError()) return false;
+
     // Resolve (and create if missing) the Drive folder hierarchy
     std::string rootFolderId = drive.ensureFolderPath(entry.remoteName);
     if (rootFolderId.empty())
     {
+        if (drive.hasFatalError()) return false;
         printf("Cannot resolve Drive folder for %s — skipping\n", entry.remoteName.c_str());
-        return;
+        return true;
     }
 
     // List current Drive contents
@@ -212,6 +216,8 @@ static void performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                localExists ? "yes" : "no",
                driveExists ? "yes" : "no",
                inManifest  ? "yes" : "no");
+
+        if (drive.hasFatalError()) break;
 
         // ----------------------------------------------------------------
         // Decision table
@@ -341,7 +347,11 @@ static void performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
             }
         }
+
+        if (drive.hasFatalError()) break;
     }
+
+    return !drive.hasFatalError();
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +500,12 @@ int main(int argc, char **argv)
                         std::map<std::pair<std::string,std::string>, std::vector<std::string>> legacyPaths;
                         legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
                         drive.upload(legacyPaths);
+                    }
+
+                    if (drive.hasFatalError())
+                    {
+                        printf(CONSOLE_RED "\nSync aborted: remaining entries skipped.\n" CONSOLE_RESET);
+                        break;
                     }
                 }
 

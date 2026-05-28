@@ -34,6 +34,11 @@ public:
     // Ensures the access token is valid; call once before any sync operations.
     bool ensureToken();
 
+    // Returns true if a fatal, unrecoverable API error has occurred (e.g. 401
+    // auth failure or 403 API-disabled).  When true, all subsequent Drive calls
+    // will be skipped and the sync loop should be aborted.
+    bool hasFatalError() const;
+
     // Legacy flat-name upload (unchanged behaviour).
     void upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
 
@@ -75,6 +80,7 @@ private:
     std::map<std::string, std::string> _folderCache;
 
     bool        _refreshAccessToken();
+    bool        _fatalError;
     // Find or create a single folder segment; returns folder ID or "".
     std::string _findOrCreateFolder(const std::string &name, const std::string &parentId);
     // Raw Drive files.list for one folder (non-recursive, handles pagination).

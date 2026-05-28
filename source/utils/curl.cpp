@@ -9,7 +9,6 @@ Curl::Curl() : _downloadFile(nullptr)
     curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" VERSION_STRING);
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 1L);
     curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(_curl, CURLOPT_PIPEWAIT, 1L);
@@ -64,8 +63,8 @@ int Curl::perform()
     _responseData.clear();
     _rawHeaders.clear();
     CURLcode rescode = curl_easy_perform(_curl);
-    const char *res = curl_easy_strerror(rescode);
-    printf("Curl result: %s\n", res);
+    if (rescode != CURLE_OK)
+        printf("Network error: %s\n", curl_easy_strerror(rescode));
     return rescode;
 }
 
