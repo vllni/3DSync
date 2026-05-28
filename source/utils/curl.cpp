@@ -37,6 +37,15 @@ void Curl::setReadData(void *pointer){
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
 }
 
+void Curl::setPostData(std::string data){
+    _postData = data;
+    curl_easy_setopt(_curl, CURLOPT_READFUNCTION, NULL);
+    curl_easy_setopt(_curl, CURLOPT_READDATA, NULL);
+    curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, _postData.data());
+    curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, _postData.size());
+    curl_easy_setopt(_curl, CURLOPT_POST, 1L);
+}
+
 int Curl::perform(){
     CURLcode rescode = curl_easy_perform(_curl);
     const char *res = curl_easy_strerror(rescode);
