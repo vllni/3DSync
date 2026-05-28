@@ -1,6 +1,6 @@
 #include "curl.h"
 
-Curl::Curl()
+Curl::Curl() : _downloadFile(nullptr)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
@@ -15,6 +15,8 @@ Curl::Curl()
     curl_easy_setopt(_curl, CURLOPT_PIPEWAIT, 1L);
     curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, _write_callback);
     curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
+    curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, _header_callback);
+    curl_easy_setopt(_curl, CURLOPT_HEADERDATA, this);
 #ifdef DEBUG
     curl_easy_setopt(_curl, CURLOPT_VERBOSE, 1L);
 #endif
@@ -60,6 +62,7 @@ void Curl::resetToGet()
 int Curl::perform()
 {
     _responseData.clear();
+    _rawHeaders.clear();
     CURLcode rescode = curl_easy_perform(_curl);
     const char *res = curl_easy_strerror(rescode);
     printf("Curl result: %s\n", res);
@@ -69,6 +72,52 @@ int Curl::perform()
 std::string Curl::getResponse() const
 {
     return _responseData;
+}
+
+long Curl::getStatusCode() const
+{
+    long code = 0;
+    curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &code);
+    return code;
+}
+
+std::string Curl::getResponseHeader(const std::string &name) const
+{
+    // Build a lowercase copy for case-insensitive matching
+    std::string lowerHeaders = _rawHeaders;
+    std::string lowerName = name;
+    for (char &c : lowerHeaders) c = (char)tolower((unsigned char)c);
+    for (char &c : lowerName)    c = (char)tolower((unsigned char)c);
+    std::string search = lowerName + ":";
+    size_t pos = lowerHeaders.find(search);
+    if (pos == std::string::npos)
+        return "";
+    pos += search.size();
+    while (pos < _rawHeaders.size() && _rawHeaders[pos] == ' ') pos++;
+    size_t end = _rawHeaders.find("\r\n", pos);
+    if (end == std::string::npos) end = _rawHeaders.find('\n', pos);
+    if (end == std::string::npos) end = _rawHeaders.size();
+    return _rawHeaders.substr(pos, end - pos);
+}
+
+void Curl::setDownloadFile(FILE *fp)
+{
+    _downloadFile = fp;
+}
+
+void Curl::clearDownloadFile()
+{
+    _downloadFile = nullptr;
+}
+
+void Curl::setPatch()
+{
+    curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, "PATCH");
+}
+
+void Curl::clearCustomRequest()
+{
+    curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, NULL);
 }
 
 size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata)
@@ -88,9 +137,21 @@ size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userda
 {
     Curl *self = static_cast<Curl *>(userdata);
     size_t totalSize = size * nmemb;
+    if (self->_downloadFile != nullptr)
+    {
+        return fwrite(data, size, nmemb, self->_downloadFile);
+    }
     self->_responseData.append(static_cast<char *>(data), totalSize);
 #ifdef DEBUG
     fwrite(data, size, nmemb, stdout);
 #endif
+    return totalSize;
+}
+
+size_t Curl::_header_callback(void *data, size_t size, size_t nmemb, void *userdata)
+{
+    Curl *self = static_cast<Curl *>(userdata);
+    size_t totalSize = size * nmemb;
+    self->_rawHeaders.append(static_cast<char *>(data), totalSize);
     return totalSize;
 }

@@ -106,12 +106,15 @@
                       <strong>roms/nds</strong>, <strong>3DS/Checkpoint</strong>
                     </p>
                     <p style="margin:0 0 8px 0"><strong>Subdirs</strong> — when checked, all subdirectories are synced
-                      recursively. Files are uploaded flat into the Name folder — subdirectory structure is
-                      <strong>not</strong> preserved on cloud storage (e.g. <strong>/roms/nds/saves/game.sav</strong>
-                      becomes <strong>saves_game.sav</strong> inside the Name folder).
-                      Uncheck to sync only the files directly inside the specified folder, ignoring subdirectories
-                      entirely.</p>
-                    <p style="margin:0">If Name is left empty the files are uploaded directly into the root (or the
+                      recursively and their structure is preserved on Drive (e.g. <strong>/saves/Game/001.sav</strong>
+                      becomes <strong>Name/saves/Game/001.sav</strong>). Uncheck to sync only the files directly inside
+                      the specified folder, ignoring subdirectories entirely.</p>
+                    <p style="margin:0 0 8px 0"><strong>Both ways</strong> — full bidirectional sync. The 3DS compares
+                      each file against a local manifest (<code>/3ds/3DSync/manifest.json</code>) and against the Drive
+                      copy, then uploads, downloads, or prompts for conflict resolution as needed.
+                      <br><strong>Upload only</strong> — one-way upload to Drive (no downloads, no manifest). Useful for
+                      backups or Dropbox paths.</p>
+                    <p style="margin:0">If Name is left empty the files go directly into the root Drive folder (or the
                       Folder ID you configured).</p>
                   </div>
                   <div id="paths-custom">

@@ -144,11 +144,19 @@ $(function () {
         let provider = localStorage.getItem('provider');
         let strPaths = '';
         let strShallowPaths = '';
+        let strUploadPaths = '';
+        let strUploadShallowPaths = '';
         paths.forEach(function (path) {
-            if (path[2] === false) {
-                strShallowPaths += path[0] + '=' + path[1] + '\n';
+            let name      = path[0];
+            let localPath = path[1];
+            let recursive = path[2];
+            let direction = path[3]; // 'both' or 'upload'
+            if (direction === 'upload') {
+                if (recursive) strUploadPaths       += name + '=' + localPath + '\n';
+                else           strUploadShallowPaths += name + '=' + localPath + '\n';
             } else {
-                strPaths += path[0] + '=' + path[1] + '\n';
+                if (recursive) strPaths       += name + '=' + localPath + '\n';
+                else           strShallowPaths += name + '=' + localPath + '\n';
             }
         });
         if (provider === 'googledrive') {
@@ -162,13 +170,17 @@ $(function () {
             if (folderId) {
                 config += '\nFolderId=' + folderId;
             }
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
+            if (strPaths)              config += '\n[Paths]\n'             + strPaths;
+            if (strShallowPaths)       config += '\n[ShallowPaths]\n'      + strShallowPaths;
+            if (strUploadPaths)        config += '\n[UploadPaths]\n'       + strUploadPaths;
+            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n'+ strUploadShallowPaths;
             return config;
         } else {
             let config = '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken');
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
+            if (strPaths)              config += '\n[Paths]\n'             + strPaths;
+            if (strShallowPaths)       config += '\n[ShallowPaths]\n'      + strShallowPaths;
+            if (strUploadPaths)        config += '\n[UploadPaths]\n'       + strUploadPaths;
+            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n'+ strUploadShallowPaths;
             return config;
         }
     }
@@ -198,8 +210,9 @@ $(function () {
         let id = Date.now();
         let $input = $('<div class="row">' +
             '<div class="input-field col s3"><input id="' + id + '-n" class="white-text" type="text"><label for="' + id + '-n" class="white-text">Name</label><span class="helper-text" data-error="Invalid name"></span></div>' +
-            '<div class="input-field col s5"><input id="' + id + '" class="white-text path-custom" type="text"><label for="' + id + '" class="white-text">Path</label><span class="helper-text" data-error="Invalid path"></span></div>' +
-            '<div class="col s2 valign-wrapper" style="padding-top:1.4rem"><label class="white-text"><input type="checkbox" class="filled-in path-recursive" checked><span class="white-text" style="font-size:0.82em;white-space:nowrap">Subdirs</span></label></div>' +
+            '<div class="input-field col s4"><input id="' + id + '" class="white-text path-custom" type="text"><label for="' + id + '" class="white-text">Path</label><span class="helper-text" data-error="Invalid path"></span></div>' +
+            '<div class="col s1 valign-wrapper" style="padding-top:1.4rem"><label class="white-text"><input type="checkbox" class="filled-in path-recursive" checked><span class="white-text" style="font-size:0.82em;white-space:nowrap">Subdirs</span></label></div>' +
+            '<div class="input-field col s2" style="padding-top:0.6rem"><select class="path-direction browser-default" style="color:#fff;background:transparent;border:1px solid rgba(255,255,255,0.5);padding:4px"><option value="both" selected>Both ways</option><option value="upload">Upload only</option></select></div>' +
             '<div class="col s2"><a href="#" class="btn-floating waves-effect waves-light red remove-custom-path"><i class="material-icons">remove</i></a></div></div>');
         $input.find('.remove-custom-path').on('click', function (e) {
             e.preventDefault();
@@ -265,12 +278,13 @@ $(function () {
                         } else {
                             $name.removeClass('invalid');
                             let isRecursive = $this.closest('.row').find('.path-recursive').prop('checked');
-                            paths.push([$name.val(), pathSync, isRecursive]);
+                            let direction   = $this.closest('.row').find('.path-direction').val() || 'both';
+                            paths.push([$name.val(), pathSync, isRecursive, direction]);
                         }
                     }
                 }
             } else {
-                paths.push([$this.next().text(), $this.data('path')]);
+                paths.push([$this.next().text(), $this.data('path'), true, 'both']);
             }
         });
         if (error === false) {
