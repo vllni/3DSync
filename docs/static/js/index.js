@@ -1,4 +1,4 @@
-$(function(){
+$(function () {
     let params = new URLSearchParams(window.location.hash.substr(1));
     let token = params.get('access_token');
     let state = params.get('state');
@@ -10,57 +10,57 @@ $(function(){
         stepTitleNavigation: false,
     });
 
-    if(token !== null && state !== null){
-        if(state === localStorage.getItem('token')){
+    if (token !== null && state !== null) {
+        if (state === localStorage.getItem('token')) {
             localStorage.setItem('dropboxToken', token);
             stepperInstace.nextStep();
         }
     }
     localStorage.removeItem('token');
 
-    $('#dropbox-login').on('click', function(e){
+    $('#dropbox-login').on('click', function (e) {
         e.preventDefault();
-        let token = [...Array(100)].map(i=>(~~(Math.random()*36)).toString(36)).join('');
+        let token = [...Array(100)].map(i => (~~(Math.random() * 36)).toString(36)).join('');
         localStorage.setItem('token', token);
-        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=3x8ipjhtplvcoba&response_type=token&redirect_uri=https://kyraminol.github.io/3DSync/&state=" + token;
+        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=3x8ipjhtplvcoba&response_type=token&redirect_uri=https://vllni.github.io/3DSync/&state=" + token;
     });
 
-    function getConfigString(){
+    function getConfigString() {
         let strPaths = '';
-        paths.forEach(function(path){
+        paths.forEach(function (path) {
             strPaths += path[0] + '=' + path[1] + '\n';
         });
         return '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken') + '\n' + '[Paths]\n' + strPaths;
     }
 
-    $('#download-config').on('click', function(e){
+    $('#download-config').on('click', function (e) {
         e.preventDefault();
-        let blob = new Blob([getConfigString()], {type: "application/octet-stream;charset=utf-8"});
+        let blob = new Blob([getConfigString()], { type: "application/octet-stream;charset=utf-8" });
         const fileStream = streamSaver.createWriteStream('3DSync.ini', {
             size: blob.size
         });
         const readableStream = blob.stream();
         if (window.WritableStream && readableStream.pipeTo) {
             return readableStream.pipeTo(fileStream)
-              .then(() => console.log('done writing'));
+                .then(() => console.log('done writing'));
         }
         window.writer = fileStream.getWriter();
         const reader = readableStream.getReader();
         const pump = () => reader.read()
-          .then(res => res.done
-            ? writer.close()
-            : writer.write(res.value).then(pump));
+            .then(res => res.done
+                ? writer.close()
+                : writer.write(res.value).then(pump));
         pump();
     });
 
-    $('#add-custom-path').on('click', function(e){
+    $('#add-custom-path').on('click', function (e) {
         e.preventDefault();
         let id = Date.now();
         let $input = $('<div class="row">' +
-          '<div class="input-field col s3"><input id="' + id + '-n" class="white-text" type="text"><label for="' + id + '-n" class="white-text">Name</label><span class="helper-text" data-error="Invalid name"></span></div>' +
-          '<div class="input-field col s7"><input id="' + id + '" class="white-text path-custom" type="text"><label for="' + id + '" class="white-text">Path</label><span class="helper-text" data-error="Invalid path"></span></div>' +
-          '<div class="col s2"><a href="#" class="btn-floating waves-effect waves-light red remove-custom-path"><i class="material-icons">remove</i></a></div></div>');
-        $input.find('.remove-custom-path').on('click', function(e){
+            '<div class="input-field col s3"><input id="' + id + '-n" class="white-text" type="text"><label for="' + id + '-n" class="white-text">Name</label><span class="helper-text" data-error="Invalid name"></span></div>' +
+            '<div class="input-field col s7"><input id="' + id + '" class="white-text path-custom" type="text"><label for="' + id + '" class="white-text">Path</label><span class="helper-text" data-error="Invalid path"></span></div>' +
+            '<div class="col s2"><a href="#" class="btn-floating waves-effect waves-light red remove-custom-path"><i class="material-icons">remove</i></a></div></div>');
+        $input.find('.remove-custom-path').on('click', function (e) {
             e.preventDefault();
             $(this).parent().parent().remove();
         });
@@ -69,7 +69,7 @@ $(function(){
 
     const pathRegex = /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
 
-    function pathParse(path){
+    function pathParse(path) {
         let parts = pathRegex.exec(path).slice(1);
         if (!parts || parts.length !== 4) {
             return false;
@@ -88,34 +88,34 @@ $(function(){
     }
 
 
-    $('#folders-confirm').on('click', function(e){
+    $('#folders-confirm').on('click', function (e) {
         e.preventDefault();
         paths = [];
         let error = false;
-        $('#paths-presets input:checked, #paths-custom input.path-custom').each(function(){
+        $('#paths-presets input:checked, #paths-custom input.path-custom').each(function () {
             let $this = $(this);
-            if($this.hasClass('path-custom')){
+            if ($this.hasClass('path-custom')) {
                 let path = $this.val();
                 let pathCheck = pathParse(path);
-                if(pathCheck === false){
+                if (pathCheck === false) {
                     error = true;
                     $this.addClass('invalid');
                 } else {
                     let pathSync = '';
-                    if(pathCheck['ext'] === ''){
+                    if (pathCheck['ext'] === '') {
                         pathSync += pathCheck['dir'];
-                        if(pathCheck['dir'] !== '/'){
+                        if (pathCheck['dir'] !== '/') {
                             pathSync += '/';
                         }
                         pathSync += pathCheck['base'];
                     } else {
-                        if(pathCheck['dir'] === ''){
+                        if (pathCheck['dir'] === '') {
                             error = true;
                         }
                         pathSync += pathCheck['dir'];
                     }
-                    if(pathSync.startsWith('/') === false) pathSync = '/' + pathSync;
-                    if(error === false){
+                    if (pathSync.startsWith('/') === false) pathSync = '/' + pathSync;
+                    if (error === false) {
                         $this.removeClass('invalid');
                         let $name = $('#' + $this.attr('id') + '-n');
                         if ($name.val() === '') {
@@ -131,7 +131,7 @@ $(function(){
                 paths.push([$this.next().text(), $this.data('path')]);
             }
         });
-        if(error === false){
+        if (error === false) {
             stepperInstace.nextStep();
         }
     });

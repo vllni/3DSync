@@ -22,7 +22,7 @@ VERSION_MINOR := $(word 2, $(VERSION_PARTS))
 VERSION_MICRO := $(word 3, $(VERSION_PARTS))
 
 DESCRIPTION := Sync your saves
-AUTHOR := Kyraminol
+AUTHOR := michvllni
 
 PRODUCT_CODE := CTR-K-SYNC
 UNIQUE_ID := 0xF5555
