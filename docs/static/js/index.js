@@ -111,6 +111,32 @@ $(function () {
         }
     });
 
+    // --- Google Drive: import client_secret.json ---
+    $('#gdrive-json-import').on('change', function (e) {
+        let file = e.target.files[0];
+        if (!file) return;
+        let reader = new FileReader();
+        reader.onload = function (ev) {
+            try {
+                let json = JSON.parse(ev.target.result);
+                // Support both "web" and "installed" application types
+                let creds = json.web || json.installed;
+                if (!creds || !creds.client_id || !creds.client_secret) {
+                    $('#gdrive-json-status').html('<span class="red-text">Invalid file: missing client_id or client_secret</span>');
+                    return;
+                }
+                $('#gdrive-client-id').val(creds.client_id);
+                $('#gdrive-client-secret').val(creds.client_secret);
+                M.updateTextFields();
+                $('#gdrive-json-status').html('<span class="green-text"><i class="material-icons" style="font-size:1em;vertical-align:middle">check_circle</i> Imported</span>');
+            } catch (err) {
+                $('#gdrive-json-status').html('<span class="red-text">Could not parse JSON</span>');
+            }
+        };
+        reader.readAsText(file);
+        this.value = ''; // allow re-importing the same file
+    });
+
     $('#gdrive-login').on('click', async function (e) {
         e.preventDefault();
         let clientId = $('#gdrive-client-id').val().trim();

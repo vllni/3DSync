@@ -50,6 +50,13 @@
                     <div class="col s12 m6">
                       <h5 class="white-text"><i class="material-icons left"
                           style="vertical-align:middle;font-size:1.4rem">add_to_drive</i> Google Drive</h5>
+                      <div style="margin-bottom:12px">
+                        <label class="btn blue darken-3 btn-small" for="gdrive-json-import" style="cursor:pointer">
+                          <i class="material-icons left">upload_file</i> Import client_secret.json
+                        </label>
+                        <input type="file" id="gdrive-json-import" accept=".json" style="display:none">
+                        <span id="gdrive-json-status" style="margin-left:8px;font-size:0.82em"></span>
+                      </div>
                       <div class="input-field">
                         <input id="gdrive-client-id" class="white-text" type="text">
                         <label for="gdrive-client-id" class="white-text">Client ID</label>
@@ -69,11 +76,18 @@
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
                       <br><br>
                       <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
-                        <span>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
+                        <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
                             class="white-text" style="text-decoration:underline">Google Cloud Console</a>, create a
                           project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
                           credential. Add <strong>https://vllni.github.io/3DSync/</strong> as an authorized redirect
-                          URI. The refresh token is stored in the config so you won't need to log in again.</span>
+                          URI. The refresh token is stored in the config so you won't need to log in again.</p>
+                        <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>
+                        <ol style="margin:0 0 0 16px;padding:0">
+                          <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="white-text" style="text-decoration:underline">APIs &amp; Services → Credentials</a></li>
+                          <li>Find your <strong>OAuth 2.0 Client ID</strong> in the list</li>
+                          <li>Click the <strong>⬇ download</strong> icon on the right of that row</li>
+                          <li>Save the file, then click <strong>Import client_secret.json</strong> above</li>
+                        </ol>
                       </div>
                     </div>
                   </div>
