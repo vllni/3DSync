@@ -47,7 +47,9 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
             _curl.setURL(std::string("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"));
             _curl.setHeaders(headers);
             _curl.setPostData(body);
-            _curl.perform();
+            if(_curl.perform() != 0){
+                printf("Google Drive upload failed for %s\n", localPath.c_str());
+            }
             curl_slist_free_all(headers);
             fclose(file);
             printf("\n");
