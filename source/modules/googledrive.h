@@ -15,6 +15,7 @@ class GoogleDrive{
     private:
         std::string _token;
         std::string _folderId;
+        int _uploadCount;
         Curl _curl;
         std::string _jsonEscape(std::string value);
         std::string _driveFileName(std::string path);

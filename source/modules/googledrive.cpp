@@ -1,23 +1,25 @@
 #include "googledrive.h"
 #include <3ds.h>
+#include <errno.h>
 #include <stdio.h>
+#include <string.h>
 
-GoogleDrive::GoogleDrive(const std::string &token, const std::string &folderId) : _token(token), _folderId(folderId){
+GoogleDrive::GoogleDrive(const std::string &token, const std::string &folderId) : _token(token), _folderId(folderId), _uploadCount(0){
 }
 
 void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths){
     for(auto item : paths){
         for(auto path : item.second){
-            printf("Uploading %s to Google Drive\n", (item.first.first + path).c_str());
-            FILE *file = fopen((item.first.first + path).c_str(), "rb");
+            std::string localPath = item.first.first + path;
+            printf("Uploading %s to Google Drive\n", localPath.c_str());
+            FILE *file = fopen(localPath.c_str(), "rb");
             if(file == NULL){
-                printf("Failed to open file\n");
+                printf("Failed to open %s: %s\n", localPath.c_str(), strerror(errno));
                 continue;
             }
 
-            static int uploadCount = 0;
             std::string fileContents = _readFile(file);
-            std::string boundary = "3DSyncGoogleDriveBoundary" + std::to_string(uploadCount++);
+            std::string boundary = "3DSyncGoogleDriveBoundary" + std::to_string(_uploadCount++);
             while(fileContents.find(boundary) != std::string::npos){
                 boundary += "x";
             }
@@ -111,6 +113,7 @@ std::string GoogleDrive::_readFile(FILE *file){
             contents.reserve(size);
         }
         if(fseek(file, 0, SEEK_SET) != 0){
+            printf("Failed to seek file: %s\n", strerror(errno));
             return contents;
         }
     }
