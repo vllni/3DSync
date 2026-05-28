@@ -1,0 +1,51 @@
+name: Container Image
+
+on:
+  push:
+    branches: [master, copilot/enhance-homebrew-app-google-drive-support]
+    paths:
+      - docker/3dsync-devcontainer.Dockerfile
+      - .github/workflows/container-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/vllni/3dsync-devcontainer
+
+jobs:
+  publish:
+    name: Publish Build Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        run: |
+          echo "tags=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_NAME}" = "master" ]; then
+            echo "latest=${IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=${IMAGE_NAME}:${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/3dsync-devcontainer.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.tags }}
+            ${{ steps.tags.outputs.latest }}
