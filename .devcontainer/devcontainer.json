@@ -1,0 +1,22 @@
+{
+    "name": "3DSync - 3DS Homebrew",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "remoteEnv": {
+        "DEVKITPRO": "/opt/devkitpro",
+        "DEVKITARM": "/opt/devkitpro/devkitARM",
+        "PATH": "${containerEnv:PATH}:/opt/devkitpro/devkitARM/bin:/opt/devkitpro/tools/bin"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.makefile-tools"
+            ],
+            "settings": {
+                "C_Cpp.default.compilerPath": "/opt/devkitpro/devkitARM/bin/arm-none-eabi-g++"
+            }
+        }
+    }
+}

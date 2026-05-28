@@ -1,0 +1,47 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install devkitPro
+        run: |
+          sudo apt-get update -y
+          wget https://apt.devkitpro.org/install-devkitpro-pacman
+          chmod +x ./install-devkitpro-pacman
+          sudo ./install-devkitpro-pacman
+          echo "/opt/devkitpro/devkitARM/bin" >> "$GITHUB_PATH"
+          echo "/opt/devkitpro/tools/bin" >> "$GITHUB_PATH"
+          echo "DEVKITPRO=/opt/devkitpro" >> "$GITHUB_ENV"
+          echo "DEVKITARM=/opt/devkitpro/devkitARM" >> "$GITHUB_ENV"
+
+      - name: Install 3DS libraries
+        run: sudo dkp-pacman -Sy --noconfirm 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib
+
+      - name: Build bannertool
+        run: |
+          git clone --depth=1 https://github.com/carstene1ns/3ds-bannertool.git /tmp/bannertool
+          cmake -DCMAKE_BUILD_TYPE=Release -B /tmp/bannertool/build /tmp/bannertool
+          cmake --build /tmp/bannertool/build -j$(nproc)
+          sudo install -m755 /tmp/bannertool/build/bannertool /usr/local/bin/bannertool
+
+      - name: Build makerom
+        run: |
+          git clone --depth=1 https://github.com/3DSGuy/Project_CTR.git /tmp/Project_CTR
+          make -C /tmp/Project_CTR/makerom deps
+          make -C /tmp/Project_CTR/makerom -j$(nproc)
+          sudo install -m755 /tmp/Project_CTR/makerom/bin/makerom /usr/local/bin/makerom
+
+      - name: Build
+        run: make
