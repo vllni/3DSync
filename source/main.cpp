@@ -146,21 +146,25 @@ static time_t parseRFC3339(const std::string &s)
 }
 
 // ---------------------------------------------------------------------------
-// waitForAorB  — block until the user presses A or B, return true for A
+// waitForConflictKey  — block until A / B / X / START
 // ---------------------------------------------------------------------------
-static bool waitForAorB()
+enum ConflictChoice { CONFLICT_KEEP_LOCAL, CONFLICT_KEEP_DRIVE, CONFLICT_SKIP, CONFLICT_CANCEL };
+
+static ConflictChoice waitForConflictKey()
 {
     while (aptMainLoop())
     {
         hidScanInput();
         u32 k = hidKeysDown();
-        if (k & KEY_A) return true;
-        if (k & KEY_B) return false;
+        if (k & KEY_A)     return CONFLICT_KEEP_LOCAL;
+        if (k & KEY_B)     return CONFLICT_KEEP_DRIVE;
+        if (k & KEY_X)     return CONFLICT_SKIP;
+        if (k & KEY_START) return CONFLICT_CANCEL;
         gfxFlushBuffers();
         gfxSwapBuffers();
         gspWaitForVBlank();
     }
-    return true;
+    return CONFLICT_CANCEL;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,11 +270,23 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             // First sync: no history to diff against — treat as a conflict so
             // neither side is silently overwritten.
             printf("\n  *** FIRST SYNC (both sides exist): %s\n", localPath.c_str());
-            printf("  Press A to keep the 3DS version (upload)\n");
-            printf("  Press B to keep the Drive version (download)\n\n");
-            bool keepLocal = waitForAorB();
+            printf("  A: keep 3DS version (upload)\n");
+            printf("  B: keep Drive version (download)\n");
+            printf("  X: skip this file\n");
+            printf("  START: cancel sync\n\n");
+            ConflictChoice choice = waitForConflictKey();
 
-            if (keepLocal)
+            if (choice == CONFLICT_CANCEL)
+            {
+                printf("  -> Sync cancelled\n");
+                return false;
+            }
+            if (choice == CONFLICT_SKIP)
+            {
+                printf("  -> Skipped\n");
+                continue;
+            }
+            if (choice == CONFLICT_KEEP_LOCAL)
             {
                 printf("  -> Keeping 3DS version, uploading\n");
                 std::string md5;
@@ -325,11 +341,23 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         // Both changed — conflict
         printf("\n  *** CONFLICT: %s\n", localPath.c_str());
-        printf("  Press A to keep the 3DS version (upload)\n");
-        printf("  Press B to keep the Drive version (download)\n\n");
-        bool keepLocal = waitForAorB();
+        printf("  A: keep 3DS version (upload)\n");
+        printf("  B: keep Drive version (download)\n");
+        printf("  X: skip this file\n");
+        printf("  START: cancel sync\n\n");
+        ConflictChoice choice = waitForConflictKey();
 
-        if (keepLocal)
+        if (choice == CONFLICT_CANCEL)
+        {
+            printf("  -> Sync cancelled\n");
+            return false;
+        }
+        if (choice == CONFLICT_SKIP)
+        {
+            printf("  -> Skipped\n");
+            continue;
+        }
+        if (choice == CONFLICT_KEEP_LOCAL)
         {
             printf("  -> Keeping 3DS version, uploading\n");
             std::string md5;
