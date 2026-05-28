@@ -23,7 +23,7 @@
   <div class="container">
     <div class="row">
       <div class="card-panel teal darken-3 white-text">
-        <span>Use this tool to generate config file for 3DSync. Login with Dropbox using the button below, then download the config file and copy it to your 3DS SD card in the following path: <strong style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong> (create folders if not existing)</span>
+        <span>Use this tool to generate config file for 3DSync. Authenticate with Dropbox or Google Drive, configure your sync folders, then download the config file and copy it to your 3DS SD card at: <strong style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong> (create folders if not existing)</span>
       </div>
     </div>
     <div class="row">
@@ -31,10 +31,36 @@
         <div class="card-panel blue darken-2">
           <ul class="stepper">
             <li class="step active">
-              <div class="step-title white-text">Login with Dropbox</div>
+              <div class="step-title white-text">Authenticate with cloud service</div>
               <div class="step-content">
-                <div class="step-actions">
-                  <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login</a>
+                <div class="row">
+                  <div class="col s12 m5">
+                    <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox</h5>
+                    <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login with Dropbox</a>
+                  </div>
+                  <div class="col s12 m1 center-align hide-on-small-only" style="border-left:1px solid rgba(255,255,255,0.2);min-height:220px;padding-top:80px">
+                    <span class="white-text">or</span>
+                  </div>
+                  <div class="col s12 m6">
+                    <h5 class="white-text"><i class="material-icons left" style="vertical-align:middle;font-size:1.4rem">add_to_drive</i> Google Drive</h5>
+                    <div class="input-field">
+                      <input id="gdrive-client-id" class="white-text" type="text">
+                      <label for="gdrive-client-id" class="white-text">Client ID</label>
+                    </div>
+                    <div class="input-field">
+                      <input id="gdrive-client-secret" class="white-text" type="password">
+                      <label for="gdrive-client-secret" class="white-text">Client Secret</label>
+                    </div>
+                    <div class="input-field">
+                      <input id="gdrive-folder-id" class="white-text" type="text">
+                      <label for="gdrive-folder-id" class="white-text">Folder ID (optional)</label>
+                    </div>
+                    <a href="#" id="gdrive-login" class="btn blue darken-3"><i class="material-icons left">add_to_drive</i> Login with Google Drive</a>
+                    <br><br>
+                    <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
+                      <span>In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="white-text" style="text-decoration:underline">Google Cloud Console</a>, create a project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong> credential. Add <strong>https://vllni.github.io/3DSync/</strong> as an authorized redirect URI. The refresh token is stored in the config so you won't need to log in again.</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </li>

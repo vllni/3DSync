@@ -14,8 +14,8 @@ Curl::Curl()
     curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(_curl, CURLOPT_PIPEWAIT, 1L);
     curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, _write_callback);
+    curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
 #ifdef DEBUG
-    curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, fwrite);
     curl_easy_setopt(_curl, CURLOPT_VERBOSE, 1L);
 #endif
 }
@@ -53,10 +53,16 @@ void Curl::setPostData(const std::string &data)
 
 int Curl::perform()
 {
+    _responseData.clear();
     CURLcode rescode = curl_easy_perform(_curl);
     const char *res = curl_easy_strerror(rescode);
     printf("Curl result: %s\n", res);
     return rescode;
+}
+
+std::string Curl::getResponse() const
+{
+    return _responseData;
 }
 
 size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata)
@@ -74,6 +80,11 @@ size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata
 
 size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userdata)
 {
-    size_t newLength = size * nmemb;
-    return newLength;
+    Curl *self = static_cast<Curl *>(userdata);
+    size_t totalSize = size * nmemb;
+    self->_responseData.append(static_cast<char *>(data), totalSize);
+#ifdef DEBUG
+    fwrite(data, size, nmemb, stdout);
+#endif
+    return totalSize;
 }

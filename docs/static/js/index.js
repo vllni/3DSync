@@ -1,7 +1,10 @@
 $(function () {
-    let params = new URLSearchParams(window.location.hash.substr(1));
-    let token = params.get('access_token');
-    let state = params.get('state');
+    let hashParams = new URLSearchParams(window.location.hash.substr(1));
+    let queryParams = new URLSearchParams(window.location.search);
+    let dropboxToken = hashParams.get('access_token');
+    let dropboxState = hashParams.get('state');
+    let googleCode = queryParams.get('code');
+    let googleState = queryParams.get('state');
     let paths = [];
 
     let stepperInstace = new MStepper(document.querySelector('.stepper'), {
@@ -10,27 +13,155 @@ $(function () {
         stepTitleNavigation: false,
     });
 
-    if (token !== null && state !== null) {
-        if (state === localStorage.getItem('token')) {
-            localStorage.setItem('dropboxToken', token);
+    // --- Dropbox redirect callback ---
+    if (dropboxToken !== null && dropboxState !== null) {
+        if (dropboxState === localStorage.getItem('dropboxStateToken')) {
+            localStorage.setItem('dropboxToken', dropboxToken);
+            localStorage.setItem('provider', 'dropbox');
             stepperInstace.nextStep();
         }
     }
-    localStorage.removeItem('token');
+    localStorage.removeItem('dropboxStateToken');
 
+    // --- Google Drive redirect callback ---
+    if (googleCode !== null && googleState !== null) {
+        if (googleState === localStorage.getItem('gdriveState')) {
+            let codeVerifier = localStorage.getItem('gdriveCodeVerifier');
+            localStorage.removeItem('gdriveState');
+            localStorage.removeItem('gdriveCodeVerifier');
+            // Clean the auth code from the URL to avoid reuse on refresh
+            history.replaceState(null, '', window.location.pathname);
+            exchangeGoogleCode(googleCode, codeVerifier).then(function (success) {
+                if (success) {
+                    localStorage.setItem('provider', 'googledrive');
+                    stepperInstace.nextStep();
+                } else {
+                    alert('Google Drive authentication failed. Please try again.');
+                }
+            });
+        }
+    }
+
+    // --- PKCE helpers ---
+    function base64urlEncode(buffer) {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+    }
+
+    function generateCodeVerifier() {
+        let array = new Uint8Array(32);
+        crypto.getRandomValues(array);
+        return base64urlEncode(array.buffer);
+    }
+
+    async function generateCodeChallenge(verifier) {
+        let data = new TextEncoder().encode(verifier);
+        let digest = await crypto.subtle.digest('SHA-256', data);
+        return base64urlEncode(digest);
+    }
+
+    async function exchangeGoogleCode(code, codeVerifier) {
+        let clientId = localStorage.getItem('gdriveClientId');
+        let clientSecret = localStorage.getItem('gdriveClientSecret');
+        let redirectUri = window.location.origin + window.location.pathname;
+        try {
+            let response = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    code: code,
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    redirect_uri: redirectUri,
+                    code_verifier: codeVerifier,
+                    grant_type: 'authorization_code'
+                })
+            });
+            let data = await response.json();
+            if (data.refresh_token) {
+                localStorage.setItem('gdriveRefreshToken', data.refresh_token);
+                return true;
+            }
+            console.error('No refresh_token in response:', data);
+            return false;
+        } catch (e) {
+            console.error('Token exchange failed:', e);
+            return false;
+        }
+    }
+
+    // --- Login button handlers ---
     $('#dropbox-login').on('click', function (e) {
         e.preventDefault();
         let token = [...Array(100)].map(i => (~~(Math.random() * 36)).toString(36)).join('');
-        localStorage.setItem('token', token);
+        localStorage.setItem('dropboxStateToken', token);
         window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=3x8ipjhtplvcoba&response_type=token&redirect_uri=https://vllni.github.io/3DSync/&state=" + token;
     });
 
+    $('#gdrive-login').on('click', async function (e) {
+        e.preventDefault();
+        let clientId = $('#gdrive-client-id').val().trim();
+        let clientSecret = $('#gdrive-client-secret').val().trim();
+        if (!clientId) {
+            $('#gdrive-client-id').addClass('invalid');
+            return;
+        }
+        if (!clientSecret) {
+            $('#gdrive-client-secret').addClass('invalid');
+            return;
+        }
+        $('#gdrive-client-id').removeClass('invalid');
+        $('#gdrive-client-secret').removeClass('invalid');
+
+        let folderId = $('#gdrive-folder-id').val().trim();
+        let state = [...Array(40)].map(i => (~~(Math.random() * 36)).toString(36)).join('');
+        let codeVerifier = generateCodeVerifier();
+        let codeChallenge = await generateCodeChallenge(codeVerifier);
+
+        localStorage.setItem('gdriveState', state);
+        localStorage.setItem('gdriveCodeVerifier', codeVerifier);
+        localStorage.setItem('gdriveClientId', clientId);
+        localStorage.setItem('gdriveClientSecret', clientSecret);
+        localStorage.setItem('gdriveFolderId', folderId);
+
+        let redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+        window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth'
+            + '?client_id=' + encodeURIComponent(clientId)
+            + '&redirect_uri=' + redirectUri
+            + '&response_type=code'
+            + '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/drive')
+            + '&access_type=offline'
+            + '&prompt=consent'
+            + '&state=' + state
+            + '&code_challenge=' + codeChallenge
+            + '&code_challenge_method=S256';
+    });
+
+    // --- Config generation ---
     function getConfigString() {
+        let provider = localStorage.getItem('provider');
         let strPaths = '';
         paths.forEach(function (path) {
             strPaths += path[0] + '=' + path[1] + '\n';
         });
-        return '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken') + '\n' + '[Paths]\n' + strPaths;
+        if (provider === 'googledrive') {
+            let clientId = localStorage.getItem('gdriveClientId');
+            let clientSecret = localStorage.getItem('gdriveClientSecret');
+            let refreshToken = localStorage.getItem('gdriveRefreshToken');
+            let folderId = localStorage.getItem('gdriveFolderId');
+            let config = '[GoogleDrive]\nClientId=' + clientId
+                + '\nClientSecret=' + clientSecret
+                + '\nRefreshToken=' + refreshToken;
+            if (folderId) {
+                config += '\nFolderId=' + folderId;
+            }
+            config += '\n[Paths]\n' + strPaths;
+            return config;
+        } else {
+            return '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken') + '\n[Paths]\n' + strPaths;
+        }
     }
 
     $('#download-config').on('click', function (e) {

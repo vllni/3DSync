@@ -118,9 +118,13 @@ int main(int argc, char **argv)
     {
         std::string dropboxToken = reader.Get("Dropbox", "token", "");
         std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
-        std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderId", "");
+        std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
+        std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
+        std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
+        std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
+        bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
         std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
-        if (dropboxToken != "" || googleDriveToken != "")
+        if (dropboxToken != "" || hasGoogleDrive)
         {
             paths = getConfiguredSyncPaths(reader);
         }
@@ -132,14 +136,16 @@ int main(int argc, char **argv)
                 dropbox.upload(paths);
         }
 
-        if (googleDriveToken != "")
+        if (hasGoogleDrive)
         {
-            GoogleDrive googleDrive(googleDriveToken, googleDriveFolderId);
+            GoogleDrive googleDrive(googleDriveClientId, googleDriveClientSecret,
+                                    googleDriveRefreshToken, googleDriveFolderId,
+                                    googleDriveToken);
             if (!paths.empty())
                 googleDrive.upload(paths);
         }
 
-        if (dropboxToken == "" && googleDriveToken == "")
+        if (dropboxToken == "" && !hasGoogleDrive)
         {
             printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
         }

@@ -4,12 +4,25 @@
 #include <stdio.h>
 #include <string.h>
 
-GoogleDrive::GoogleDrive(const std::string &token, const std::string &folderId) : _token(token), _folderId(folderId), _uploadCount(0)
+GoogleDrive::GoogleDrive(const std::string &clientId, const std::string &clientSecret,
+                         const std::string &refreshToken, const std::string &folderId,
+                         const std::string &directToken)
+    : _token(directToken), _clientId(clientId), _clientSecret(clientSecret),
+      _refreshToken(refreshToken), _folderId(folderId), _uploadCount(0)
 {
 }
 
 void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
 {
+    if (_token.empty() && !_refreshToken.empty())
+    {
+        if (!_refreshAccessToken())
+        {
+            printf("Cannot upload: failed to obtain Google Drive access token\n");
+            return;
+        }
+    }
+
     for (auto item : paths)
     {
         for (auto path : item.second)
@@ -63,6 +76,69 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
             printf("\n");
         }
     }
+}
+
+bool GoogleDrive::_refreshAccessToken()
+{
+    printf("Refreshing Google Drive access token...\n");
+    std::string body = "refresh_token=" + _urlEncode(_refreshToken) + "&client_id=" + _urlEncode(_clientId) + "&client_secret=" + _urlEncode(_clientSecret) + "&grant_type=refresh_token";
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    _curl.setURL("https://oauth2.googleapis.com/token");
+    _curl.setHeaders(headers);
+    _curl.setPostData(body);
+    int result = _curl.perform();
+    curl_slist_free_all(headers);
+
+    if (result != 0)
+    {
+        printf("Token refresh request failed\n");
+        return false;
+    }
+
+    std::string accessToken = _extractJsonString(_curl.getResponse(), "access_token");
+    if (accessToken.empty())
+    {
+        printf("Failed to parse access_token from refresh response\n");
+        return false;
+    }
+
+    _token = accessToken;
+    printf("Google Drive access token refreshed successfully\n");
+    return true;
+}
+
+std::string GoogleDrive::_extractJsonString(const std::string &json, const std::string &key)
+{
+    std::string search = "\"" + key + "\":\"";
+    size_t pos = json.find(search);
+    if (pos == std::string::npos)
+        return "";
+    pos += search.size();
+    size_t end = json.find('"', pos);
+    if (end == std::string::npos)
+        return "";
+    return json.substr(pos, end - pos);
+}
+
+std::string GoogleDrive::_urlEncode(const std::string &value)
+{
+    std::string result;
+    for (unsigned char c : value)
+    {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+        {
+            result += c;
+        }
+        else
+        {
+            char buffer[4];
+            snprintf(buffer, sizeof(buffer), "%%%02X", c);
+            result += buffer;
+        }
+    }
+    return result;
 }
 
 std::string GoogleDrive::_jsonEscape(std::string value)
