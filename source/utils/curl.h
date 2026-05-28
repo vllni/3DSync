@@ -12,7 +12,7 @@ class Curl{
         void setURL(std::string URL);
         void setHeaders(curl_slist *headers);
         void setReadData(void *pointer);
-        void setPostData(std::string data);
+        void setPostData(const std::string &data);
         int perform();
     private:
         CURL *_curl;
