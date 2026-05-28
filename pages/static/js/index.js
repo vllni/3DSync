@@ -147,16 +147,16 @@ $(function () {
         let strUploadPaths = '';
         let strUploadShallowPaths = '';
         paths.forEach(function (path) {
-            let name = path[0];
+            let name      = path[0];
             let localPath = path[1];
             let recursive = path[2];
             let direction = path[3]; // 'both' or 'upload'
             if (direction === 'upload') {
-                if (recursive) strUploadPaths += name + '=' + localPath + '\n';
-                else strUploadShallowPaths += name + '=' + localPath + '\n';
+                if (recursive) strUploadPaths       += name + '=' + localPath + '\n';
+                else           strUploadShallowPaths += name + '=' + localPath + '\n';
             } else {
-                if (recursive) strPaths += name + '=' + localPath + '\n';
-                else strShallowPaths += name + '=' + localPath + '\n';
+                if (recursive) strPaths       += name + '=' + localPath + '\n';
+                else           strShallowPaths += name + '=' + localPath + '\n';
             }
         });
         if (provider === 'googledrive') {
@@ -170,17 +170,17 @@ $(function () {
             if (folderId) {
                 config += '\nFolderId=' + folderId;
             }
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
-            if (strUploadPaths) config += '\n[UploadPaths]\n' + strUploadPaths;
-            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
+            if (strPaths)              config += '\n[Paths]\n'             + strPaths;
+            if (strShallowPaths)       config += '\n[ShallowPaths]\n'      + strShallowPaths;
+            if (strUploadPaths)        config += '\n[UploadPaths]\n'       + strUploadPaths;
+            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n'+ strUploadShallowPaths;
             return config;
         } else {
             let config = '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken');
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
-            if (strUploadPaths) config += '\n[UploadPaths]\n' + strUploadPaths;
-            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
+            if (strPaths)              config += '\n[Paths]\n'             + strPaths;
+            if (strShallowPaths)       config += '\n[ShallowPaths]\n'      + strShallowPaths;
+            if (strUploadPaths)        config += '\n[UploadPaths]\n'       + strUploadPaths;
+            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n'+ strUploadShallowPaths;
             return config;
         }
     }
@@ -278,7 +278,7 @@ $(function () {
                         } else {
                             $name.removeClass('invalid');
                             let isRecursive = $this.closest('.row').find('.path-recursive').prop('checked');
-                            let direction = $this.closest('.row').find('.path-direction').val() || 'both';
+                            let direction   = $this.closest('.row').find('.path-direction').val() || 'both';
                             paths.push([$name.val(), pathSync, isRecursive, direction]);
                         }
                     }
