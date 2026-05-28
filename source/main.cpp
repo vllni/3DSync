@@ -96,16 +96,19 @@ int main(int argc, char** argv){
         std::string dropboxToken = reader.Get("Dropbox", "token", "");
         std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
         std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderId", "");
-        std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths = getConfiguredSyncPaths(reader);
+        std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
+        if(dropboxToken != "" || googleDriveToken != ""){
+            paths = getConfiguredSyncPaths(reader);
+        }
 
         if(dropboxToken != ""){
             Dropbox dropbox(dropboxToken);
-            if((int)paths.size() > 0) dropbox.upload(paths);
+            if(!paths.empty()) dropbox.upload(paths);
         }
 
         if(googleDriveToken != ""){
             GoogleDrive googleDrive(googleDriveToken, googleDriveFolderId);
-            if((int)paths.size() > 0) googleDrive.upload(paths);
+            if(!paths.empty()) googleDrive.upload(paths);
         }
 
         if(dropboxToken == "" && googleDriveToken == ""){

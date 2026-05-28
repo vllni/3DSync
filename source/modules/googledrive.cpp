@@ -111,7 +111,7 @@ std::string GoogleDrive::_readFile(FILE *file){
     std::string contents;
     if(fseek(file, 0, SEEK_END) == 0){
         long size = ftell(file);
-        if(size > 0){
+        if(size != -1 && size > 0){
             contents.reserve(size);
         }
         if(fseek(file, 0, SEEK_SET) != 0){

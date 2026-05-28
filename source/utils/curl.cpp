@@ -39,8 +39,6 @@ void Curl::setReadData(void *pointer){
 
 void Curl::setPostData(const std::string &data){
     _postData = data;
-    curl_easy_setopt(_curl, CURLOPT_READFUNCTION, NULL);
-    curl_easy_setopt(_curl, CURLOPT_READDATA, NULL);
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, _postData.data());
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, _postData.size());
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
