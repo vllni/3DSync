@@ -1,5 +1,6 @@
 #include "googledrive.h"
 #include <3ds.h>
+#include <stdio.h>
 
 GoogleDrive::GoogleDrive(std::string token, std::string folderId) : _token(token), _folderId(folderId){
 }
