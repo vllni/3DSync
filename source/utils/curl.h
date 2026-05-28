@@ -12,9 +12,11 @@ class Curl{
         void setURL(std::string URL);
         void setHeaders(curl_slist *headers);
         void setReadData(void *pointer);
+        void setPostData(std::string data);
         int perform();
     private:
         CURL *_curl;
+        std::string _postData;
         static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
         static size_t _write_callback(void *data, size_t size, size_t nmemb, void *userdata);
 };

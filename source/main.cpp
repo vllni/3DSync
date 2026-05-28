@@ -11,6 +11,7 @@
 
 #include "libs/inih/INIReader/INIReader.h"
 #include "modules/dropbox.h"
+#include "modules/googledrive.h"
 
 
 std::vector<std::string> recurse_dir(std::string basepath, std::string additionalpath=""){
@@ -71,6 +72,18 @@ void componentsExit(){
     gfxExit();
 }
 
+std::map<std::pair<std::string, std::string>, std::vector<std::string>> getSyncPaths(INIReader reader){
+    std::map<std::string, std::string> values = reader.GetValues();
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
+    for(auto value : values){
+        if(value.first.rfind("paths=", 0) == 0){
+            std::pair<std::string, std::string> key = std::make_pair(value.second, value.first.substr(6));
+            paths[key] = recurse_dir(value.second);
+        }
+    }
+    return paths;
+}
+
 
 int main(int argc, char** argv){
     if(!componentsInit()) componentsExit();
@@ -81,20 +94,22 @@ int main(int argc, char** argv){
         printf("Can't load configuration\n");
     } else {
         std::string dropboxToken = reader.Get("Dropbox", "token", "");
-        
+        std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
+        std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderId", "");
+        std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths = getSyncPaths(reader);
+
         if(dropboxToken != ""){
             Dropbox dropbox(dropboxToken);
-            std::map<std::string, std::string> values = reader.GetValues();
-            std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
-            for(auto value : values){
-                if(value.first.rfind("paths=", 0) == 0){
-                    std::pair<std::string, std::string> key = std::make_pair(value.second, value.first.substr(6));
-                    paths[key] = recurse_dir(value.second);
-                }
-            }
             if((int)paths.size() > 0) dropbox.upload(paths);
         } else {
             printf("Can't load Dropbox token from 3DSync.ini\n");
+        }
+
+        if(googleDriveToken != ""){
+            GoogleDrive googleDrive(googleDriveToken, googleDriveFolderId);
+            if((int)paths.size() > 0) googleDrive.upload(paths);
+        } else {
+            printf("Can't load Google Drive token from 3DSync.ini\n");
         }
     }
 
