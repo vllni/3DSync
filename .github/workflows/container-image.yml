@@ -2,7 +2,8 @@ name: Container Image
 
 on:
   push:
-    branches: [master, copilot/enhance-homebrew-app-google-drive-support]
+    branches:
+      - master
     paths:
       - docker/3dsync-devcontainer.Dockerfile
       - .github/workflows/container-image.yml
