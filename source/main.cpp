@@ -72,7 +72,7 @@ void componentsExit(){
     gfxExit();
 }
 
-std::map<std::pair<std::string, std::string>, std::vector<std::string>> getSyncPaths(INIReader reader){
+std::map<std::pair<std::string, std::string>, std::vector<std::string>> getSyncPaths(const INIReader &reader){
     std::map<std::string, std::string> values = reader.GetValues();
     std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
     for(auto value : values){
@@ -101,15 +101,15 @@ int main(int argc, char** argv){
         if(dropboxToken != ""){
             Dropbox dropbox(dropboxToken);
             if((int)paths.size() > 0) dropbox.upload(paths);
-        } else {
-            printf("Can't load Dropbox token from 3DSync.ini\n");
         }
 
         if(googleDriveToken != ""){
             GoogleDrive googleDrive(googleDriveToken, googleDriveFolderId);
             if((int)paths.size() > 0) googleDrive.upload(paths);
-        } else {
-            printf("Can't load Google Drive token from 3DSync.ini\n");
+        }
+
+        if(dropboxToken == "" && googleDriveToken == ""){
+            printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
         }
     }
 
