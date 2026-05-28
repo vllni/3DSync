@@ -72,7 +72,7 @@ void componentsExit(){
     gfxExit();
 }
 
-std::map<std::pair<std::string, std::string>, std::vector<std::string>> getSyncPaths(const INIReader &reader){
+std::map<std::pair<std::string, std::string>, std::vector<std::string>> getConfiguredSyncPaths(const INIReader &reader){
     std::map<std::string, std::string> values = reader.GetValues();
     std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
     for(auto value : values){
@@ -96,7 +96,7 @@ int main(int argc, char** argv){
         std::string dropboxToken = reader.Get("Dropbox", "token", "");
         std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
         std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderId", "");
-        std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths = getSyncPaths(reader);
+        std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths = getConfiguredSyncPaths(reader);
 
         if(dropboxToken != ""){
             Dropbox dropbox(dropboxToken);
