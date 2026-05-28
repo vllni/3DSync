@@ -51,10 +51,37 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 std::string GoogleDrive::_jsonEscape(std::string value){
     std::string escaped;
     for(auto character : value){
-        if(character == '"' || character == '\\'){
-            escaped += '\\';
+        switch(character){
+            case '"':
+            case '\\':
+                escaped += '\\';
+                escaped += character;
+                break;
+            case '\b':
+                escaped += "\\b";
+                break;
+            case '\f':
+                escaped += "\\f";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                if((unsigned char)character < 0x20){
+                    char buffer[7];
+                    snprintf(buffer, sizeof(buffer), "\\u%04x", (unsigned char)character);
+                    escaped += buffer;
+                } else {
+                    escaped += character;
+                }
+                break;
         }
-        escaped += character;
     }
     return escaped;
 }
@@ -73,6 +100,14 @@ std::string GoogleDrive::_driveFileName(std::string path){
 
 std::string GoogleDrive::_readFile(FILE *file){
     std::string contents;
+    if(fseek(file, 0, SEEK_END) == 0){
+        long size = ftell(file);
+        if(size > 0){
+            contents.reserve(size);
+        }
+        fseek(file, 0, SEEK_SET);
+    }
+
     char buffer[4096];
     size_t read;
     while((read = fread(buffer, 1, sizeof(buffer), file)) > 0){
