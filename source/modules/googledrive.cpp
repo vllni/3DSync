@@ -757,6 +757,9 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
         return false;
     }
 
+    // FAT (3DS SD card) does not allow rename() to overwrite an existing file.
+    // Remove the destination first so the swap works whether or not it exists.
+    remove(localPath.c_str());
     if (rename(tmpPath.c_str(), localPath.c_str()) != 0)
     {
         printf("downloadFile: rename failed: %s\n", strerror(errno));
