@@ -9,7 +9,7 @@
 
 class GoogleDrive{
     public:
-        GoogleDrive(std::string token, std::string folderId="");
+        GoogleDrive(const std::string &token, const std::string &folderId=std::string());
         ~GoogleDrive(){};
         void upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
     private:

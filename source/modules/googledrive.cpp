@@ -2,7 +2,7 @@
 #include <3ds.h>
 #include <stdio.h>
 
-GoogleDrive::GoogleDrive(std::string token, std::string folderId) : _token(token), _folderId(folderId){
+GoogleDrive::GoogleDrive(const std::string &token, const std::string &folderId) : _token(token), _folderId(folderId){
 }
 
 void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths){
@@ -15,7 +15,12 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
                 continue;
             }
 
-            std::string boundary = "3DSyncGoogleDriveBoundary";
+            static int uploadCount = 0;
+            std::string fileContents = _readFile(file);
+            std::string boundary = "3DSyncGoogleDriveBoundary" + std::to_string(uploadCount++);
+            while(fileContents.find(boundary) != std::string::npos){
+                boundary += "x";
+            }
             std::string fileName = _driveFileName(item.first.second + path);
             std::string metadata = "{\"name\":\"" + _jsonEscape(fileName) + "\"";
             if(_folderId != ""){
@@ -28,7 +33,7 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
             body += metadata + "\r\n";
             body += "--" + boundary + "\r\n";
             body += "Content-Type: application/octet-stream\r\n\r\n";
-            body += _readFile(file);
+            body += fileContents;
             body += "\r\n--" + boundary + "--\r\n";
 
             std::string auth("Authorization: Bearer " + _token);
@@ -105,7 +110,9 @@ std::string GoogleDrive::_readFile(FILE *file){
         if(size > 0){
             contents.reserve(size);
         }
-        fseek(file, 0, SEEK_SET);
+        if(fseek(file, 0, SEEK_SET) != 0){
+            return contents;
+        }
     }
 
     char buffer[4096];
