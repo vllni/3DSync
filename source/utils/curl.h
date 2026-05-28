@@ -20,6 +20,10 @@ public:
     // Call clearDownloadFile() after perform() to restore buffering mode.
     void setDownloadFile(FILE *fp);
     void clearDownloadFile();
+    // Rewind and truncate the download target to 0 bytes.  Call before
+    // retrying a streamed download so a fresh response isn't appended after
+    // a partial or error body.
+    void rewindDownloadFile();
     // Override the HTTP method to PATCH (body still set via setPostData).
     // Call clearCustomRequest() after perform() to reset.
     void setPatch();

@@ -358,6 +358,7 @@ int GoogleDrive::_performWithRetry()
             printf("  Network error (attempt %d/3)\n", attempt + 1);
             if (attempt < 2)
             {
+                _curl.rewindDownloadFile(); // discard any partial body written to temp file
                 svcSleepThread(2000000000LL); // 2 s back-off
                 continue;
             }
@@ -378,6 +379,7 @@ int GoogleDrive::_performWithRetry()
         if (status == 429 && attempt < 2)
         {
             printf("  Rate limited, waiting 10 seconds...\n");
+            _curl.rewindDownloadFile(); // discard error body written to temp file
             svcSleepThread(10000000000LL);
             continue;
         }
@@ -392,13 +394,33 @@ int GoogleDrive::_performWithRetry()
             return -401;
         }
 
-        // Fatal: API not enabled or insufficient permissions
+        // HTTP 403: distinguish retryable quota errors from unrecoverable failures.
+        // (getResponse() returns "" for downloads since the body went to the temp
+        // file — in that case reason is empty and we treat the 403 as fatal.)
         if (status == 403)
         {
+            std::string reason = _extractJsonString(_curl.getResponse(), "reason");
+
+            if ((reason == "rateLimitExceeded" || reason == "userRateLimitExceeded") && attempt < 2)
+            {
+                printf("  Rate limited (403), waiting 10 seconds...\n");
+                _curl.rewindDownloadFile();
+                svcSleepThread(10000000000LL);
+                continue;
+            }
+
             printf(CONSOLE_RED "  FATAL: Access denied (HTTP 403)." CONSOLE_RESET "\n");
-            printf("  The Google Drive API may not be enabled,\n");
-            printf("  or this account lacks the required permissions.\n");
-            printf("  Visit console.cloud.google.com to check API settings.\n");
+            if (reason == "accessNotConfigured")
+            {
+                printf("  The Google Drive API is not enabled in your Cloud project.\n");
+                printf("  Visit console.cloud.google.com to enable it.\n");
+            }
+            else
+            {
+                printf("  The Drive API may not be enabled, or this account\n");
+                printf("  lacks the required permissions.\n");
+                printf("  Visit console.cloud.google.com to check API settings.\n");
+            }
             _fatalError = true;
             return -403;
         }

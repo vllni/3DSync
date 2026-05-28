@@ -1,4 +1,5 @@
 #include "curl.h"
+#include <unistd.h>
 
 Curl::Curl() : _downloadFile(nullptr)
 {
@@ -107,6 +108,15 @@ void Curl::setDownloadFile(FILE *fp)
 void Curl::clearDownloadFile()
 {
     _downloadFile = nullptr;
+}
+
+void Curl::rewindDownloadFile()
+{
+    if (_downloadFile)
+    {
+        rewind(_downloadFile);
+        ftruncate(fileno(_downloadFile), 0);
+    }
 }
 
 void Curl::setPatch()

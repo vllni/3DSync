@@ -510,7 +510,10 @@ int main(int argc, char **argv)
                 }
 
                 manifest.save();
-                printf("\nSync complete.\n");
+                if (drive.hasFatalError())
+                    printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
+                else
+                    printf("\nSync complete.\n");
             }
         }
 
