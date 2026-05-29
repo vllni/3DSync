@@ -673,6 +673,8 @@ int main(int argc, char **argv)
 
         if (reader.ParseError() >= 0)
             runSync(reader);
+        else
+            printf("Can't load configuration\n");
 
         // after sync: fall back to the menu (sync again or exit)
     }
