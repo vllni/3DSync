@@ -22,14 +22,14 @@
 // ---------------------------------------------------------------------------
 enum SyncDirection
 {
-    SYNC_BOTH,        // bidirectional (download + upload)
-    SYNC_UPLOAD_ONLY  // legacy / one-way upload
+    SYNC_BOTH,       // bidirectional (download + upload)
+    SYNC_UPLOAD_ONLY // legacy / one-way upload
 };
 
 struct SyncEntry
 {
-    std::string localBase;   // absolute local path, e.g. /3ds/Checkpoint/saves
-    std::string remoteName;  // Drive folder path, e.g. Checkpoint/saves
+    std::string localBase;               // absolute local path, e.g. /3ds/Checkpoint/saves
+    std::string remoteName;              // Drive folder path, e.g. Checkpoint/saves
     std::vector<std::string> localFiles; // relative paths discovered locally
     SyncDirection direction;
 };
@@ -106,17 +106,38 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         bool recursive;
         std::string prefix;
 
-        if      (kv.first.rfind("paths=", 0) == 0)             { dir = SYNC_BOTH;        recursive = true;  prefix = "paths="; }
-        else if (kv.first.rfind("shallowpaths=", 0) == 0)      { dir = SYNC_BOTH;        recursive = false; prefix = "shallowpaths="; }
-        else if (kv.first.rfind("uploadpaths=", 0) == 0)       { dir = SYNC_UPLOAD_ONLY; recursive = true;  prefix = "uploadpaths="; }
-        else if (kv.first.rfind("uploadshallowpaths=", 0) == 0){ dir = SYNC_UPLOAD_ONLY; recursive = false; prefix = "uploadshallowpaths="; }
-        else continue;
+        if (kv.first.rfind("paths=", 0) == 0)
+        {
+            dir = SYNC_BOTH;
+            recursive = true;
+            prefix = "paths=";
+        }
+        else if (kv.first.rfind("shallowpaths=", 0) == 0)
+        {
+            dir = SYNC_BOTH;
+            recursive = false;
+            prefix = "shallowpaths=";
+        }
+        else if (kv.first.rfind("uploadpaths=", 0) == 0)
+        {
+            dir = SYNC_UPLOAD_ONLY;
+            recursive = true;
+            prefix = "uploadpaths=";
+        }
+        else if (kv.first.rfind("uploadshallowpaths=", 0) == 0)
+        {
+            dir = SYNC_UPLOAD_ONLY;
+            recursive = false;
+            prefix = "uploadshallowpaths=";
+        }
+        else
+            continue;
 
         SyncEntry entry;
-        entry.localBase   = kv.second;
-        entry.remoteName  = kv.first.substr(prefix.size());
-        entry.localFiles  = recurse_dir(kv.second, "", recursive);
-        entry.direction   = dir;
+        entry.localBase = kv.second;
+        entry.remoteName = kv.first.substr(prefix.size());
+        entry.localFiles = recurse_dir(kv.second, "", recursive);
+        entry.direction = dir;
         entries.push_back(entry);
     }
     return entries;
@@ -131,12 +152,12 @@ static time_t parseRFC3339(const std::string &s)
     int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
     if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &min, &sec) == 6)
     {
-        t.tm_year  = year - 1900;
-        t.tm_mon   = month - 1;
-        t.tm_mday  = day;
-        t.tm_hour  = hour;
-        t.tm_min   = min;
-        t.tm_sec   = sec;
+        t.tm_year = year - 1900;
+        t.tm_mon = month - 1;
+        t.tm_mday = day;
+        t.tm_hour = hour;
+        t.tm_min = min;
+        t.tm_sec = sec;
         t.tm_isdst = 0;
         // mktime uses local time; Drive timestamps are UTC.
         // On 3DS the clock is typically stored as UTC so this should be consistent.
@@ -148,7 +169,13 @@ static time_t parseRFC3339(const std::string &s)
 // ---------------------------------------------------------------------------
 // waitForConflictKey  — block until A / B / X / START
 // ---------------------------------------------------------------------------
-enum ConflictChoice { CONFLICT_KEEP_LOCAL, CONFLICT_KEEP_DRIVE, CONFLICT_SKIP, CONFLICT_CANCEL };
+enum ConflictChoice
+{
+    CONFLICT_KEEP_LOCAL,
+    CONFLICT_KEEP_DRIVE,
+    CONFLICT_SKIP,
+    CONFLICT_CANCEL
+};
 
 static ConflictChoice waitForConflictKey()
 {
@@ -156,10 +183,14 @@ static ConflictChoice waitForConflictKey()
     {
         hidScanInput();
         u32 k = hidKeysDown();
-        if (k & KEY_A)     return CONFLICT_KEEP_LOCAL;
-        if (k & KEY_B)     return CONFLICT_KEEP_DRIVE;
-        if (k & KEY_X)     return CONFLICT_SKIP;
-        if (k & KEY_START) return CONFLICT_CANCEL;
+        if (k & KEY_A)
+            return CONFLICT_KEEP_LOCAL;
+        if (k & KEY_B)
+            return CONFLICT_KEEP_DRIVE;
+        if (k & KEY_X)
+            return CONFLICT_SKIP;
+        if (k & KEY_START)
+            return CONFLICT_CANCEL;
         gfxFlushBuffers();
         gfxSwapBuffers();
         gspWaitForVBlank();
@@ -168,18 +199,26 @@ static ConflictChoice waitForConflictKey()
 }
 
 // ---------------------------------------------------------------------------
+// g_cancelRequested — set when START is pressed during sync; causes the sync
+// loop to stop after the current file operation completes.
+// ---------------------------------------------------------------------------
+static bool g_cancelRequested = false;
+
+// ---------------------------------------------------------------------------
 // performSync  — bidirectional sync for one SyncEntry
-// Returns false if a fatal Drive error occurred (caller should abort).
+// Returns false if a fatal Drive error occurred or cancellation was requested.
 // ---------------------------------------------------------------------------
 static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry)
 {
-    if (drive.hasFatalError()) return false;
+    if (drive.hasFatalError())
+        return false;
 
     // Resolve (and create if missing) the Drive folder hierarchy
     std::string rootFolderId = drive.ensureFolderPath(entry.remoteName);
     if (rootFolderId.empty())
     {
-        if (drive.hasFatalError()) return false;
+        if (drive.hasFatalError())
+            return false;
         printf("Cannot resolve Drive folder for %s — skipping\n", entry.remoteName.c_str());
         return true;
     }
@@ -191,11 +230,24 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
     // Build the full set of relative paths to consider:
     // union of what is local and what is on Drive.
     std::set<std::string> allRelPaths;
-    for (auto &f : entry.localFiles)  allRelPaths.insert(f);
-    for (auto &df : driveFiles)       allRelPaths.insert(df.first);
+    for (auto &f : entry.localFiles)
+        allRelPaths.insert(f);
+    for (auto &df : driveFiles)
+        allRelPaths.insert(df.first);
 
     for (auto &relPath : allRelPaths)
     {
+        // Poll for START between file operations for graceful cancellation.
+        // hidScanInput is called here so we don't interfere with conflict prompts.
+        hidScanInput();
+        if (hidKeysDown() & KEY_START)
+        {
+            printf("  -> Cancellation requested\n");
+            g_cancelRequested = true;
+        }
+        if (g_cancelRequested)
+            break;
+
         std::string localPath = entry.localBase + relPath;
 
         // --- Local file info ---
@@ -219,9 +271,10 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                relPath.c_str(),
                localExists ? "yes" : "no",
                driveExists ? "yes" : "no",
-               inManifest  ? "yes" : "no");
+               inManifest ? "yes" : "no");
 
-        if (drive.hasFatalError()) break;
+        if (drive.hasFatalError())
+            break;
 
         // ----------------------------------------------------------------
         // Decision table
@@ -230,7 +283,8 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (!localExists && !driveExists)
         {
             // Both gone — clean up manifest
-            if (inManifest) manifest.remove(localPath);
+            if (inManifest)
+                manifest.remove(localPath);
             continue;
         }
 
@@ -376,10 +430,11 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             }
         }
 
-        if (drive.hasFatalError()) break;
+        if (drive.hasFatalError())
+            break;
     }
 
-    return !drive.hasFatalError();
+    return !drive.hasFatalError() && !g_cancelRequested;
 }
 
 // ---------------------------------------------------------------------------
@@ -450,12 +505,12 @@ int main(int argc, char **argv)
     }
     else
     {
-        std::string dropboxToken            = reader.Get("Dropbox",    "token",         "");
-        std::string googleDriveToken        = reader.Get("GoogleDrive","token",         "");
-        std::string googleDriveClientId     = reader.Get("GoogleDrive","clientid",      "");
-        std::string googleDriveClientSecret = reader.Get("GoogleDrive","clientsecret",  "");
-        std::string googleDriveRefreshToken = reader.Get("GoogleDrive","refreshtoken",  "");
-        std::string googleDriveFolderId     = reader.Get("GoogleDrive","folderid",      "");
+        std::string dropboxToken = reader.Get("Dropbox", "token", "");
+        std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
+        std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
+        std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
+        std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
+        std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
         bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
 
         // Collect all configured paths
@@ -467,7 +522,7 @@ int main(int argc, char **argv)
         if (dropboxToken != "" && !syncEntries.empty())
         {
             // Build legacy map for Dropbox
-            std::map<std::pair<std::string,std::string>, std::vector<std::string>> legacyPaths;
+            std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
             for (auto &e : syncEntries)
             {
                 auto key = std::make_pair(e.localBase, e.remoteName);
@@ -498,10 +553,10 @@ int main(int argc, char **argv)
                 if (!serverTimeStr.empty())
                 {
                     time_t serverTime = parseRFC3339(serverTimeStr);
-                    time_t localTime  = time(NULL);
+                    time_t localTime = time(NULL);
                     long skew = serverTime > localTime
-                                ? (long)(serverTime - localTime)
-                                : (long)(localTime  - serverTime);
+                                    ? (long)(serverTime - localTime)
+                                    : (long)(localTime - serverTime);
                     if (skew > 60)
                     {
                         printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
@@ -525,11 +580,16 @@ int main(int argc, char **argv)
                         // Upload-only: use the legacy flat-name uploader
                         printf("\nUploading [%s] -> Drive:%s\n",
                                entry.localBase.c_str(), entry.remoteName.c_str());
-                        std::map<std::pair<std::string,std::string>, std::vector<std::string>> legacyPaths;
+                        std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
                         legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
                         drive.upload(legacyPaths);
                     }
 
+                    if (g_cancelRequested)
+                    {
+                        printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
+                        break;
+                    }
                     if (drive.hasFatalError())
                     {
                         printf(CONSOLE_RED "\nSync aborted: remaining entries skipped.\n" CONSOLE_RESET);
@@ -540,6 +600,8 @@ int main(int argc, char **argv)
                 manifest.save();
                 if (drive.hasFatalError())
                     printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
+                else if (g_cancelRequested)
+                    printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
                 else
                     printf("\nSync complete.\n");
             }
