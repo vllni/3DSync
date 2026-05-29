@@ -141,14 +141,6 @@ $(function () {
         e.preventDefault();
         let clientId = $('#gdrive-client-id').val().trim();
         let clientSecret = $('#gdrive-client-secret').val().trim();
-        if (!clientId) {
-            $('#gdrive-client-id').addClass('invalid');
-            return;
-        }
-        if (!clientSecret) {
-            $('#gdrive-client-secret').addClass('invalid');
-            return;
-        }
         $('#gdrive-client-id').removeClass('invalid');
         $('#gdrive-client-secret').removeClass('invalid');
 
@@ -201,9 +193,10 @@ $(function () {
             let clientSecret = localStorage.getItem('gdriveClientSecret');
             let refreshToken = localStorage.getItem('gdriveRefreshToken');
             let folderId = localStorage.getItem('gdriveFolderId');
-            let config = '[GoogleDrive]\nClientId=' + clientId
-                + '\nClientSecret=' + clientSecret
-                + '\nRefreshToken=' + refreshToken;
+            let config = '[GoogleDrive]';
+            if (clientId) config += '\nClientId=' + clientId;
+            if (clientSecret) config += '\nClientSecret=' + clientSecret;
+            config += '\nRefreshToken=' + refreshToken;
             if (folderId) {
                 config += '\nFolderId=' + folderId;
             }

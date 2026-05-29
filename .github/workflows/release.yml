@@ -30,8 +30,13 @@ jobs:
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
+            -e GDRIVE_CLIENT_ID \
+            -e GDRIVE_CLIENT_SECRET \
             "$BUILD_IMAGE" \
             sh -lc 'git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/buildtools && make'
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
 
       - name: Upload release assets
         run: |

@@ -15,6 +15,13 @@ EXTRA_OUTPUT_FILES :=
 
 BUILD_FLAGS := -Wno-format-truncation -DVERSION_STRING="\"`git describe --tags --abbrev=0`\"" -DREVISION_STRING="\"`git rev-parse --short HEAD``git diff-index --quiet HEAD -- || echo ' (dirty)'`\""
 
+ifdef GDRIVE_CLIENT_ID
+BUILD_FLAGS += -DGDRIVE_CLIENT_ID='"$(GDRIVE_CLIENT_ID)"'
+endif
+ifdef GDRIVE_CLIENT_SECRET
+BUILD_FLAGS += -DGDRIVE_CLIENT_SECRET='"$(GDRIVE_CLIENT_SECRET)"'
+endif
+
 VERSION_PARTS := $(subst ., ,$(shell git describe --tags --abbrev=0))
 
 VERSION_MAJOR := $(word 1, $(VERSION_PARTS))

@@ -59,11 +59,12 @@
                       </div>
                       <div class="input-field">
                         <input id="gdrive-client-id" class="white-text" type="text">
-                        <label for="gdrive-client-id" class="white-text">Client ID</label>
+                        <label for="gdrive-client-id" class="white-text">Client ID <span style="font-weight:normal;opacity:0.7">(optional)</span></label>
+                        <span class="helper-text white-text" style="opacity:0.7">Leave blank to use the built-in credentials. Only fill these if you are using your own Google Cloud project.</span>
                       </div>
                       <div class="input-field">
                         <input id="gdrive-client-secret" class="white-text" type="password">
-                        <label for="gdrive-client-secret" class="white-text">Client Secret</label>
+                        <label for="gdrive-client-secret" class="white-text">Client Secret <span style="font-weight:normal;opacity:0.7">(optional)</span></label>
                       </div>
                       <div class="input-field">
                         <input id="gdrive-folder-id" class="white-text" type="text">
@@ -76,9 +77,9 @@
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
                       <br><br>
                       <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
-                        <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer"
+                        <p style="margin:0 0 6px 0"><strong>Using your own Google Cloud project?</strong> In <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer"
                             class="white-text" style="text-decoration:underline">Google Cloud Console</a>, create a
-                          project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
+                          project, enable the Drive API, and create an <strong>OAuth 2.0 Desktop app</strong>
                           credential. Add <strong>https://vllni.github.io/3DSync/</strong> as an authorized redirect
                           URI. The refresh token is stored in the config so you won't need to log in again.</p>
                         <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>

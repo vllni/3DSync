@@ -17,6 +17,13 @@
 #include "modules/googledrive.h"
 #include "modules/manifest.h"
 
+#ifndef GDRIVE_CLIENT_ID
+#define GDRIVE_CLIENT_ID ""
+#endif
+#ifndef GDRIVE_CLIENT_SECRET
+#define GDRIVE_CLIENT_SECRET ""
+#endif
+
 // ---------------------------------------------------------------------------
 // Sync direction per configured path
 // ---------------------------------------------------------------------------
@@ -452,8 +459,8 @@ int main(int argc, char **argv)
     {
         std::string dropboxToken            = reader.Get("Dropbox",    "token",         "");
         std::string googleDriveToken        = reader.Get("GoogleDrive","token",         "");
-        std::string googleDriveClientId     = reader.Get("GoogleDrive","clientid",      "");
-        std::string googleDriveClientSecret = reader.Get("GoogleDrive","clientsecret",  "");
+        std::string googleDriveClientId     = reader.Get("GoogleDrive","clientid",      GDRIVE_CLIENT_ID);
+        std::string googleDriveClientSecret = reader.Get("GoogleDrive","clientsecret",  GDRIVE_CLIENT_SECRET);
         std::string googleDriveRefreshToken = reader.Get("GoogleDrive","refreshtoken",  "");
         std::string googleDriveFolderId     = reader.Get("GoogleDrive","folderid",      "");
         bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();

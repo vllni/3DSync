@@ -31,6 +31,14 @@ Token=<access token from configurator>
 
 ```ini
 [GoogleDrive]
+RefreshToken=<refresh token from configurator>
+FolderId=<optional root folder ID>
+```
+
+`ClientId` and `ClientSecret` are optional — official builds have these baked in. Only add them if you are using your own Google Cloud project:
+
+```ini
+[GoogleDrive]
 ClientId=<OAuth client ID>
 ClientSecret=<OAuth client secret>
 RefreshToken=<refresh token from configurator>
