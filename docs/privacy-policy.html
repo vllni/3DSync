@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Privacy Policy – 3DSync</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+  <link rel="stylesheet" href="static/libs/materializecss/materialize.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  <style>
+    main {
+      padding: 2rem 0 4rem;
+    }
+
+    h4 {
+      margin-top: 2rem;
+    }
+
+    p,
+    li {
+      line-height: 1.8;
+    }
+
+    .last-updated {
+      opacity: 0.65;
+      font-size: 0.88em;
+    }
+  </style>
+</head>
+
+<body class="blue-grey darken-4">
+  <header>
+    <nav class="blue darken-3">
+      <div class="nav-wrapper container">
+        <a href="index.html" class="brand-logo left">3DSync</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <div class="container white-text">
+
+      <h3 class="white-text">Privacy Policy</h3>
+      <p class="last-updated white-text">Last updated: May 29, 2026</p>
+
+      <p>
+        This Privacy Policy describes how 3DSync ("the Application", "we", "us") handles information when
+        you use the 3DSync homebrew application for Nintendo 3DS and the accompanying web-based configurator
+        hosted at <strong>https://vllni.github.io/3DSync/</strong> (collectively, "the Service").
+        By using the Service you acknowledge that you have read and understood this policy.
+      </p>
+
+      <h4 class="white-text">1. No Data Collection by the Developer</h4>
+      <p>
+        The developer of 3DSync does <strong>not</strong> collect, receive, store, or process any personal
+        data about you. The Service does not include analytics, tracking pixels, crash reporters, or any
+        server-side component operated by the developer. All processing described below occurs exclusively
+        on your own devices.
+      </p>
+
+      <h4 class="white-text">2. How the Configurator Web App Works</h4>
+      <p>
+        The configurator is a fully client-side static web page. When you authenticate with a cloud
+        provider, the following happens entirely inside your browser:
+      </p>
+      <ul class="browser-default">
+        <li>
+          <strong>Google Drive:</strong> You are redirected to Google's own OAuth 2.0 consent screen.
+          Google issues an authorisation code which is exchanged directly from your browser for an access
+          token and a refresh token by calling <code>https://oauth2.googleapis.com/token</code>.
+          These tokens are stored temporarily in your browser's <code>localStorage</code> solely to
+          assemble the config file. They are never transmitted to any server controlled by the developer.
+        </li>
+        <li>
+          <strong>Dropbox:</strong> You are redirected to Dropbox's own OAuth 2.0 consent screen.
+          Dropbox returns an access token in the URL fragment. This token is read by the page only to
+          assemble the config file, and is never sent anywhere else.
+        </li>
+      </ul>
+      <p>
+        Once you click <em>Download</em>, the config file is saved to your computer. After the page is
+        closed or <code>localStorage</code> is cleared, the tokens are no longer retained by the browser.
+      </p>
+
+      <h4 class="white-text">3. Google API Services – Limited Use Disclosure</h4>
+      <p>
+        3DSync's use of information received from Google APIs will adhere to the
+        <a class="white-text" style="text-decoration:underline"
+          href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank"
+          rel="noopener noreferrer">
+          Google API Services User Data Policy
+        </a>, including the Limited Use requirements.
+      </p>
+      <p>
+        Specifically, the Application requests the
+        <code>https://www.googleapis.com/auth/drive</code> scope solely to upload and download files
+        between your Nintendo 3DS SD card and your own Google Drive account. The Application:
+      </p>
+      <ul class="browser-default">
+        <li>does not use Google user data to serve advertisements;</li>
+        <li>does not allow humans (including the developer) to read your Google Drive data;</li>
+        <li>does not transfer your Google user data to third parties except as necessary to provide the
+          file-sync functionality (i.e., the 3DS device you own, operating under your Google credentials);</li>
+        <li>does not use Google user data for any purpose other than syncing files you have explicitly
+          configured.</li>
+      </ul>
+
+      <h4 class="white-text">4. Data Stored on Your Devices</h4>
+      <p>
+        The downloaded <code>3DSync.ini</code> config file contains your OAuth refresh token and optional
+        folder identifiers. This file is stored on your personal SD card and is your responsibility to
+        protect. You should not share this file publicly. To revoke access at any time, visit your
+        Google Account's
+        <a class="white-text" style="text-decoration:underline" href="https://myaccount.google.com/permissions"
+          target="_blank" rel="noopener noreferrer">Third-party app access</a> page or your
+        <a class="white-text" style="text-decoration:underline" href="https://www.dropbox.com/account/connected_apps"
+          target="_blank" rel="noopener noreferrer">Dropbox connected apps</a> page and remove 3DSync.
+      </p>
+
+      <h4 class="white-text">5. Third-Party Services</h4>
+      <p>
+        The configurator loads fonts and icons from Google Fonts and Font Awesome CDNs, and the Materialize
+        and StreamSaver libraries from jsDelivr. Your browser may send standard HTTP request metadata
+        (such as your IP address) to those CDN providers when fetching these resources. Their use of that
+        data is governed by their own privacy policies, not this one.
+      </p>
+      <p>
+        Your use of Google Drive is governed by
+        <a class="white-text" style="text-decoration:underline" href="https://policies.google.com/privacy"
+          target="_blank" rel="noopener noreferrer">
+          Google's Privacy Policy</a>.
+        Your use of Dropbox is governed by
+        <a class="white-text" style="text-decoration:underline" href="https://www.dropbox.com/privacy" target="_blank"
+          rel="noopener noreferrer">
+          Dropbox's Privacy Policy</a>.
+      </p>
+
+      <h4 class="white-text">6. Children's Privacy</h4>
+      <p>
+        The Service is not directed at children under the age of 13. We do not knowingly collect any
+        personal information from children.
+      </p>
+
+      <h4 class="white-text">7. Changes to This Policy</h4>
+      <p>
+        We may update this Privacy Policy from time to time. The "Last updated" date at the top of this
+        page will reflect any changes. Continued use of the Service after a change constitutes acceptance
+        of the updated policy.
+      </p>
+
+      <h4 class="white-text">8. Contact</h4>
+      <p>
+        Questions about this Privacy Policy can be directed to the developer via
+        <a class="white-text" style="text-decoration:underline" href="https://github.com/vllni/3DSync/issues"
+          target="_blank" rel="noopener noreferrer">GitHub Issues</a>.
+      </p>
+
+    </div>
+  </main>
+
+  <footer class="page-footer blue darken-3">
+    <div class="container">
+      <div class="row">
+        <div class="col l6 s12">
+          <ul>
+            <li><a class="grey-text text-lighten-3" href="https://materializecss.com/">© Materialize</a></li>
+            <li><a class="grey-text text-lighten-3" href="https://fontawesome.com/">© Fonticons</a></li>
+          </ul>
+        </div>
+        <div class="col l6 s12 right-align">
+          <ul>
+            <li><a class="grey-text text-lighten-3" href="privacy-policy.html">Privacy Policy</a></li>
+            <li><a class="grey-text text-lighten-3" href="terms-of-service.html">Terms of Service</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-copyright blue darken-4">
+      <div class="container">
+        <a class="grey-text text-lighten-4 right" href="https://github.com/vllni/3DSync" target="_blank"
+          rel="noopener noreferrer">
+          <i class="fa fa-github"></i><span> Source Code</span>
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="static/libs/jquery-3.4.1.min.js"></script>
+  <script src="static/libs/materializecss/materialize.min.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>3DSync Configurator</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+  <link rel="stylesheet" href="static/libs/materializecss/materialize.min.css">
+  <link rel="stylesheet" href="static/libs/materialize-stepper/mstepper.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+</head>
+
+<body class="blue-grey darken-4">
+  <header>
+    <nav class="blue darken-3">
+      <div class="nav-wrapper container">
+        <a href="index.html" class="brand-logo left">3DSync</a>
+        <ul class="right hide-on-med-and-down">
+          <li><a href="index.html">Home</a></li>
+          <li class="active"><a href="configurator.html">Configurator</a></li>
+        </ul>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <div class="container">
+      <div class="row">
+        <div class="card-panel teal darken-3 white-text">
+          <span>Use this tool to generate config file for 3DSync. Authenticate with Dropbox or Google Drive, configure
+            your sync folders, then download the config file and copy it to your 3DS SD card at: <strong
+              style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong> (create folders if not existing)</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col s12">
+          <div class="card-panel blue darken-2">
+            <ul class="stepper">
+              <li class="step active">
+                <div class="step-title white-text">Authenticate with cloud service</div>
+                <div class="step-content">
+                  <div class="row">
+                    <div class="col s12 m5">
+                      <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox</h5>
+                      <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login
+                        with Dropbox</a>
+                    </div>
+                    <div class="col s12 m1 center-align hide-on-small-only"
+                      style="border-left:1px solid rgba(255,255,255,0.2);min-height:220px;padding-top:80px">
+                      <span class="white-text">or</span>
+                    </div>
+                    <div class="col s12 m6">
+                      <h5 class="white-text"><i class="material-icons left"
+                          style="vertical-align:middle;font-size:1.4rem">add_to_drive</i> Google Drive</h5>
+                      <div style="margin-bottom:12px">
+                        <label class="btn blue darken-3 btn-small" for="gdrive-json-import" style="cursor:pointer">
+                          <i class="material-icons left">upload_file</i> Import client_secret.json
+                        </label>
+                        <input type="file" id="gdrive-json-import" accept=".json" style="display:none">
+                        <span id="gdrive-json-status" style="margin-left:8px;font-size:0.82em"></span>
+                      </div>
+                      <div class="input-field">
+                        <input id="gdrive-client-id" class="white-text" type="text">
+                        <label for="gdrive-client-id" class="white-text">Client ID</label>
+                      </div>
+                      <div class="input-field">
+                        <input id="gdrive-client-secret" class="white-text" type="password">
+                        <label for="gdrive-client-secret" class="white-text">Client Secret</label>
+                      </div>
+                      <div class="input-field">
+                        <input id="gdrive-folder-id" class="white-text" type="text">
+                        <label for="gdrive-folder-id" class="white-text">Folder ID (optional)</label>
+                        <span class="helper-text white-text" style="opacity:0.7">Leave blank to use the root of My
+                          Drive. To scope to a subfolder, open it in Google Drive and paste the URL or just the ID —
+                          drive.google.com/drive/folders/<strong>THIS_PART</strong></span>
+                      </div>
+                      <a href="#" id="gdrive-login" class="btn blue darken-3"><i
+                          class="material-icons left">add_to_drive</i> Login with Google Drive</a>
+                      <br><br>
+                      <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
+                        <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials"
+                            target="_blank" rel="noopener noreferrer" class="white-text"
+                            style="text-decoration:underline">Google Cloud Console</a>, create a
+                          project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
+                          credential. Add <strong>https://vllni.github.io/3DSync/configurator.html</strong> as an
+                          authorized redirect
+                          URI. The refresh token is stored in the config so you won't need to log in again.</p>
+                        <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>
+                        <ol style="margin:0 0 0 16px;padding:0">
+                          <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
+                              rel="noopener noreferrer" class="white-text" style="text-decoration:underline">APIs &amp;
+                              Services &rarr; Credentials</a></li>
+                          <li>Click the name of your <strong>OAuth 2.0 Client ID</strong> to open it</li>
+                          <li>In the <strong>Client secrets</strong> panel, click <strong>+ Add secret</strong></li>
+                          <li>The new secret row shows a <strong>&darr; download</strong> icon &mdash; click it
+                            immediately (it disappears after you leave the page)</li>
+                          <li>Import the downloaded file with the button above, then disable your old secret</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+              <li class="step">
+                <div class="step-title white-text">Configure folders to sync</div>
+                <div class="step-content">
+                  <h4 class="white-text">Presets</h4>
+                  <div class="input-field" id="paths-presets">
+                    <p>
+                      <label>
+                        <input type="checkbox" class="filled-in" checked="checked" data-path="/3ds/Checkpoint" />
+                        <span class="white-text">Checkpoint</span>
+                      </label>
+                    </p>
+                    <p>
+                      <label>
+                        <input type="checkbox" class="filled-in" data-path="/JKSV" />
+                        <span class="white-text">JKSM</span>
+                      </label>
+                    </p>
+                  </div>
+                  <h4 class="white-text">Custom Paths</h4>
+                  <div class="card-panel blue darken-4 white-text" style="font-size:0.88em">
+                    <p style="margin:0 0 8px 0"><strong>Path</strong> — absolute path on the 3DS SD card to sync, POSIX
+                      style. Examples: <strong>/3ds/MyApp</strong>, <strong>/roms/nds</strong></p>
+                    <p style="margin:0 0 8px 0"><strong>Name</strong> — destination folder on your cloud storage. Use
+                      <strong>/</strong> to create nested folders. Examples: <strong>Saves</strong>,
+                      <strong>roms/nds</strong>, <strong>3DS/Checkpoint</strong>
+                    </p>
+                    <p style="margin:0 0 8px 0"><strong>Subdirs</strong> — when checked, all subdirectories are synced
+                      recursively and their structure is preserved on Drive (e.g. <strong>/saves/Game/001.sav</strong>
+                      becomes <strong>Name/saves/Game/001.sav</strong>). Uncheck to sync only the files directly inside
+                      the specified folder, ignoring subdirectories entirely.</p>
+                    <p style="margin:0 0 8px 0"><strong>Both ways</strong> — full bidirectional sync. The 3DS compares
+                      each file against a local manifest (<code>/3ds/3DSync/manifest.json</code>) and against the Drive
+                      copy, then uploads, downloads, or prompts for conflict resolution as needed.
+                      <br><strong>Upload only</strong> — one-way upload to Drive (no downloads, no manifest). Useful for
+                      backups or Dropbox paths.
+                    </p>
+                    <p style="margin:0">If Name is left empty the files go directly into the root Drive folder (or the
+                      Folder ID you configured).</p>
+                  </div>
+                  <div id="paths-custom">
+                    <a href="#" class="btn-floating waves-effect waves-light green" id="add-custom-path"><i
+                        class="material-icons">add</i></a>
+                  </div>
+                  <br><br>
+                  <div class="step-actions">
+                    <a href="#" class="waves-effect waves-dark btn-flat previous-step white-text">Back</a>
+                    <a href="#" class="waves-effect waves-dark btn" id="folders-confirm">Confirm</a>
+                  </div>
+                </div>
+              </li>
+              <li class="step">
+                <div class="step-title white-text">Download config file</div>
+                <div class="step-content">
+                  <div class="step-actions">
+                    <a href="#" class="waves-effect waves-dark btn-flat previous-step white-text">Back</a>
+                    <a href="#" class="waves-effect waves-dark btn" id="download-config">Download</a>
+                  </div>
+                </div>
+              </li>
+            </ul>
+
+          </div>
+        </div>
+      </div>
+      <div class="row">
+      </div>
+    </div>
+  </main>
+
+  <footer class="page-footer blue darken-3">
+    <div class="container">
+      <div class="row">
+        <div class="col l6 s12">
+          <ul>
+            <li><a class="grey-text text-lighten-3" href="https://materializecss.com/">© Materialize</a></li>
+            <li><a class="grey-text text-lighten-3" href="https://fontawesome.com/">© Fonticons</a></li>
+          </ul>
+        </div>
+        <div class="col l6 s12 right-align">
+          <ul>
+            <li><a class="grey-text text-lighten-3" href="privacy-policy.html">Privacy Policy</a></li>
+            <li><a class="grey-text text-lighten-3" href="terms-of-service.html">Terms of Service</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-copyright blue darken-4">
+      <div class="container">
+        <a class="grey-text text-lighten-4 right" href="https://github.com/vllni/3DSync" target="_blank"
+          rel="noopener noreferrer"><i class="fa fa-github"></i><span> Source Code</span></a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="static/libs/jquery-3.4.1.min.js"></script>
+  <script src="static/libs/materializecss/materialize.min.js"></script>
+  <script src="static/libs/materialize-stepper/mstepper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/web-streams-polyfill@2.0.2/dist/ponyfill.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/eligrey/Blob.js/Blob.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.3/StreamSaver.min.js"></script>
+  <script src="static/js/index.js"></script>
+</body>
+
+</html>

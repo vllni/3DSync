@@ -9,7 +9,7 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 
 ## Quick Start
 
-1. Open the [configurator](https://vllni.github.io/3DSync/) and follow the three steps.
+1. Open the [configurator](https://vllni.github.io/3DSync/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. Install `output/3ds-arm/3DSync.cia` **or** run `3DSync.3dsx` from the Homebrew Launcher.
 4. Launch 3DSync. It will sync all configured paths and press **START** to exit.
@@ -123,9 +123,9 @@ If the 3DS system clock differs from the Drive server time by more than 60 secon
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project, enable the **Google Drive API**.
-3. Create an **OAuth 2.0 Desktop** client (Client ID + Client Secret).
-4. Add the redirect URI: `https://vllni.github.io/3DSync/`.
-5. Use the [configurator](https://vllni.github.io/3DSync/) to authenticate; it performs PKCE and stores the refresh token.
+3. Create an **OAuth 2.0 Web application** client (Client ID + Client Secret).
+4. Add the redirect URI: `https://vllni.github.io/3DSync/configurator.html`.
+5. Use the [configurator](https://vllni.github.io/3DSync/configurator.html) to authenticate; it performs PKCE and stores the refresh token.
 
 > **Note:** Apps in *Testing* mode issue refresh tokens that expire after **7 days**. Publish the app or add your Google account as a test user to avoid frequent re-authentication.
 
