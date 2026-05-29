@@ -5,12 +5,19 @@ Dropbox::Dropbox(std::string token) : _token(token)
 {
 }
 
-void Dropbox::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
+bool Dropbox::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
 {
     for (auto item : paths)
     {
         for (auto path : item.second)
         {
+            hidScanInput();
+            if (hidKeysDown() & KEY_START)
+            {
+                printf("Upload cancelled by user\n");
+                return false;
+            }
+
             printf("Uploading %s\n", (item.first.first + path).c_str());
             FILE *file = fopen((item.first.first + path).c_str(), "rb");
             std::string args("Dropbox-API-Arg: {\"path\":\"/" + item.first.second + path + "\",\"mode\": \"add\",\"mute\": false,\"strict_conflict\": false}");
@@ -28,4 +35,6 @@ void Dropbox::upload(std::map<std::pair<std::string, std::string>, std::vector<s
             printf("\n");
         }
     }
+
+    return true;
 }

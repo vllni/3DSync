@@ -23,12 +23,12 @@ bool GoogleDrive::ensureToken()
     return !_token.empty();
 }
 
-void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
+bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
 {
     if (!ensureToken())
     {
         printf("Cannot upload: failed to obtain Google Drive access token\n");
-        return;
+        return false;
     }
 
     for (auto item : paths)
@@ -60,6 +60,13 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 
         for (auto path : item.second)
         {
+            hidScanInput();
+            if (hidKeysDown() & KEY_START)
+            {
+                printf("Upload cancelled by user\n");
+                return false;
+            }
+
             std::string localPath = item.first.first + path;
             printf("Uploading %s to Google Drive\n", localPath.c_str());
             FILE *file = fopen(localPath.c_str(), "rb");
@@ -108,8 +115,13 @@ void GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
             curl_slist_free_all(headers);
             fclose(file);
             printf("\n");
+
+            if (hasFatalError())
+                return false;
         }
     }
+
+    return true;
 }
 
 std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std::string &parentId)

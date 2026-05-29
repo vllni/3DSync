@@ -529,7 +529,8 @@ int main(int argc, char **argv)
                 legacyPaths[key] = e.localFiles;
             }
             Dropbox dropbox(dropboxToken);
-            dropbox.upload(legacyPaths);
+            if (!dropbox.upload(legacyPaths))
+                g_cancelRequested = true;
         }
 
         // --- Google Drive ---
@@ -573,7 +574,8 @@ int main(int argc, char **argv)
                     {
                         printf("\nSyncing [%s] <-> Drive:%s\n",
                                entry.localBase.c_str(), entry.remoteName.c_str());
-                        performSync(drive, manifest, entry);
+                        if (!performSync(drive, manifest, entry) && !drive.hasFatalError())
+                            g_cancelRequested = true;
                     }
                     else
                     {
@@ -582,7 +584,8 @@ int main(int argc, char **argv)
                                entry.localBase.c_str(), entry.remoteName.c_str());
                         std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
                         legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
-                        drive.upload(legacyPaths);
+                        if (!drive.upload(legacyPaths) && !drive.hasFatalError())
+                            g_cancelRequested = true;
                     }
 
                     if (g_cancelRequested)

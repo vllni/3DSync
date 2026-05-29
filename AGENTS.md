@@ -50,7 +50,7 @@ The Makefile auto-discovers all `.cpp` files under `source/`. Adding a new `.cpp
 - All Google Drive API calls go through `GoogleDrive::_performWithRetry()`, which handles 429 back-off, 401/403 fatal detection, and `_fatalError` propagation. Do not call `_curl.perform()` directly from Drive methods.
 - Fatal Drive errors (401 / unrecoverable 403) set `_fatalError = true` and cause all subsequent Drive calls to no-op. Check `hasFatalError()` in callers to break out of sync loops early.
 - File downloads use a temp file (`localPath + ".3dstmp"`) + atomic rename. On FAT (3DS SD), `rename()` cannot overwrite an existing file — the existing file is first renamed to `.3dsbak`, then the temp is renamed in, then the backup is removed. Restore the backup on failure.
-- `performSync()` in `main.cpp` returns `bool` — `false` means a fatal error occurred and the sync loop must stop.
+- `performSync()` in `main.cpp` returns `bool` — `false` means cancellation was requested or a fatal error occurred, and the sync loop must stop.
 - Conflict resolution in `performSync()` calls `waitForConflictKey()` which returns a `ConflictChoice` enum: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_DRIVE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START).
 - The manifest (`/3ds/3DSync/manifest.json`) is a hand-parsed JSON file. Use `Manifest::set/get/has/remove` — never write JSON by hand elsewhere.
 - `svcSleepThread(nanoseconds)` is the 3DS sleep call (from `<3ds.h>`). Use it for rate-limit back-offs.

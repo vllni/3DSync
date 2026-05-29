@@ -40,7 +40,7 @@ public:
     bool hasFatalError() const;
 
     // Legacy flat-name upload (unchanged behaviour).
-    void upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
+    bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
 
     // Resolve (and create if missing) a '/'-separated folder path under _folderId.
     // Returns the Drive folder ID of the deepest component, or "" on failure.
@@ -100,4 +100,3 @@ private:
 };
 
 #endif
-

@@ -12,7 +12,7 @@ class Dropbox
 public:
     Dropbox(std::string token);
     ~Dropbox() {};
-    void upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
+    bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
 
 private:
     std::string _token;
