@@ -298,10 +298,27 @@ static std::string computeMd5Hex(const std::string &path)
 }
 
 // ---------------------------------------------------------------------------
+// SyncSummary  — accumulates per-file outcomes for end-of-sync report
+// ---------------------------------------------------------------------------
+struct SyncSummary
+{
+    int uploaded;
+    int downloaded;
+    int checked;
+    struct FileAction
+    {
+        std::string path;
+        std::string action;
+    };
+    std::vector<FileAction> changes;
+    SyncSummary() : uploaded(0), downloaded(0), checked(0) {}
+};
+
+// ---------------------------------------------------------------------------
 // performSync  — bidirectional sync for one SyncEntry
 // Returns false if a fatal Drive error occurred or cancellation was requested.
 // ---------------------------------------------------------------------------
-static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry)
+static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry, SyncSummary &summary)
 {
     if (drive.hasFatalError())
         return false;
@@ -357,8 +374,10 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         bool inManifest = manifest.has(localPath);
         ManifestEntry mEntry = inManifest ? manifest.get(localPath) : ManifestEntry{};
 
-        bool localChanged = inManifest && (localMtime != mEntry.localMtime);
-        bool driveChanged = inManifest && driveExists && (dfi->md5 != mEntry.driveMd5);
+        // No manifest entry + both sides exist = no baseline to diff against, treat as conflict.
+        bool firstSync = !inManifest && localExists && driveExists;
+        bool localChanged = firstSync || (inManifest && (localMtime != mEntry.localMtime));
+        bool driveChanged = firstSync || (inManifest && driveExists && (dfi->md5 != mEntry.driveMd5));
 
         // FAT32 mtime has 2-second granularity and some emulators never update
         // the timestamp at all.  If mtime is unchanged but we have a Drive MD5
@@ -408,6 +427,8 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 struct stat st = {};
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
+                summary.downloaded++;
+                summary.changes.push_back({relPath, "downloaded"});
             }
             continue;
         }
@@ -420,55 +441,20 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             std::string existingId = inManifest ? mEntry.driveId : "";
             std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
             if (!fileId.empty())
+            {
                 manifest.set(localPath, {localMtime, md5, fileId});
+                summary.uploaded++;
+                summary.changes.push_back({relPath, "uploaded"});
+            }
             continue;
         }
 
         // Both exist
-        if (!inManifest)
-        {
-            // First sync: no history to diff against — treat as a conflict so
-            // neither side is silently overwritten.
-            printf("\n  *** FIRST SYNC (both sides exist): %s\n", localPath.c_str());
-            printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
-            ConflictChoice choice = waitForConflictKey();
-
-            if (choice == CONFLICT_CANCEL)
-            {
-                printf("  -> Sync cancelled\n");
-                return false;
-            }
-            if (choice == CONFLICT_SKIP)
-            {
-                printf("  -> Skipped\n");
-                continue;
-            }
-            if (choice == CONFLICT_KEEP_LOCAL)
-            {
-                printf("  -> Keeping 3DS version, uploading\n");
-                std::string md5;
-                std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, dfi->id, md5);
-                if (!fileId.empty())
-                    manifest.set(localPath, {localMtime, md5, fileId});
-            }
-            else
-            {
-                printf("  -> Keeping remote version, downloading\n");
-                if (drive.downloadFile(*dfi, localPath))
-                {
-                    struct stat st = {};
-                    stat(localPath.c_str(), &st);
-                    manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
-                }
-            }
-            continue;
-        }
-
-        // Both exist and in manifest
         if (!localChanged && !driveChanged)
         {
             // No change — skip
             printf("  -> Up to date\n");
+            summary.checked++;
             continue;
         }
 
@@ -479,7 +465,11 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             std::string md5;
             std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, mEntry.driveId, md5);
             if (!fileId.empty())
+            {
                 manifest.set(localPath, {localMtime, md5, fileId});
+                summary.uploaded++;
+                summary.changes.push_back({relPath, "uploaded"});
+            }
             continue;
         }
 
@@ -492,6 +482,8 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 struct stat st = {};
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
+                summary.downloaded++;
+                summary.changes.push_back({relPath, "downloaded"});
             }
             continue;
         }
@@ -509,15 +501,21 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (choice == CONFLICT_SKIP)
         {
             printf("  -> Skipped\n");
+            summary.changes.push_back({relPath, "skipped"});
             continue;
         }
         if (choice == CONFLICT_KEEP_LOCAL)
         {
             printf("  -> Keeping 3DS version, uploading\n");
             std::string md5;
-            std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, mEntry.driveId, md5);
+            std::string existingId = inManifest ? mEntry.driveId : dfi->id;
+            std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
             if (!fileId.empty())
+            {
                 manifest.set(localPath, {localMtime, md5, fileId});
+                summary.uploaded++;
+                summary.changes.push_back({relPath, "uploaded"});
+            }
         }
         else
         {
@@ -527,6 +525,8 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 struct stat st = {};
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
+                summary.downloaded++;
+                summary.changes.push_back({relPath, "downloaded"});
             }
         }
 
@@ -651,13 +651,15 @@ static void runSync(const INIReader &reader)
             Manifest manifest("/3ds/3DSync/manifest.json");
             manifest.load();
 
+            SyncSummary summary;
+
             for (auto &entry : syncEntries)
             {
                 if (entry.direction == SYNC_BOTH)
                 {
                     printf("\nSyncing [%s] <-> Drive:%s\n",
                            entry.localBase.c_str(), entry.remoteName.c_str());
-                    if (!performSync(drive, manifest, entry) && !drive.hasFatalError())
+                    if (!performSync(drive, manifest, entry, summary) && !drive.hasFatalError())
                         g_cancelRequested = true;
                 }
                 else
@@ -683,6 +685,17 @@ static void runSync(const INIReader &reader)
             }
 
             manifest.save();
+
+            printf("\n--- Sync Summary ---\n");
+            printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
+                   summary.uploaded, summary.downloaded, summary.checked);
+            if (!summary.changes.empty())
+            {
+                printf("\nChanged files:\n");
+                for (auto &c : summary.changes)
+                    printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
+            }
+
             if (drive.hasFatalError())
                 printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
             else if (g_cancelRequested)
