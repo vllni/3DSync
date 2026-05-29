@@ -95,7 +95,7 @@ $(function () {
     // --- Login button handlers ---
     $('#dropbox-login').on('click', function (e) {
         e.preventDefault();
-        let token = [...Array(100)].map(i => (~~(Math.random() * 36)).toString(36)).join('');
+        let token = generateCodeVerifier();
         localStorage.setItem('dropboxStateToken', token);
         let redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
         window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=3x8ipjhtplvcoba&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;

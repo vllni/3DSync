@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
   <link rel="stylesheet" href="static/libs/materializecss/materialize.min.css">
   <link rel="stylesheet" href="static/css/index.css">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <style>
     main {
       padding: 2rem 0 4rem;
@@ -70,18 +70,19 @@
           <strong>Google Drive:</strong> You are redirected to Google's own OAuth 2.0 consent screen.
           Google issues an authorisation code which is exchanged directly from your browser for an access
           token and a refresh token by calling <code>https://oauth2.googleapis.com/token</code>.
-          These tokens are stored temporarily in your browser's <code>localStorage</code> solely to
-          assemble the config file. They are never transmitted to any server controlled by the developer.
+          These tokens are stored in your browser's <code>localStorage</code> solely to assemble the config
+          file. They are never transmitted to any server controlled by the developer and remain until you clear
+          this site's data.
         </li>
         <li>
           <strong>Dropbox:</strong> You are redirected to Dropbox's own OAuth 2.0 consent screen.
-          Dropbox returns an access token in the URL fragment. This token is read by the page only to
-          assemble the config file, and is never sent anywhere else.
+          Dropbox returns an access token in the URL fragment. This token is read by the page, stored in
+          <code>localStorage</code> to assemble the config file, and is never sent anywhere else.
         </li>
       </ul>
       <p>
-        Once you click <em>Download</em>, the config file is saved to your computer. After the page is
-        closed or <code>localStorage</code> is cleared, the tokens are no longer retained by the browser.
+        Once you click <em>Download</em>, the config file is saved to your computer. Tokens stored in
+        <code>localStorage</code> remain until you clear this site's data.
       </p>
 
       <h4 class="white-text">3. Google API Services – Limited Use Disclosure</h4>
