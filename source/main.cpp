@@ -304,14 +304,14 @@ struct SyncSummary
 {
     int uploaded;
     int downloaded;
-    int checked;
+    std::set<std::string> checkedPaths; // full localPath, deduplicates across entries
     struct FileAction
     {
         std::string path;
         std::string action;
     };
     std::vector<FileAction> changes;
-    SyncSummary() : uploaded(0), downloaded(0), checked(0) {}
+    SyncSummary() : uploaded(0), downloaded(0) {}
 };
 
 // ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
                 summary.downloaded++;
-                summary.changes.push_back({relPath, "downloaded"});
+                summary.changes.push_back({localPath, "downloaded"});
             }
             continue;
         }
@@ -444,7 +444,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             {
                 manifest.set(localPath, {localMtime, md5, fileId});
                 summary.uploaded++;
-                summary.changes.push_back({relPath, "uploaded"});
+                summary.changes.push_back({localPath, "uploaded"});
             }
             continue;
         }
@@ -454,7 +454,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         {
             // No change — skip
             printf("  -> Up to date\n");
-            summary.checked++;
+            summary.checkedPaths.insert(localPath);
             continue;
         }
 
@@ -468,7 +468,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             {
                 manifest.set(localPath, {localMtime, md5, fileId});
                 summary.uploaded++;
-                summary.changes.push_back({relPath, "uploaded"});
+                summary.changes.push_back({localPath, "uploaded"});
             }
             continue;
         }
@@ -483,7 +483,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
                 summary.downloaded++;
-                summary.changes.push_back({relPath, "downloaded"});
+                summary.changes.push_back({localPath, "downloaded"});
             }
             continue;
         }
@@ -501,7 +501,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (choice == CONFLICT_SKIP)
         {
             printf("  -> Skipped\n");
-            summary.changes.push_back({relPath, "skipped"});
+            summary.changes.push_back({localPath, "skipped"});
             continue;
         }
         if (choice == CONFLICT_KEEP_LOCAL)
@@ -514,7 +514,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             {
                 manifest.set(localPath, {localMtime, md5, fileId});
                 summary.uploaded++;
-                summary.changes.push_back({relPath, "uploaded"});
+                summary.changes.push_back({localPath, "uploaded"});
             }
         }
         else
@@ -526,7 +526,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
                 stat(localPath.c_str(), &st);
                 manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
                 summary.downloaded++;
-                summary.changes.push_back({relPath, "downloaded"});
+                summary.changes.push_back({localPath, "downloaded"});
             }
         }
 
@@ -687,10 +687,16 @@ static void runSync(const INIReader &reader)
             manifest.save();
 
             printf("\n--- Sync Summary ---\n");
-            printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
-                   summary.uploaded, summary.downloaded, summary.checked);
-            if (!summary.changes.empty())
+            if (summary.changes.empty())
             {
+                printf("All %d files up to date.\n",
+                       (int)summary.checkedPaths.size());
+            }
+            else
+            {
+                printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
+                       summary.uploaded, summary.downloaded,
+                       (int)summary.checkedPaths.size());
                 printf("\nChanged files:\n");
                 for (auto &c : summary.changes)
                     printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
