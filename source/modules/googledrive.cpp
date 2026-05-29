@@ -126,7 +126,8 @@ bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 
 std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std::string &parentId)
 {
-    if (_fatalError) return "";
+    if (_fatalError)
+        return "";
 
     std::string cacheKey = parentId + "/" + name;
     auto it = _folderCache.find(cacheKey);
@@ -357,7 +358,8 @@ std::string GoogleDrive::_readFile(FILE *file)
 int GoogleDrive::_performWithRetry()
 {
     // Fast-fail: a previous call already hit a fatal error.
-    if (_fatalError) return -1;
+    if (_fatalError)
+        return -1;
 
     for (int attempt = 0; attempt < 3; attempt++)
     {
@@ -370,7 +372,7 @@ int GoogleDrive::_performWithRetry()
             printf("  Network error (attempt %d/3)\n", attempt + 1);
             if (attempt < 2)
             {
-                _curl.rewindDownloadFile(); // discard any partial body written to temp file
+                _curl.rewindDownloadFile();   // discard any partial body written to temp file
                 svcSleepThread(2000000000LL); // 2 s back-off
                 continue;
             }
@@ -378,7 +380,8 @@ int GoogleDrive::_performWithRetry()
         }
 
         // HTTP success
-        if (status >= 200 && status < 300) return 0;
+        if (status >= 200 && status < 300)
+            return 0;
 
         // Extract Drive error message from the response body for display.
         // (getResponse() returns "" when the body was streamed to a file.)
@@ -451,21 +454,25 @@ bool GoogleDrive::hasFatalError() const { return _fatalError; }
 // ---------------------------------------------------------------------------
 std::string GoogleDrive::ensureFolderPath(const std::string &path)
 {
-    if (_fatalError) return "";
+    if (_fatalError)
+        return "";
 
     std::string current = _folderId.empty() ? "root" : _folderId;
-    if (path.empty()) return current;
+    if (path.empty())
+        return current;
 
     size_t start = 0;
     while (start < path.size())
     {
         size_t end = path.find('/', start);
-        if (end == std::string::npos) end = path.size();
+        if (end == std::string::npos)
+            end = path.size();
         std::string segment = path.substr(start, end - start);
         if (!segment.empty())
         {
             std::string id = _findOrCreateFolder(segment, current);
-            if (id.empty()) break;
+            if (id.empty())
+                break;
             current = id;
         }
         start = end + 1;
@@ -480,7 +487,8 @@ std::string GoogleDrive::ensureFolderPath(const std::string &path)
 std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &folderId)
 {
     std::vector<DriveFileInfo> result;
-    if (_fatalError) return result;
+    if (_fatalError)
+        return result;
     std::string pageToken;
 
     do
@@ -489,7 +497,8 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
         std::string url = "https://www.googleapis.com/drive/v3/files"
                           "?fields=nextPageToken,files(id,name,md5Checksum,modifiedTime,mimeType)"
                           "&pageSize=1000"
-                          "&q=" + _urlEncode(query);
+                          "&q=" +
+                          _urlEncode(query);
         if (!pageToken.empty())
             url += "&pageToken=" + _urlEncode(pageToken);
 
@@ -512,7 +521,8 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
         if (pageToken.empty())
         {
             std::string date = _curl.getResponseHeader("Date");
-            if (!date.empty()) _lastServerTime = date;
+            if (!date.empty())
+                _lastServerTime = date;
         }
 
         std::string response = _curl.getResponse();
@@ -520,24 +530,27 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
 
         // Parse the "files" array: find each '{' that opens a file object
         size_t arrPos = response.find("\"files\"");
-        if (arrPos == std::string::npos) break;
+        if (arrPos == std::string::npos)
+            break;
         arrPos = response.find('[', arrPos);
-        if (arrPos == std::string::npos) break;
+        if (arrPos == std::string::npos)
+            break;
 
         size_t objPos = arrPos;
         while ((objPos = response.find('{', objPos + 1)) != std::string::npos)
         {
             size_t objEnd = response.find('}', objPos + 1);
-            if (objEnd == std::string::npos) break;
+            if (objEnd == std::string::npos)
+                break;
             std::string obj = response.substr(objPos, objEnd - objPos + 1);
 
             DriveFileInfo info;
-            info.id           = _extractJsonString(obj, "id");
-            info.name         = _extractJsonString(obj, "name");
-            info.md5          = _extractJsonString(obj, "md5Checksum");
+            info.id = _extractJsonString(obj, "id");
+            info.name = _extractJsonString(obj, "name");
+            info.md5 = _extractJsonString(obj, "md5Checksum");
             info.modifiedTime = _extractJsonString(obj, "modifiedTime");
-            std::string mime  = _extractJsonString(obj, "mimeType");
-            info.isFolder     = (mime == "application/vnd.google-apps.folder");
+            std::string mime = _extractJsonString(obj, "mimeType");
+            info.isFolder = (mime == "application/vnd.google-apps.folder");
 
             if (!info.id.empty() && !info.name.empty())
                 result.push_back(info);
@@ -554,8 +567,8 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
 // path built so far (starts empty, gains "/<name>" per level).
 // ---------------------------------------------------------------------------
 void GoogleDrive::_listFolderRecursiveImpl(const std::string &folderId,
-                                            const std::string &prefix,
-                                            std::map<std::string, DriveFileInfo> &result)
+                                           const std::string &prefix,
+                                           std::map<std::string, DriveFileInfo> &result)
 {
     auto items = _listFolderContents(folderId);
     for (auto &item : items)
@@ -568,7 +581,7 @@ void GoogleDrive::_listFolderRecursiveImpl(const std::string &folderId,
         else
         {
             item.relPath = rel;
-            result[rel]  = item;
+            result[rel] = item;
         }
     }
 }
@@ -591,7 +604,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
                                     const std::string &existingId,
                                     std::string &outMd5)
 {
-    if (_fatalError) return "";
+    if (_fatalError)
+        return "";
 
     // Resolve the parent Drive folder, creating subfolders as needed
     std::string parentFolderId = rootFolderId;
@@ -599,20 +613,22 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
 
     // Split relPath (e.g. "/saves/TitleA/001.sav") into dir + filename
     std::string trimmed = relPath;
-    while (!trimmed.empty() && trimmed[0] == '/') trimmed.erase(0, 1);
+    while (!trimmed.empty() && trimmed[0] == '/')
+        trimmed.erase(0, 1);
 
     size_t lastSlash = trimmed.rfind('/');
     if (lastSlash != std::string::npos)
     {
-        std::string dirPart  = trimmed.substr(0, lastSlash);
-        fileName             = trimmed.substr(lastSlash + 1);
+        std::string dirPart = trimmed.substr(0, lastSlash);
+        fileName = trimmed.substr(lastSlash + 1);
 
         // Create intermediate folders
         size_t start = 0;
         while (start < dirPart.size())
         {
             size_t end = dirPart.find('/', start);
-            if (end == std::string::npos) end = dirPart.size();
+            if (end == std::string::npos)
+                end = dirPart.size();
             std::string seg = dirPart.substr(start, end - start);
             if (!seg.empty())
             {
@@ -660,7 +676,7 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
     body += fileContents;
     body += "\r\n--" + boundary + "--\r\n";
 
-    std::string auth        = "Authorization: Bearer " + _token;
+    std::string auth = "Authorization: Bearer " + _token;
     std::string contentType = "Content-Type: multipart/related; boundary=" + boundary;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, auth.c_str());
@@ -680,9 +696,11 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
     _curl.setURL(url);
     _curl.setHeaders(headers);
     _curl.setPostData(body);
-    if (!existingId.empty()) _curl.setPatch();
+    if (!existingId.empty())
+        _curl.setPatch();
     int res = _performWithRetry();
-    if (!existingId.empty()) _curl.clearCustomRequest();
+    if (!existingId.empty())
+        _curl.clearCustomRequest();
     curl_slist_free_all(headers);
 
     if (res != 0)
@@ -725,8 +743,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
     }
 
     std::string response = _curl.getResponse();
-    std::string fileId   = _extractJsonString(response, "id");
-    outMd5               = _extractJsonString(response, "md5Checksum");
+    std::string fileId = _extractJsonString(response, "id");
+    outMd5 = _extractJsonString(response, "md5Checksum");
 
     // If Drive omitted md5Checksum (shouldn't happen for binary files), fall back to ""
     return fileId;
@@ -738,7 +756,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
 // ---------------------------------------------------------------------------
 bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &localPath)
 {
-    if (_fatalError) return false;
+    if (_fatalError)
+        return false;
 
     std::string tmpPath = localPath + ".3dstmp";
     FILE *fp = fopen(tmpPath.c_str(), "wb");
@@ -748,7 +767,7 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
         return false;
     }
 
-    std::string url  = "https://www.googleapis.com/drive/v3/files/" + file.id + "?alt=media";
+    std::string url = "https://www.googleapis.com/drive/v3/files/" + file.id + "?alt=media";
     std::string auth = "Authorization: Bearer " + _token;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, auth.c_str());

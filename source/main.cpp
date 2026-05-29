@@ -172,13 +172,19 @@ static time_t parseRFC3339(const std::string &s)
 enum ConflictChoice
 {
     CONFLICT_KEEP_LOCAL,
-    CONFLICT_KEEP_DRIVE,
+    CONFLICT_KEEP_REMOTE,
     CONFLICT_SKIP,
     CONFLICT_CANCEL
 };
 
+// g_applyAllChoice: -1 = not set; otherwise a ConflictChoice value applied to all conflicts.
+static int g_applyAllChoice = -1;
+
 static ConflictChoice waitForConflictKey()
 {
+    if (g_applyAllChoice >= 0)
+        return (ConflictChoice)g_applyAllChoice;
+
     while (aptMainLoop())
     {
         hidScanInput();
@@ -186,16 +192,71 @@ static ConflictChoice waitForConflictKey()
         if (k & KEY_A)
             return CONFLICT_KEEP_LOCAL;
         if (k & KEY_B)
-            return CONFLICT_KEEP_DRIVE;
+            return CONFLICT_KEEP_REMOTE;
         if (k & KEY_X)
             return CONFLICT_SKIP;
         if (k & KEY_START)
             return CONFLICT_CANCEL;
+        if (k & KEY_L)
+        {
+            printf("  Apply resolution to ALL remaining conflicts:\n");
+            printf("  A: 3DS wins all  B: remote wins all  X: skip all  L: cancel\n\n");
+            bool inSubmenu = true;
+            while (aptMainLoop() && inSubmenu)
+            {
+                hidScanInput();
+                u32 k2 = hidKeysDown();
+                if (k2 & KEY_A)
+                {
+                    g_applyAllChoice = CONFLICT_KEEP_LOCAL;
+                    return CONFLICT_KEEP_LOCAL;
+                }
+                if (k2 & KEY_B)
+                {
+                    g_applyAllChoice = CONFLICT_KEEP_REMOTE;
+                    return CONFLICT_KEEP_REMOTE;
+                }
+                if (k2 & KEY_X)
+                {
+                    g_applyAllChoice = CONFLICT_SKIP;
+                    return CONFLICT_SKIP;
+                }
+                if (k2 & KEY_L)
+                {
+                    inSubmenu = false;
+                }
+                gfxFlushBuffers();
+                gfxSwapBuffers();
+                gspWaitForVBlank();
+            }
+            // L pressed again — cancel apply-all, reprint conflict prompt
+            printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
+        }
         gfxFlushBuffers();
         gfxSwapBuffers();
         gspWaitForVBlank();
     }
     return CONFLICT_CANCEL;
+}
+
+// waitForMainMenuKey — returns true to start sync, false to exit.
+static bool waitForMainMenuKey()
+{
+    printf("\n    A: Run sync\n");
+    printf("  START: Exit\n\n");
+    while (aptMainLoop())
+    {
+        hidScanInput();
+        u32 k = hidKeysDown();
+        if (k & KEY_A)
+            return true;
+        if (k & KEY_START)
+            return false;
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,10 +385,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             // First sync: no history to diff against — treat as a conflict so
             // neither side is silently overwritten.
             printf("\n  *** FIRST SYNC (both sides exist): %s\n", localPath.c_str());
-            printf("  A: keep 3DS version (upload)\n");
-            printf("  B: keep Drive version (download)\n");
-            printf("  X: skip this file\n");
-            printf("  START: cancel sync\n\n");
+            printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
             ConflictChoice choice = waitForConflictKey();
 
             if (choice == CONFLICT_CANCEL)
@@ -344,13 +402,13 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             {
                 printf("  -> Keeping 3DS version, uploading\n");
                 std::string md5;
-                std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, "", md5);
+                std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, dfi->id, md5);
                 if (!fileId.empty())
                     manifest.set(localPath, {localMtime, md5, fileId});
             }
             else
             {
-                printf("  -> Keeping Drive version, downloading\n");
+                printf("  -> Keeping remote version, downloading\n");
                 if (drive.downloadFile(*dfi, localPath))
                 {
                     struct stat st = {};
@@ -382,8 +440,8 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         if (!localChanged && driveChanged)
         {
-            // Drive changed — download
-            printf("  -> Drive changed, downloading %s\n", relPath.c_str());
+            // Remote changed — download
+            printf("  -> Remote changed, downloading %s\n", relPath.c_str());
             if (drive.downloadFile(*dfi, localPath))
             {
                 struct stat st = {};
@@ -395,10 +453,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         // Both changed — conflict
         printf("\n  *** CONFLICT: %s\n", localPath.c_str());
-        printf("  A: keep 3DS version (upload)\n");
-        printf("  B: keep Drive version (download)\n");
-        printf("  X: skip this file\n");
-        printf("  START: cancel sync\n\n");
+        printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
         ConflictChoice choice = waitForConflictKey();
 
         if (choice == CONFLICT_CANCEL)
@@ -421,7 +476,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         }
         else
         {
-            printf("  -> Keeping Drive version, downloading\n");
+            printf("  -> Keeping remote version, downloading\n");
             if (drive.downloadFile(*dfi, localPath))
             {
                 struct stat st = {};
@@ -490,142 +545,136 @@ void componentsExit()
 }
 
 // ---------------------------------------------------------------------------
+// runSync  — one full sync pass; called from main loop
+// ---------------------------------------------------------------------------
+static void runSync(const INIReader &reader)
+{
+    g_cancelRequested = false;
+    g_applyAllChoice = -1;
+
+    std::string dropboxToken = reader.Get("Dropbox", "token", "");
+    std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
+    std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
+    std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
+    std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
+    std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
+    bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
+
+    std::vector<SyncEntry> syncEntries;
+    if (dropboxToken != "" || hasGoogleDrive)
+        syncEntries = getConfiguredSyncPaths(reader);
+
+    // --- Dropbox ---
+    if (dropboxToken != "" && !syncEntries.empty())
+    {
+        std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
+        for (auto &e : syncEntries)
+            legacyPaths[std::make_pair(e.localBase, e.remoteName)] = e.localFiles;
+        Dropbox dropbox(dropboxToken);
+        if (!dropbox.upload(legacyPaths))
+            g_cancelRequested = true;
+    }
+
+    // --- Google Drive ---
+    if (hasGoogleDrive)
+    {
+        GoogleDrive drive(googleDriveClientId, googleDriveClientSecret,
+                          googleDriveRefreshToken, googleDriveFolderId,
+                          googleDriveToken);
+
+        if (!drive.ensureToken())
+        {
+            printf("Failed to obtain Google Drive access token\n");
+        }
+        else
+        {
+            std::string serverTimeStr = drive.getServerTime();
+            if (!serverTimeStr.empty())
+            {
+                time_t serverTime = parseRFC3339(serverTimeStr);
+                time_t localTime = time(NULL);
+                long skew = serverTime > localTime
+                                ? (long)(serverTime - localTime)
+                                : (long)(localTime - serverTime);
+                if (skew > 60)
+                {
+                    printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
+                    printf("Timestamps may be unreliable. Set the 3DS clock.\n\n");
+                }
+            }
+
+            Manifest manifest("/3ds/3DSync/manifest.json");
+            manifest.load();
+
+            for (auto &entry : syncEntries)
+            {
+                if (entry.direction == SYNC_BOTH)
+                {
+                    printf("\nSyncing [%s] <-> Drive:%s\n",
+                           entry.localBase.c_str(), entry.remoteName.c_str());
+                    if (!performSync(drive, manifest, entry) && !drive.hasFatalError())
+                        g_cancelRequested = true;
+                }
+                else
+                {
+                    printf("\nUploading [%s] -> Drive:%s\n",
+                           entry.localBase.c_str(), entry.remoteName.c_str());
+                    std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
+                    legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
+                    if (!drive.upload(legacyPaths) && !drive.hasFatalError())
+                        g_cancelRequested = true;
+                }
+
+                if (g_cancelRequested)
+                {
+                    printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
+                    break;
+                }
+                if (drive.hasFatalError())
+                {
+                    printf(CONSOLE_RED "\nSync aborted: remaining entries skipped.\n" CONSOLE_RESET);
+                    break;
+                }
+            }
+
+            manifest.save();
+            if (drive.hasFatalError())
+                printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
+            else if (g_cancelRequested)
+                printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
+            else
+                printf("\nSync complete.\n");
+        }
+    }
+
+    if (dropboxToken == "" && !hasGoogleDrive)
+        printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
     if (!componentsInit())
+    {
         componentsExit();
+        return 1;
+    }
 
     INIReader reader("/3ds/3DSync/3DSync.ini");
-
     if (reader.ParseError() < 0)
-    {
         printf("Can't load configuration\n");
-    }
-    else
+
+    while (true)
     {
-        std::string dropboxToken = reader.Get("Dropbox", "token", "");
-        std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
-        std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
-        std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
-        std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
-        std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
-        bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
-
-        // Collect all configured paths
-        std::vector<SyncEntry> syncEntries;
-        if (dropboxToken != "" || hasGoogleDrive)
-            syncEntries = getConfiguredSyncPaths(reader);
-
-        // --- Dropbox (upload-only, unchanged) ---
-        if (dropboxToken != "" && !syncEntries.empty())
-        {
-            // Build legacy map for Dropbox
-            std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
-            for (auto &e : syncEntries)
-            {
-                auto key = std::make_pair(e.localBase, e.remoteName);
-                legacyPaths[key] = e.localFiles;
-            }
-            Dropbox dropbox(dropboxToken);
-            if (!dropbox.upload(legacyPaths))
-                g_cancelRequested = true;
-        }
-
-        // --- Google Drive ---
-        if (hasGoogleDrive)
-        {
-            GoogleDrive drive(googleDriveClientId, googleDriveClientSecret,
-                              googleDriveRefreshToken, googleDriveFolderId,
-                              googleDriveToken);
-
-            if (!drive.ensureToken())
-            {
-                printf("Failed to obtain Google Drive access token\n");
-            }
-            else
-            {
-                // Clock skew check: compare 3DS time with Drive server time
-                // We trigger a lightweight API call to fetch the Date header.
-                // The token refresh response also carries a Date header; if the
-                // server time was already captured there, reuse it.
-                std::string serverTimeStr = drive.getServerTime();
-                if (!serverTimeStr.empty())
-                {
-                    time_t serverTime = parseRFC3339(serverTimeStr);
-                    time_t localTime = time(NULL);
-                    long skew = serverTime > localTime
-                                    ? (long)(serverTime - localTime)
-                                    : (long)(localTime - serverTime);
-                    if (skew > 60)
-                    {
-                        printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
-                        printf("Timestamps may be unreliable. Set the 3DS clock.\n\n");
-                    }
-                }
-
-                Manifest manifest("/3ds/3DSync/manifest.json");
-                manifest.load();
-
-                for (auto &entry : syncEntries)
-                {
-                    if (entry.direction == SYNC_BOTH)
-                    {
-                        printf("\nSyncing [%s] <-> Drive:%s\n",
-                               entry.localBase.c_str(), entry.remoteName.c_str());
-                        if (!performSync(drive, manifest, entry) && !drive.hasFatalError())
-                            g_cancelRequested = true;
-                    }
-                    else
-                    {
-                        // Upload-only: use the legacy flat-name uploader
-                        printf("\nUploading [%s] -> Drive:%s\n",
-                               entry.localBase.c_str(), entry.remoteName.c_str());
-                        std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
-                        legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
-                        if (!drive.upload(legacyPaths) && !drive.hasFatalError())
-                            g_cancelRequested = true;
-                    }
-
-                    if (g_cancelRequested)
-                    {
-                        printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
-                        break;
-                    }
-                    if (drive.hasFatalError())
-                    {
-                        printf(CONSOLE_RED "\nSync aborted: remaining entries skipped.\n" CONSOLE_RESET);
-                        break;
-                    }
-                }
-
-                manifest.save();
-                if (drive.hasFatalError())
-                    printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
-                else if (g_cancelRequested)
-                    printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
-                else
-                    printf("\nSync complete.\n");
-            }
-        }
-
-        if (dropboxToken == "" && !hasGoogleDrive)
-        {
-            printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
-        }
-    }
-
-    printf("\n\nPress START to exit...");
-    while (aptMainLoop())
-    {
-        hidScanInput();
-        u32 kDown = hidKeysDown();
-        if (kDown & KEY_START)
+        if (!waitForMainMenuKey())
             break;
-        gfxFlushBuffers();
-        gfxSwapBuffers();
-        gspWaitForVBlank();
+
+        if (reader.ParseError() >= 0)
+            runSync(reader);
+
+        // after sync: fall back to the menu (sync again or exit)
     }
 
     componentsExit();
