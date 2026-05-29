@@ -11,6 +11,7 @@
 #include <3ds.h>
 
 #include <curl/curl.h>
+#include <mbedtls/md5.h>
 
 #include "libs/inih/INIReader/INIReader.h"
 #include "modules/dropbox.h"
@@ -266,6 +267,37 @@ static bool waitForMainMenuKey()
 static bool g_cancelRequested = false;
 
 // ---------------------------------------------------------------------------
+// computeMd5Hex  — return the MD5 of a local file as a lowercase hex string,
+// or "" on error.  Used to detect content changes when mtime is stale
+// (FAT32 has 2-second granularity and some emulators never update mtime).
+// ---------------------------------------------------------------------------
+static std::string computeMd5Hex(const std::string &path)
+{
+    FILE *fp = fopen(path.c_str(), "rb");
+    if (!fp)
+        return "";
+
+    mbedtls_md5_context ctx;
+    mbedtls_md5_init(&ctx);
+    mbedtls_md5_starts(&ctx);
+
+    unsigned char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
+        mbedtls_md5_update(&ctx, buf, n);
+    fclose(fp);
+
+    unsigned char digest[16];
+    mbedtls_md5_finish(&ctx, digest);
+    mbedtls_md5_free(&ctx);
+
+    char hex[33];
+    for (int i = 0; i < 16; i++)
+        snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    return std::string(hex, 32);
+}
+
+// ---------------------------------------------------------------------------
 // performSync  — bidirectional sync for one SyncEntry
 // Returns false if a fatal Drive error occurred or cancellation was requested.
 // ---------------------------------------------------------------------------
@@ -327,6 +359,19 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         bool localChanged = inManifest && (localMtime != mEntry.localMtime);
         bool driveChanged = inManifest && driveExists && (dfi->md5 != mEntry.driveMd5);
+
+        // FAT32 mtime has 2-second granularity and some emulators never update
+        // the timestamp at all.  If mtime is unchanged but we have a Drive MD5
+        // from the last sync, compare file content as a reliable fallback.
+        if (!localChanged && inManifest && localExists && !mEntry.driveMd5.empty())
+        {
+            std::string localMd5 = computeMd5Hex(localPath);
+            if (!localMd5.empty() && localMd5 != mEntry.driveMd5)
+            {
+                printf("  (content changed, mtime frozen — uploading)\n");
+                localChanged = true;
+            }
+        }
 
         printf("  %s: local=%s drive=%s manifest=%s\n",
                relPath.c_str(),

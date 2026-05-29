@@ -8,7 +8,7 @@
 // Record of one file's last-known sync state.
 struct ManifestEntry
 {
-    time_t localMtime; // st_mtime at the time of the last successful sync
+    time_t localMtime;    // st_mtime at the time of the last successful sync
     std::string driveMd5; // md5Checksum returned by Drive after the last sync
     std::string driveId;  // Drive file ID (for update/download without a name search)
 };
