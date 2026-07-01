@@ -98,7 +98,7 @@ $(function () {
         let token = generateCodeVerifier();
         localStorage.setItem('dropboxStateToken', token);
         let redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=3x8ipjhtplvcoba&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;
+        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=y88zxdudhuoo41q&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;
     });
 
     // Auto-extract folder ID when user pastes a full Google Drive URL
