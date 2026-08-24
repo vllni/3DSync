@@ -8,14 +8,18 @@ permissions:
   contents: write
   packages: read
 
-env:
-  BUILD_IMAGE: ghcr.io/vllni/3dsync-devcontainer:latest
-
 jobs:
   build-and-upload:
     name: Build and Upload
     runs-on: ubuntu-latest
+
     steps:
+      - name: Set image name
+        id: image
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "name=ghcr.io/${owner}/3dsync-devcontainer:latest" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -23,14 +27,14 @@ jobs:
           fetch-depth: 0
 
       - name: Prepare build image
-        run: docker pull "$BUILD_IMAGE" || docker build -f docker/3dsync-devcontainer.Dockerfile -t "$BUILD_IMAGE" .
+        run: docker pull "${{ steps.image.outputs.name }}" || docker build -f docker/3dsync-devcontainer.Dockerfile -t "${{ steps.image.outputs.name }}" .
 
       - name: Build
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
-            "$BUILD_IMAGE" \
+            "${{ steps.image.outputs.name }}" \
             sh -lc 'git config --global --add safe.directory /workspace && git config --global --add safe.directory /workspace/buildtools && make'
           sudo chown -R "$USER" output/
 
@@ -43,10 +47,47 @@ jobs:
 
       - name: Upload release assets
         run: |
-          gh release upload "${{ github.ref_name }}" \
+          gh release upload "${{ github.ref_name }}" --clobber \
             output/3DSync-${{ github.ref_name }}.zip \
             output/3ds-arm/3ds/3DSync/3DSync-${{ github.ref_name }}.3dsx \
             output/3ds-arm/3DSync-${{ github.ref_name }}.3ds \
             output/3ds-arm/3DSync-${{ github.ref_name }}.cia
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate QR code for CIA
+        run: |
+          sudo apt-get update
+          sudo apt-get install -q -y qrencode
+          cia_url="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/3DSync-${{ github.ref_name }}.cia"
+          qrencode -s 10 -o "3DSync-${{ github.ref_name }}-qr.png" "$cia_url"
+
+      - name: Upload QR code and inject into release notes
+        run: |
+          gh release upload "${{ github.ref_name }}" "3DSync-${{ github.ref_name }}-qr.png" --clobber
+          qr_url="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/3DSync-${{ github.ref_name }}-qr.png"
+          qr_markdown="---\n\n### QR Code for CIA\n\n![QR Code for CIA]($qr_url)"
+          body=$(gh release view "${{ github.ref_name }}" --json body -q .body)
+
+          if echo "$body" | grep -qF "![QR Code for CIA]($qr_url)"; then
+            echo "QR code already present in release notes, skipping"
+            exit 0
+          fi
+
+          prev_tag=$(gh release list --limit 10 --json tagName --jq '.[].tagName' | grep -v "${{ github.ref_name }}" | head -n 1)
+
+          if ! echo "$body" | grep -qF "**Full Changelog**" && [ -n "$prev_tag" ]; then
+            changelog="**Full Changelog**: https://github.com/${{ github.repository }}/compare/${prev_tag}...${{ github.ref_name }}"
+            body="${body}"$'\n\n'"${changelog}"
+          fi
+
+          if echo "$body" | grep -qF "**Full Changelog**"; then
+            new_body=$(echo "$body" | awk -v qr="$qr_markdown" '/^\*\*Full Changelog\*\*/ { print qr; print ""; print; next } 1')
+          else
+            new_body="${body}"$'\n\n'"${qr_markdown}"
+          fi
+
+          echo "$new_body" > release_notes.md
+          gh release edit "${{ github.ref_name }}" --notes-file release_notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
