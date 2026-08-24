@@ -1,4 +1,6 @@
 $(function () {
+    const DEFAULT_DROPBOX_CLIENT_ID = 'y88zxdudhuoo41q';
+
     let hashParams = new URLSearchParams(window.location.hash.substr(1));
     let queryParams = new URLSearchParams(window.location.search);
     let dropboxToken = hashParams.get('access_token');
@@ -92,13 +94,50 @@ $(function () {
         }
     }
 
+    // --- Dropbox expert mode: bring your own app key ---
+    // Same value the authorize request sends, so the hint can never drift from it
+    function dropboxRedirectUri() {
+        return window.location.origin + window.location.pathname;
+    }
+
+    $('#dropbox-redirect-uri').text(dropboxRedirectUri());
+
+    $('#dropbox-copy-redirect-uri').on('click', function (e) {
+        e.preventDefault();
+        let $status = $('#dropbox-copy-status');
+        navigator.clipboard.writeText(dropboxRedirectUri()).then(function () {
+            $status.html('<span class="green-text"><i class="material-icons" style="font-size:1em;vertical-align:middle">check_circle</i></span>');
+        }, function () {
+            $status.html('<span class="red-text">Copy failed</span>');
+        });
+    });
+
+    let storedDropboxClientId = localStorage.getItem('dropboxClientId');
+    if (storedDropboxClientId && storedDropboxClientId !== DEFAULT_DROPBOX_CLIENT_ID) {
+        $('#dropbox-client-id').val(storedDropboxClientId);
+        $('#dropbox-expert-mode').prop('checked', true);
+        $('#dropbox-expert-panel').show();
+        M.updateTextFields();
+    }
+
+    $('#dropbox-expert-mode').on('change', function () {
+        $('#dropbox-expert-panel').toggle(this.checked);
+        M.updateTextFields();
+    });
+
     // --- Login button handlers ---
     $('#dropbox-login').on('click', function (e) {
         e.preventDefault();
+        let clientId = DEFAULT_DROPBOX_CLIENT_ID;
+        if ($('#dropbox-expert-mode').prop('checked')) {
+            clientId = $('#dropbox-client-id').val().trim() || DEFAULT_DROPBOX_CLIENT_ID;
+        }
+        localStorage.setItem('dropboxClientId', clientId);
         let token = generateCodeVerifier();
         localStorage.setItem('dropboxStateToken', token);
-        let redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=y88zxdudhuoo41q&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;
+        let redirectUri = encodeURIComponent(dropboxRedirectUri());
+        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=" + encodeURIComponent(clientId)
+            + "&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;
     });
 
     // Auto-extract folder ID when user pastes a full Google Drive URL
