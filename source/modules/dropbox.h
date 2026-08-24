@@ -13,6 +13,7 @@ public:
     Dropbox(std::string token);
     ~Dropbox() {};
     bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
+	bool validateToken();
 
 private:
     std::string _token;

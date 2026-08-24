@@ -107,7 +107,7 @@ typedef int (*ini_handler)(void *user, const char *section,
 /* Maximum line length for any line in INI file (stack or heap). Note that
    this must be 3 more than the longest line (due to '\r', '\n', and '\0'). */
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 200
+#define INI_MAX_LINE 2048
 #endif
 
 /* Nonzero to allow heap line buffer to grow via realloc(), zero for a
