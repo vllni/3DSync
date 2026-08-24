@@ -657,7 +657,7 @@ static void runSync(const INIReader &reader)
                 }
             }
 
-            Manifest manifest("/3ds/3DSyncZakary/manifest.json");
+            Manifest manifest("/3ds/3DSync/manifest.json");
             manifest.load();
 
             SyncSummary summary;
@@ -721,7 +721,7 @@ static void runSync(const INIReader &reader)
     }
 
     if (dropboxToken == "" && !hasGoogleDrive)
-        printf("Can't load Dropbox or Google Drive token from 3DSyncZakary.ini\n");
+        printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -735,7 +735,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    INIReader reader("/3ds/3DSyncZakary/3DSyncZakary.ini");
+    INIReader reader("/3ds/3DSync/3DSync.ini");
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
 
