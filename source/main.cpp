@@ -599,15 +599,6 @@ static void runSync(const INIReader &reader)
 
 	printf("  Sync is starting. Please wait...");
     std::string dropboxToken = reader.Get("Dropbox", "token", "");
-
-    printf("Dropbox token length: %u\n", (unsigned)dropboxToken.length());
-
-    if (!dropboxToken.empty())
-    {
-    printf("Token first 8: %.8s\n", dropboxToken.c_str());
-    printf("Token last 8: %.8s\n",
-           dropboxToken.c_str() + dropboxToken.length() - 8);
-    }
     std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
     std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
     std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
