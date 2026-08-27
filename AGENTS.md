@@ -8,7 +8,7 @@
 
 ## What this repo is
 
-Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, an SMB2/3 file server, FTP/FTPS, WebDAV, or Dropbox (upload-only). Written in C++11, built with devkitPro/devkitARM.
+Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, Dropbox, an SMB2/3 file server, FTP/FTPS or WebDAV. Written in C++11, built with devkitPro/devkitARM.
 
 Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.github.io/3DSync/`) generates the INI config file via OAuth and a stepper UI.
 
@@ -26,7 +26,7 @@ source/             C++ application source
     smbremote.cpp/h    SMB2/3 via libsmb2 (NAS, Windows share)
     ftpremote.cpp/h    FTP/FTPS via libcurl
     webdavremote.cpp/h WebDAV via libcurl (PROPFIND/MKCOL/PUT/MOVE)
-    dropbox.cpp/h   Dropbox upload (upload-only — see "Dropbox module")
+    dropbox.cpp/h   Dropbox: content_hash tags, PKCE refresh-token auth
     manifest.cpp/h  Local JSON manifest tracking sync state
   utils/
     curl.cpp/h      libcurl wrapper (methods, upload/download streaming, FTP
@@ -104,7 +104,7 @@ Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the
 
 Everything the engine needs from a backend is in `SyncProvider` (`source/modules/syncprovider.h`): `connect`, `ensureRoot`, `list`, `download`, `upload`, `hasFatalError`, and the optional `localTag` / `serverTime` / `legacyUpload` / `isExperimental`. A new protocol means one new module and three lines in `runSync()`; `performSync()` should not need to change.
 
-`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. Only `GoogleDrive` overrides it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer. Dropbox does not implement `SyncProvider`, so its notice is raised directly in `runSync()` — move it to the override if that module ever becomes a provider.
+`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. Only `GoogleDrive` overrides it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer.
 
 Flipping a backend to stable is four edits, and all four should move together: the `isExperimental()` override, the status table at the top of `README.md`, the section note under its INI example there, and the badge on `docs/index.html` (plus `docs/configurator.html` for a backend the configurator can write).
 
@@ -114,40 +114,45 @@ Constraints that shaped the current set — worth knowing before proposing a fou
 - **curl's SMB is useless for sync.** It is SMB1-only (`NT LM 0.12`) and cannot list a directory, hence libsmb2 instead.
 - **libsmb2's sync API blocks on `poll()`**, which libctru provides (`libctru/include/poll.h`). Include `smb2/smb2.h` *before* `smb2/libsmb2.h` — the latter uses macros the former defines.
 - **`curl_fileinfo::time` is documented "always zero"**, so FTP timestamps come from a per-file `MDTM`/`SIZE` request after the wildcard listing. That is one extra round trip per file; do not "optimise" it away by trusting the listing's time.
-- **Only Drive offers a content hash.** The others tag with size + mtime (or an ETag), so a modification that preserves both is invisible to them.
+- **Only Drive and Dropbox offer a content hash** (MD5 and `content_hash`), so only they can implement `localTag()`. SMB, FTP and WebDAV tag with size + mtime (or an ETag), which makes a modification preserving both invisible to them.
 - Credentials for SMB/FTP/WebDAV sit in plaintext in `3DSync.ini`, as the INI is the only configuration channel. Do not log them.
 
 ---
 
 ## Dropbox module (`source/modules/dropbox.cpp`)
 
-**Upload-only.** Google Drive is the reference implementation for bidirectional sync; Dropbox has no listing, no download and no manifest integration, so `SYNC_BOTH` entries are merely uploaded and its transfers never appear in `SyncSummary`. In `runSync()` the Dropbox pass also runs for *every* configured entry regardless of `entry.direction`.
+A full `SyncProvider`: `files/list_folder` (+ `list_folder/continue`), `files/download`, `files/upload`, and `content_hash` as the change tag.
 
-What it does have, and must keep:
+Things here that are easy to get wrong:
 
-- `validateToken()` — `POST /2/check/user` (needs no scopes) before any transfer, because configurator tokens are short-lived and a stale one otherwise fails silently.
-- `_performWithRetry()` — the Dropbox counterpart of `GoogleDrive::_performWithRetry()`: back-off on network errors, on 429 (honouring the `Retry-After` header) and on 5xx; 401/403 set `_fatalError`; 400/409 are per-file errors that log the response body and skip that file only. Do not call `_curl.perform()` directly from Dropbox methods.
+- **`content_hash` is not an MD5.** It is SHA-256 over the concatenated SHA-256 digests of each 4 MiB block; `computeDropboxHash()` in `utils/fsutil.cpp` reproduces it, which is what lets `localTag()` catch a save whose mtime never moves. An empty file hashes to SHA-256 of no input at all — do not "fix" that by hashing a zero-length block.
+- **Downloads address `rev:<rev>`, not the path**, so the bytes that arrive are the revision `list()` reported even if the file changes mid-sync. `RemoteFileInfo::id` therefore holds `"rev:…"`; `upload()` rebuilds the real path from `root + relPath` instead of reading it back.
 - Uploads use `"mode":"overwrite"`. The API default `"add"` does **not** overwrite — it silently renames the upload to `name (1).ext`, which breaks sync entirely.
-- `_headerJsonEscape()` — `Dropbox-API-Arg` is JSON carried in an HTTP header and must be pure ASCII, so non-ASCII path bytes are emitted as `\uXXXX`. Save folders are named after game titles, so non-ASCII paths are normal, not an edge case.
-- `upload()` returns `false` only for user cancellation (START) or a fatal error — distinguished by `hasFatalError()` in the caller. Per-file failures log and continue.
+- **A single-request upload is capped at 150 MB.** Larger files need the `upload_session` endpoints, which nothing on an SD card should hit; the module refuses them with a clear message rather than failing obscurely.
+- `_headerJsonEscape()` — `Dropbox-API-Arg` is JSON carried in an HTTP header and must be pure ASCII, so non-ASCII path bytes are emitted as `\uXXXX`. Save folders are named after game titles, so non-ASCII paths are normal, not an edge case. `_jsonEscape()` is the laxer version for request bodies.
+- `_splitEntries()` walks the `entries` array counting braces **string-aware**: a file name may contain `{` or `}`.
+- **Dropbox paths are case-insensitive.** `list()` matches the root with `strncasecmp` and keeps the server's spelling for the remainder. A folder stored under a different case than the local one would produce a `relPath` that does not match, so the two sides would be treated as separate files.
+- `validateToken()` — `POST /2/check/user` (needs no scopes) before any transfer, so a dead token gives one clear message instead of one per file.
+- `_performWithRetry()` / `_rpc()`: back-off on network errors, on 429 (honouring `Retry-After`) and on 5xx; 401/403 set `_fatalError`; 400/409 are per-call errors that log the response body and continue. Do not call `_curl.perform()` directly.
 
-To reach parity with Drive, a future change needs: `files/list_folder` (+ `list_folder/continue` pagination) and `files/download`; the Dropbox **content hash** (SHA-256 over the SHA-256 of each 4 MB block — *not* MD5, so `computeMd5Hex()` in `main.cpp` does not transfer) and `rev` in place of `driveMd5`/`driveId`; a provider-neutral interface so `performSync()` stops taking `GoogleDrive &`; and provider-scoped manifest keys, since the single `/3ds/3DSync/manifest.json` is keyed by local path only and both providers would fight over the same entries.
-
-Config-side: the configurator issues an implicit-flow token (`response_type=token`), so Dropbox tokens expire after ~4 hours and there is no refresh token. PKCE plus `token_access_type=offline` would be needed for unattended sync.
+**Auth.** `RefreshToken=` + `AppKey=` is the supported setup: Dropbox access tokens expire after about four hours, so `connect()` exchanges the refresh token for one on every run. `AppSecret=` is only sent for a confidential (non-PKCE) app. A bare `Token=` is still accepted for configs written before this flow existed, and `validateToken()` says what to do when such a token has expired. The configurator uses PKCE with `token_access_type=offline`; both providers now return `?code=&state=`, and the stored `state` decides which one is answering.
 
 ---
 
 ## INI format (on SD card)
 
 ```ini
-[Dropbox]
-Token=...             ; short-lived access token from the configurator
-
 [GoogleDrive]
 ClientId=...
 ClientSecret=...
 RefreshToken=...
 FolderId=...          ; optional
+
+[Dropbox]
+AppKey=...            ; app key from the configurator
+RefreshToken=...      ; PKCE refresh token; Token= (short-lived) still accepted
+AppSecret=            ; only for a confidential (non-PKCE) app
+Path=                 ; optional folder inside the account
 
 [SMB]                 ; SMB2/3 file server
 Server=192.168.1.10

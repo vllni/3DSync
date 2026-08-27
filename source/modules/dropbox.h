@@ -3,31 +3,62 @@
 
 #include <string>
 #include <vector>
-#include <map>
 
 #include "../utils/curl.h"
+#include "syncprovider.h"
 
-class Dropbox
+// Dropbox remote with full bidirectional sync.
+//
+// Dropbox publishes no MD5: its change token is content_hash, a SHA-256 over
+// the SHA-256 of each 4 MiB block, which computeDropboxHash() reproduces
+// locally.  That makes Dropbox the only remote besides Drive that can verify a
+// file by content rather than by timestamp.
+//
+// Files are addressed by "rev:<rev>" when downloading, so the bytes that arrive
+// are the revision that was listed even if the file changes mid-sync.
+class Dropbox : public SyncProvider
 {
 public:
-    Dropbox(std::string token);
-    ~Dropbox() {};
+    // appKey/appSecret/refreshToken come from the [Dropbox] section.  A
+    // refresh token is what allows unattended sync: Dropbox access tokens
+    // expire after about four hours.  A bare short-lived token is still
+    // accepted via directToken for configs written before that flow existed.
+    Dropbox(const std::string &appKey, const std::string &appSecret,
+            const std::string &refreshToken, const std::string &basePath,
+            const std::string &directToken = std::string());
+    ~Dropbox() {}
+
+    const char *name() const override { return "Dropbox"; }
+    std::string manifestPrefix() const override { return "dropbox"; }
+    bool connect() override;
+    bool hasFatalError() const override;
+    std::string ensureRoot(const std::string &remoteName) override;
+    bool list(const std::string &root,
+              std::map<std::string, RemoteFileInfo> &out) override;
+    bool download(const RemoteFileInfo &file, const std::string &localPath) override;
+    bool upload(const std::string &root, const std::string &relPath,
+                const std::string &localPath, const RemoteFileInfo *existing,
+                std::string &outTag, std::string &outId) override;
+    // content_hash is derivable from local file contents, so an unchanged
+    // mtime can still be checked properly.
+    std::string localTag(const std::string &localPath) override;
+    std::string serverTime() const override { return _lastServerTime; }
 
     // Verify the token before any transfer is attempted (POST /2/check/user,
-    // which needs no scopes).  Dropbox tokens from the configurator are
-    // short-lived, so a stale one is the most common failure.
+    // which needs no scopes).  Public so a caller can probe credentials.
     bool validateToken();
 
-    bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
-
-    // True once an unrecoverable API error occurred (401 / 403).  All further
-    // Dropbox calls are skipped and the caller should stop uploading.
-    bool hasFatalError() const;
-
 private:
+    std::string _appKey;
+    std::string _appSecret;
+    std::string _refreshToken;
+    std::string _basePath;
     std::string _token;
-    Curl _curl;
+    std::string _lastServerTime;
     bool _fatalError;
+    Curl _curl;
+
+    bool _refreshAccessToken();
 
     // perform() with back-off on network errors, 429 (honouring Retry-After)
     // and 5xx.  Returns 0 on HTTP 2xx, the curl error code on a network
@@ -36,9 +67,21 @@ private:
     // streamed request body starts from the beginning.
     int _performWithRetry(FILE *uploadFile = NULL);
 
+    // POST a JSON body to an api.dropboxapi.com RPC endpoint.
+    int _rpc(const std::string &endpoint, const std::string &jsonBody);
+
     // Dropbox-API-Arg is JSON carried in an HTTP header, so it has to be pure
     // ASCII: escape the JSON specials and emit non-ASCII as \uXXXX.
     static std::string _headerJsonEscape(const std::string &value);
+    // Same escaping rules, minus the ASCII restriction, for a request body.
+    static std::string _jsonEscape(const std::string &value);
+    static std::string _jsonString(const std::string &json, const std::string &key);
+    static bool _jsonTrue(const std::string &json, const std::string &key);
+    // Split the "entries" array of a list_folder response into its objects.
+    // Brace counting is string-aware: a file name may contain braces.
+    static void _splitEntries(const std::string &json, std::vector<std::string> &out);
+    // Absolute Dropbox path for a sync-relative path ("" for the root).
+    std::string _pathFor(const std::string &path) const;
 };
 
 #endif

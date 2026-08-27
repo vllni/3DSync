@@ -700,6 +700,11 @@ static void runSync(const INIReader &reader)
     g_applyAllChoice = -1;
 
     std::string dropboxToken = reader.Get("Dropbox", "token", "");
+    std::string dropboxAppKey = reader.Get("Dropbox", "appkey", "");
+    std::string dropboxAppSecret = reader.Get("Dropbox", "appsecret", "");
+    std::string dropboxRefreshToken = reader.Get("Dropbox", "refreshtoken", "");
+    std::string dropboxPath = reader.Get("Dropbox", "path", "");
+    bool hasDropbox = !dropboxToken.empty() || !dropboxRefreshToken.empty();
 
     std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
     std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
@@ -718,7 +723,7 @@ static void runSync(const INIReader &reader)
     std::string webdavUrl = reader.Get("WebDAV", "url", "");
     bool hasWebdav = !webdavUrl.empty();
 
-    if (dropboxToken.empty() && !hasGoogleDrive && !hasSmb && !hasFtp && !hasWebdav)
+    if (!hasDropbox && !hasGoogleDrive && !hasSmb && !hasFtp && !hasWebdav)
     {
         printf("No remote configured in 3DSync.ini\n");
         printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP] or [WebDAV] section.\n");
@@ -736,28 +741,12 @@ static void runSync(const INIReader &reader)
     manifest.load();
     SyncSummary summary;
 
-    // --- Dropbox (upload-only; see modules/dropbox.cpp) ---
-    if (!dropboxToken.empty())
+    // --- Dropbox ---
+    if (hasDropbox && !g_cancelRequested)
     {
-        std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
-        for (auto &e : syncEntries)
-            legacyPaths[std::make_pair(e.localBase, e.remoteName)] = e.localFiles;
-
-        printf("\n=== Dropbox ===\n");
-        // Dropbox does not implement SyncProvider yet (it is upload-only), so
-        // its notice is raised here rather than through isExperimental().
-        printExperimentalNotice("Dropbox");
-
-        Dropbox dropbox(dropboxToken);
-        if (!dropbox.validateToken())
-            printf("Skipping Dropbox uploads.\n");
-        else if (!dropbox.upload(legacyPaths))
-        {
-            if (dropbox.hasFatalError())
-                printf(CONSOLE_RED "Dropbox uploads aborted.\n" CONSOLE_RESET);
-            else
-                g_cancelRequested = true; // START pressed
-        }
+        Dropbox dropbox(dropboxAppKey, dropboxAppSecret, dropboxRefreshToken,
+                        dropboxPath, dropboxToken);
+        syncProvider(dropbox, syncEntries, manifest, summary);
     }
 
     // --- Google Drive ---
