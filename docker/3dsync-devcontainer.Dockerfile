@@ -1,4 +1,4 @@
-FROM devkitpro/devkitarm:latest AS tools-builder
+FROM docker.io/devkitpro/devkitarm:latest AS tools-builder
 
 # Build dependencies used only for bannertool and makerom.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +17,7 @@ RUN git clone --depth=1 https://github.com/3DSGuy/Project_CTR.git /tmp/Project_C
     && make -C /tmp/Project_CTR/makerom -j$(nproc) \
     && install -m755 /tmp/Project_CTR/makerom/bin/makerom /usr/local/bin/makerom
 
-FROM devkitpro/devkitarm:latest
+FROM docker.io/devkitpro/devkitarm:latest
 
 # Install 3DS development tools and required portlibs
 RUN dkp-pacman -Sy --noconfirm \
@@ -31,6 +31,7 @@ RUN dkp-pacman -Sy --noconfirm \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
+    openssh-client \
     && git lfs install \
     && rm -rf /var/lib/apt/lists/*
 
