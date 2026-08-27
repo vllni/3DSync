@@ -13,7 +13,10 @@ public:
     ~Curl();
     void setURL(std::string URL);
     void setHeaders(curl_slist *headers);
-    void setReadData(void *pointer);
+    // Stream the request body from a FILE*.  When size >= 0 the body length is
+    // announced with Content-Length; without it libcurl falls back to chunked
+    // transfer encoding, which the Dropbox content endpoints reject.
+    void setReadData(void *pointer, curl_off_t size = -1);
     void setPostData(const std::string &data);
     void resetToGet();
     // Direct response body to a FILE* instead of the internal string buffer.

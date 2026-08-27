@@ -37,12 +37,13 @@ void Curl::setHeaders(curl_slist *headers)
     curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, headers);
 }
 
-void Curl::setReadData(void *pointer)
+void Curl::setReadData(void *pointer, curl_off_t size)
 {
     curl_easy_setopt(_curl, CURLOPT_READFUNCTION, _read_callback);
     curl_easy_setopt(_curl, CURLOPT_READDATA, pointer);
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, NULL);
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE_LARGE, size);
 }
 
 void Curl::setPostData(const std::string &data)
