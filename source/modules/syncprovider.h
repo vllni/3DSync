@@ -29,6 +29,12 @@ public:
     // Short name for log lines, e.g. "Drive" or "SMB".
     virtual const char *name() const = 0;
 
+    // Whether this backend is still experimental.  Defaults to true so a newly
+    // added remote warns until someone has deliberately marked it stable: the
+    // 3DS prints a notice with the issue tracker URL before syncing, and the
+    // docs badge it.  Only Google Drive returns false.
+    virtual bool isExperimental() const { return true; }
+
     // Stable identifier for *this* remote, used to scope manifest keys so two
     // providers syncing the same local folder cannot overwrite each other's
     // state.  Include the host where one exists: "drive", "smb://nas/3ds",

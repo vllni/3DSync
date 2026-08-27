@@ -35,6 +35,8 @@ public:
     // --- SyncProvider ---
     const char *name() const override { return "Drive"; }
     std::string manifestPrefix() const override { return "drive"; }
+    // The original backend: bidirectional sync here has been in use longest.
+    bool isExperimental() const override { return false; }
     bool connect() override { return ensureToken(); }
     bool hasFatalError() const override;
     std::string ensureRoot(const std::string &remoteName) override;

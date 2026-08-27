@@ -1,7 +1,21 @@
 # 3DSync
 
-Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with cloud storage or a server on your own network.  
-Bidirectional sync with **Google Drive**, an **SMB2/3 file server** (NAS or Windows share), **FTP/FTPS** and **WebDAV**. **Dropbox** is upload-only.
+Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with cloud storage or a server on your own network.
+
+| Remote | Direction | Status |
+|---|---|---|
+| Google Drive | bidirectional | stable |
+| SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
+| FTP / FTPS | bidirectional | 🧪 experimental |
+| WebDAV | bidirectional | 🧪 experimental |
+| Dropbox | upload-only | 🧪 experimental |
+
+> 🧪 **Experimental** backends work but have had far less testing against real
+> servers than Google Drive. Keep a backup of your saves, and please report
+> anything that goes wrong at
+> [github.com/vllni/3DSync/issues](https://github.com/vllni/3DSync/issues) —
+> bug reports and feedback are what move a backend off this list. 3DSync also
+> prints this notice on the 3DS before syncing with an experimental remote.
 
 Full credit to [Kyraminol](https://github.com/Kyraminol) for the original project. Extended by michvllni with Google Drive support, refresh-token auth, and full bidirectional sync.
 
@@ -22,6 +36,8 @@ The INI file lives at `/3ds/3DSync/3DSync.ini`.
 
 ### Dropbox
 
+🧪 Experimental, and upload-only — Dropbox never downloads, so it cannot restore a save to the 3DS.
+
 ```ini
 [Dropbox]
 Token=<access token from configurator>
@@ -41,6 +57,8 @@ FolderId=<optional root folder ID>
 
 ### SMB file server (NAS, Windows share)
 
+🧪 Experimental.
+
 ```ini
 [SMB]
 Server=192.168.1.10       ; IP address or hostname
@@ -55,6 +73,8 @@ Speaks SMB2/SMB3 — the dialects modern NAS boxes and Windows accept by default
 SMB1 is not supported and does not need to be re-enabled.
 
 ### FTP / FTPS
+
+🧪 Experimental.
 
 ```ini
 [FTP]
@@ -74,6 +94,8 @@ unencrypted session, or `implicit` for the older `ftps://` on port 990.
 SFTP is **not** supported: the 3DS build of libcurl has no libssh2.
 
 ### WebDAV
+
+🧪 Experimental.
 
 ```ini
 [WebDAV]

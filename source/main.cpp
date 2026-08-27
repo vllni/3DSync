@@ -526,12 +526,32 @@ static bool performSync(SyncProvider &provider, Manifest &manifest,
 }
 
 // ---------------------------------------------------------------------------
+// printExperimentalNotice  — shown once per experimental backend, per run
+// ---------------------------------------------------------------------------
+// Kept to the console's 50 columns.  The URL is the issue tracker rather than
+// the repository root: someone reading this is being asked to report something.
+// ---------------------------------------------------------------------------
+static const char *ISSUES_URL = "github.com/vllni/3DSync/issues";
+
+static void printExperimentalNotice(const char *backendName)
+{
+    printf(CONSOLE_YELLOW "  %s support is EXPERIMENTAL." CONSOLE_RESET "\n",
+           backendName);
+    printf("  It has seen far less testing than Drive, so\n");
+    printf("  please keep a backup of your saves.\n");
+    printf("  Bugs and feedback are very welcome at\n");
+    printf(CONSOLE_CYAN "  %s" CONSOLE_RESET "\n\n", ISSUES_URL);
+}
+
+// ---------------------------------------------------------------------------
 // syncProvider  — run every configured entry against one remote
 // ---------------------------------------------------------------------------
 static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &entries,
                          Manifest &manifest, SyncSummary &summary)
 {
     printf("\n=== %s ===\n", provider.name());
+    if (provider.isExperimental())
+        printExperimentalNotice(provider.name());
 
     if (!provider.connect())
     {
@@ -724,6 +744,10 @@ static void runSync(const INIReader &reader)
             legacyPaths[std::make_pair(e.localBase, e.remoteName)] = e.localFiles;
 
         printf("\n=== Dropbox ===\n");
+        // Dropbox does not implement SyncProvider yet (it is upload-only), so
+        // its notice is raised here rather than through isExperimental().
+        printExperimentalNotice("Dropbox");
+
         Dropbox dropbox(dropboxToken);
         if (!dropbox.validateToken())
             printf("Skipping Dropbox uploads.\n");
