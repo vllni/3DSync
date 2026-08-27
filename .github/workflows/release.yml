@@ -12,8 +12,39 @@ env:
   BUILD_IMAGE: ghcr.io/vllni/3dsync-devcontainer:latest
 
 jobs:
+  # The app prints the version from source/version.h and the assets are named
+  # after the tag, so a tag that disagrees with the header ships a build that
+  # misreports itself — and every bug report against it names the wrong version.
+  # Checked in its own job so a mismatch fails before anything is built or
+  # uploaded, and the fix is a header bump or a retag rather than a deleted
+  # release.
+  version:
+    name: Version Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tag matches source/version.h
+        run: |
+          code="$(sed -n 's/^.*#define[[:space:]]*APP_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' source/version.h)"
+          # The leading "v" is conventional in the tag and absent from the code.
+          tag="${GITHUB_REF_NAME#v}"
+          echo "source/version.h: ${code:-<not found>}"
+          echo "release tag:      $tag (${GITHUB_REF_NAME})"
+
+          if [ -z "$code" ]; then
+            echo "::error file=source/version.h::APP_VERSION could not be read — keep it as a single #define APP_VERSION \"x.y.z\" line."
+            exit 1
+          fi
+          if [ "$code" != "$tag" ]; then
+            echo "::error file=source/version.h::Tag ${GITHUB_REF_NAME} does not match APP_VERSION \"$code\". Bump source/version.h and retag, or publish the release as v${code}."
+            exit 1
+          fi
+
   build-and-upload:
     name: Build and Upload
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

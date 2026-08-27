@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 
 #include "../utils/console.h"
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 
 // ---------------------------------------------------------------------------
@@ -17,10 +18,21 @@ static bool recordUpload(SyncProvider &provider, Manifest &manifest,
 {
     std::string tag, id;
     if (!provider.upload(root, relPath, localPath, existing, tag, id))
+    {
+        // Every caller ignores this: one file failing must not stop the rest of
+        // the run.  That leaves nothing on screen for a per-file failure the
+        // provider reported quietly, so it is named here.
+        debugf("upload failed: %s -> %s%s\n", localPath.c_str(), root.c_str(),
+               relPath.c_str());
         return false;
+    }
 
     struct stat st = {};
-    stat(localPath.c_str(), &st);
+    if (stat(localPath.c_str(), &st) != 0)
+        debugErrno("stat after upload", localPath);
+    if (tag.empty())
+        debugf("%s uploaded without a change tag — it will look changed next "
+               "run\n", relPath.c_str());
     manifest.set(key, {st.st_mtime, (long long)st.st_size, tag, id});
     summary.uploaded++;
     summary.changes.push_back({localPath, "uploaded"});
@@ -37,10 +49,17 @@ static bool recordDownload(SyncProvider &provider, Manifest &manifest,
     mkparents(localPath);
 
     if (!provider.download(file, localPath))
+    {
+        debugf("download failed: %s -> %s\n", file.relPath.c_str(), localPath.c_str());
         return false;
+    }
 
     struct stat st = {};
-    stat(localPath.c_str(), &st);
+    if (stat(localPath.c_str(), &st) != 0)
+        debugErrno("stat after download", localPath);
+    if (file.tag.empty())
+        debugf("%s downloaded without a change tag — it will look changed next "
+               "run\n", file.relPath.c_str());
     manifest.set(key, {st.st_mtime, (long long)st.st_size, file.tag, file.id});
     summary.downloaded++;
     summary.changes.push_back({localPath, "downloaded"});
@@ -61,6 +80,7 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
             return false;
         printf("Cannot resolve %s folder for %s — skipping\n",
                provider.name(), entry.remoteName.c_str());
+        debugf("ensureRoot(\"%s\") returned nothing\n", entry.remoteName.c_str());
         return true;
     }
 
@@ -72,8 +92,13 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
             return false;
         printf("Cannot list %s:%s — skipping\n",
                provider.name(), entry.remoteName.c_str());
+        debugf("list(\"%s\") failed; %d entries had been collected\n", root.c_str(),
+               (int)remoteFiles.size());
         return true;
     }
+
+    debugf("%s root \"%s\": %d remote file(s), %d local file(s)\n", provider.name(),
+           root.c_str(), (int)remoteFiles.size(), (int)entry.localFiles.size());
 
     // Build the full set of relative paths to consider: everything local, plus
     // everything on the remote unless we are only pushing.
@@ -130,11 +155,22 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
         {
             std::string tag = provider.localTag(localPath);
             if (!tag.empty() && tag != mEntry.remoteTag)
+            {
+                debugf("%s: mtime unchanged but contents differ from the "
+                       "recorded tag\n", relPath.c_str());
                 localChanged = true;
+            }
         }
 
         if (provider.hasFatalError())
             break;
+
+        // The decision below is the whole engine, and in a quiet run nothing
+        // about it reaches the screen for a file that ends up skipped.
+        debugf("%s: local=%s remote=%s manifest=%s%s%s\n", relPath.c_str(),
+               localExists ? "yes" : "no", remoteExists ? "yes" : "no",
+               inManifest ? "yes" : "no", localChanged ? " localChanged" : "",
+               remoteChanged ? " remoteChanged" : "");
 
         // ----------------------------------------------------------------
         // Decision table
@@ -144,7 +180,10 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
         {
             // Both gone — clean up manifest
             if (inManifest)
+            {
+                debugf("  -> gone on both sides, dropping the manifest entry\n");
                 manifest.remove(key);
+            }
             continue;
         }
 

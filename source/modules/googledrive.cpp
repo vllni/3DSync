@@ -1,5 +1,6 @@
 #include "googledrive.h"
 
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/hash.h"
 #include <3ds.h>
@@ -78,6 +79,8 @@ bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
                 printf("Failed to open %s: %s\n", localPath.c_str(), strerror(errno));
                 continue;
             }
+            debugf("legacy upload %s -> folder %s\n", localPath.c_str(),
+                   targetFolderId.c_str());
 
             std::string fileContents = _readFile(file);
             std::string boundary = "3DSyncGoogleDriveBoundary" + std::to_string(_uploadCount++);
@@ -114,6 +117,7 @@ bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
             if (_performWithRetry() != 0)
             {
                 printf("Google Drive upload failed for %s\n", localPath.c_str());
+                debugf("  HTTP %ld\n", _curl.getStatusCode());
             }
             curl_slist_free_all(headers);
             fclose(file);
@@ -167,6 +171,9 @@ std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std:
     std::string folderId;
     if (result == 0)
         folderId = _extractJsonString(_curl.getResponse(), "id");
+    else
+        debugf("folder search for '%s' failed (%d), assuming it is missing\n",
+               name.c_str(), result);
 
     if (folderId.empty())
     {
@@ -187,11 +194,23 @@ std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std:
         curl_slist_free_all(headers);
 
         if (result == 0)
+        {
             folderId = _extractJsonString(_curl.getResponse(), "id");
+            if (folderId.empty())
+                debugBody("create folder response", _curl.getResponse());
+        }
+        else
+            debugf("creating folder '%s' failed (%d)\n", name.c_str(), result);
     }
 
     if (folderId.empty())
+    {
         printf("Warning: could not find or create Drive folder '%s', uploading to parent\n", name.c_str());
+        // The failure is cached like a success, so every later file under this
+        // folder silently lands in the parent without another warning.
+        debugf("caching '%s' as unresolved for the rest of the run\n",
+               cacheKey.c_str());
+    }
 
     _folderCache[cacheKey] = folderId;
     return folderId;
@@ -219,6 +238,7 @@ bool GoogleDrive::_refreshAccessToken()
     if (result != 0)
     {
         printf("Token refresh request failed\n");
+        debugf("oauth2/token returned %d (HTTP %ld)\n", result, _curl.getStatusCode());
         return false;
     }
 
@@ -226,6 +246,7 @@ bool GoogleDrive::_refreshAccessToken()
     if (accessToken.empty())
     {
         printf("Failed to parse access_token from refresh response\n");
+        debugBody("refresh response", _curl.getResponse());
         return false;
     }
 
@@ -354,6 +375,11 @@ std::string GoogleDrive::_readFile(FILE *file)
     {
         contents.append(buffer, read);
     }
+    // A read error here truncates the upload silently: the multipart body is
+    // built from whatever arrived and Drive accepts it.
+    if (ferror(file))
+        debugf("reading the local file failed after %d bytes: %s\n",
+               (int)contents.size(), strerror(errno));
     return contents;
 }
 
@@ -379,6 +405,7 @@ int GoogleDrive::_performWithRetry()
         if (curlRes != 0)
         {
             printf("  Network error (attempt %d/3)\n", attempt + 1);
+            debugf("  %s\n", _curl.getURL().c_str());
             if (attempt < 2)
             {
                 _curl.rewindDownloadFile();   // discard any partial body written to temp file
@@ -398,6 +425,9 @@ int GoogleDrive::_performWithRetry()
         printf(CONSOLE_RED "  Drive API error: HTTP %ld" CONSOLE_RESET "\n", status);
         if (!errMsg.empty())
             printf(CONSOLE_RED "  %s" CONSOLE_RESET "\n", errMsg.c_str());
+        debugf("  %s (attempt %d/3)\n", _curl.getURL().c_str(), attempt + 1);
+        if (errMsg.empty())
+            debugf("  the response carried no \"message\" field\n");
 
         // Rate-limited — retry after a wait
         if (status == 429 && attempt < 2)
@@ -434,6 +464,9 @@ int GoogleDrive::_performWithRetry()
             }
 
             printf(CONSOLE_RED "  FATAL: Access denied (HTTP 403)." CONSOLE_RESET "\n");
+            if (reason.empty())
+                debugf("  no reason in the body (a download streams it to the "
+                       "temp file), so the 403 is taken as fatal\n");
             if (reason == "accessNotConfigured")
             {
                 printf("  The Google Drive API is not enabled in your Cloud project.\n");
@@ -452,6 +485,7 @@ int GoogleDrive::_performWithRetry()
         // Per-file / transient error
         return (int)status;
     }
+    debugf("  giving up on %s after 3 attempts\n", _curl.getURL().c_str());
     return -1; // exhausted retries
 }
 
@@ -523,6 +557,11 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
         if (res != 0)
         {
             printf("Drive list failed for folder %s\n", folderId.c_str());
+            // Breaking here returns the pages that did arrive as if the listing
+            // were complete, so the engine may treat missing remote files as
+            // local-only and upload over them.
+            debugf("listing folder %s stopped after %d file(s) with %d\n",
+                   folderId.c_str(), (int)result.size(), res);
             break;
         }
 
@@ -540,10 +579,17 @@ std::vector<DriveFileInfo> GoogleDrive::_listFolderContents(const std::string &f
         // Parse the "files" array: find each '{' that opens a file object
         size_t arrPos = response.find("\"files\"");
         if (arrPos == std::string::npos)
+        {
+            // Drive omits "files" for an empty folder, so this is usually fine.
+            debugf("no \"files\" array for folder %s\n", folderId.c_str());
             break;
+        }
         arrPos = response.find('[', arrPos);
         if (arrPos == std::string::npos)
+        {
+            debugBody("malformed files array", response);
             break;
+        }
 
         size_t objPos = arrPos;
         while ((objPos = response.find('{', objPos + 1)) != std::string::npos)
@@ -663,6 +709,8 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
         printf("syncUpload: cannot open %s: %s\n", localPath.c_str(), strerror(errno));
         return "";
     }
+    debugf("uploading %s to folder %s%s\n", relPath.c_str(), parentFolderId.c_str(),
+           existingId.empty() ? "" : " (update)");
     std::string fileContents = _readFile(file);
     fclose(file);
 
@@ -747,6 +795,7 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
         if (res != 0)
         {
             printf("syncUpload failed for %s\n", localPath.c_str());
+            debugf("  HTTP %ld for %s\n", _curl.getStatusCode(), relPath.c_str());
             return "";
         }
     }
@@ -754,6 +803,13 @@ std::string GoogleDrive::syncUpload(const std::string &rootFolderId,
     std::string response = _curl.getResponse();
     std::string fileId = _extractJsonString(response, "id");
     outMd5 = _extractJsonString(response, "md5Checksum");
+    // Without an md5 the manifest records no tag, and the next run sees the
+    // remote side as changed.
+    if (outMd5.empty())
+    {
+        debugf("no md5Checksum in the upload response for %s\n", relPath.c_str());
+        debugBody("  upload response", response);
+    }
 
     // If Drive omitted md5Checksum (shouldn't happen for binary files), fall back to ""
     return fileId;
@@ -790,6 +846,10 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
     if (res != 0)
     {
         printf("downloadFile failed for %s\n", localPath.c_str());
+        debugf("download of Drive id %s returned %d (HTTP %ld)\n", file.id.c_str(),
+               res, _curl.getStatusCode());
+        // The API error went into the temp file, which is deleted next.
+        debugFileBody("  error body", tmpPath);
         remove(tmpPath.c_str());
         return false;
     }
@@ -867,6 +927,10 @@ bool GoogleDrive::legacyUpload(const std::string &localBase,
 {
     std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
     paths[std::make_pair(localBase, remoteName)] = files;
-    upload(paths);
+    // The return value says only whether the run was cancelled or hit a fatal
+    // error, both of which the caller re-checks through hasFatalError(); a
+    // per-file failure never reaches it at all.
+    if (!upload(paths))
+        debugf("legacy upload of %s stopped early\n", remoteName.c_str());
     return true;
 }

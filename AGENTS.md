@@ -19,6 +19,7 @@ Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.vi
 ```
 source/             C++ application source
   main.cpp          Entry point, INI parsing, provider construction, 3DS UI
+  version.h         APP_VERSION — the only place the version is written down
   sync/
     syncengine.cpp/h  The decision table: what to upload, download, prompt
                     about or skip.  Free of 3DS APIs — see "Tests".
@@ -43,6 +44,7 @@ source/             C++ application source
     timeutil.cpp/h  Server clock parsing (RFC 3339 and RFC 7231)
     fsutil.cpp/h    mkdirs, temp-file + atomic-replace helpers
     hash.cpp/h      MD5 and the Dropbox content hash
+    debug.cpp/h     Runtime debug flag, debugf(), body dumps, secret redaction
     console.h       CONSOLE_* colours, from <3ds.h> or defined for the host
   libs/inih/        INI parser (inih + INIReader)
 tests/              Host unit tests (see "Tests")
@@ -81,12 +83,20 @@ The Makefile auto-discovers all `.cpp` files under `source/`. Adding a new `.cpp
 ```bash
 arm-none-eabi-g++ -fsyntax-only -std=gnu++11 -Wall \
   -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -DARM11 \
-  -DINI_MAX_LINE=1024 -DVERSION_STRING='"x"' -DREVISION_STRING='"y"' \
+  -DINI_MAX_LINE=1024 \
   -I$DEVKITPRO/libctru/include -I$DEVKITPRO/portlibs/3ds/include \
   -I$DEVKITPRO/portlibs/armv6k/include source/main.cpp
 ```
 
 Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the Makefile, not in the library sources. `INI_MAX_LINE=1024` is set there (inih defaults to 200, which truncates long `Paths=` lines); leave `source/libs/inih/` pristine.
+
+### Version
+
+`source/version.h` holds `APP_VERSION` and is the only place the version lives. The Makefile greps that one line for `VERSION_MAJOR/MINOR/MICRO` (the CIA and NRO metadata), `main.cpp` prints it on the lower screen where the commit hash used to be, and `Curl` sends it as the user agent. It replaced `-DVERSION_STRING` / `-DREVISION_STRING` from `git describe`, which made the displayed version a property of the checkout rather than of the source — a shallow clone had none, and `describe` did not necessarily name the release being built.
+
+Keep the format `major.minor.micro`: the Makefile splits it on the dots and `makerom` wants three numbers, so a suffix like `-rc1` breaks the metadata.
+
+**Releasing** is two steps in this order: bump `APP_VERSION`, commit; then tag that commit `v<version>`. The `Version Check` job in `release.yml` reads the header with the same `sed` expression and fails the whole release before anything is built if the tag and the header disagree (a leading `v` on the tag is optional). If it fires, bump the header and retag rather than deleting the release.
 
 ---
 
@@ -105,11 +115,17 @@ Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the
 - Change detection compares the local mtime **and** size against the manifest, plus the remote's `tag`. `SyncProvider::localTag()` is the content-based fallback for stale mtimes and is only meaningful where the remote's tag is derivable from file contents (Drive's MD5); it returns "" elsewhere.
 - Manifest keys are `SyncProvider::manifestPrefix() + "|" + localPath`. Changing a provider's prefix orphans every existing entry for that remote, which makes the next sync treat every file as unseen — so keep them stable.
 - Conflict resolution in `performSync()` calls `waitForConflictKey()` which returns a `ConflictChoice` enum: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START).
+- The main menu (`waitForMainMenuKey()`) returns a `MainMenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` from that choice *before* `runSync()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
 - The manifest (`/3ds/3DSync/manifest.json`) is a hand-parsed JSON file. Use `Manifest::set/get/has/remove` — never write JSON by hand elsewhere.
 - `svcSleepThread(nanoseconds)` is the 3DS sleep call (from `<3ds.h>`). Use it for rate-limit back-offs.
 - `printf` output goes to the 3DS top-screen console. Use `CONSOLE_RED` / `CONSOLE_RESET` (from `<3ds.h>`) for error messages.
 - The console is **50 columns** wide and wraps mid-word. Keep any line of output — key prompts especially — under that.
-- Keep sync output quiet: print per-entry headers, the experimental notice, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen.
+- Keep sync output quiet: print per-entry headers, the experimental notice, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen. Verbose output belongs behind `debugf()` — see below.
+- **Every swallowed error gets a `debugf()`.** `utils/debug.h` is a runtime flag (Y on the main menu, not a build define) plus `debugf()`, `debugBody()`, `debugFileBody()` and `debugErrno()`. The rule when writing code that absorbs a failure — a 404 read as "empty folder", a per-file error that is skipped, an ignored return value, a `stat()` that is not checked — is to say so through `debugf()` in the same place. A normal run must print exactly what it printed before; a debug run must leave nothing unexplained.
+  - `Curl::perform()` already dumps the status, URL, timing and the body of every failed or non-2xx request. Providers add only what it cannot know: which file, which remote path, what the status *meant* there. Do not dump the same body twice.
+  - A body streamed to a temp file is not in `getResponse()` — a failed download writes the API error into the temp file, so call `debugFileBody()` before removing it.
+  - `debugRedact()` masks bearer headers and the OAuth token/secret fields, and every dump goes through it. Debug output is what ends up in a bug report, and credentials are in `3DSync.ini` in plaintext: when adding a dump of anything new that could carry a secret, extend `debugRedact()` and its tests rather than filtering at the call site.
+  - `debug.cpp` is free of `<3ds.h>`, libcurl and libsmb2, so the sync engine and the host tests can both log.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
 
 ---
@@ -126,6 +142,7 @@ They build for the **host**, not the 3DS, and run in the `Unit Tests` job of `pr
 - `sync/syncengine.cpp` talks to `SyncProvider` and `SyncUi` and nothing else. Cancellation and the conflict prompt arrive through `SyncUi` precisely so the decision table can be driven by a scripted stand-in; do not reach for `hidKeysDown()` or `aptMainLoop()` in there.
 - Response parsing lives in `modules/remoteparse.cpp`, so a provider's `list()` is a request plus a call into a testable function. New protocol parsing belongs there, not inline in the provider.
 - `utils/console.h` supplies the `CONSOLE_*` macros off-console, so host-portable code must include it instead of `<3ds.h>`.
+- `utils/debug.cpp` is in the host `UNITS` because the engine, the manifest and `fsutil` all log through it. `test_debug.cpp` covers `debugRedact()`, which is the one part of debug output that has to be right: everything else is only printed, but a redaction that misses puts a token on screen.
 - The hash tests need mbedtls on the host (`libmbedtls-dev`). Without it the suite still builds and runs, and the runner prints what was left out — deliberately loud rather than a silent pass.
 
 The framework is `tests/framework.h`, about eighty lines: the build image has no gtest and vendoring one for this is more dependency than it is worth. `TEST(suite, name)` registers a case; `CHECK`/`CHECK_EQ`/`CHECK_STR_EQ` record a failure and keep going, so one broken case reports every mismatch rather than only the first.

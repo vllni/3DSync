@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 
+#include "debug.h"
+
 #include <mbedtls/md5.h>
 #include <mbedtls/sha256.h>
 
@@ -9,7 +11,12 @@ std::string computeMd5Hex(const std::string &path)
 {
     FILE *fp = fopen(path.c_str(), "rb");
     if (!fp)
+    {
+        // An empty tag reads as "this provider cannot hash locally", so the
+        // engine simply stops content-checking this file.
+        debugErrno("hashing", path);
         return "";
+    }
 
     mbedtls_md5_context ctx;
     mbedtls_md5_init(&ctx);
@@ -19,6 +26,10 @@ std::string computeMd5Hex(const std::string &path)
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
         mbedtls_md5_update(&ctx, buf, n);
+    // A short read makes the hash wrong rather than absent, which the engine
+    // then reads as "the file changed" on every run.
+    if (ferror(fp))
+        debugErrno("reading while hashing", path);
     fclose(fp);
 
     unsigned char digest[16];
@@ -35,7 +46,10 @@ std::string computeDropboxHash(const std::string &path)
 {
     FILE *fp = fopen(path.c_str(), "rb");
     if (!fp)
+    {
+        debugErrno("hashing", path);
         return "";
+    }
 
     const size_t BLOCK_SIZE = 4 * 1024 * 1024;
 
@@ -75,6 +89,8 @@ std::string computeDropboxHash(const std::string &path)
             }
         }
     }
+    if (ferror(fp))
+        debugErrno("reading while hashing", path);
     fclose(fp);
 
     // Trailing partial block.  An empty file contributes no block digest at

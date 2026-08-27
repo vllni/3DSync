@@ -22,8 +22,10 @@
 #include "modules/syncprovider.h"
 #include "modules/webdavremote.h"
 #include "sync/syncengine.h"
+#include "utils/debug.h"
 #include "utils/fsutil.h"
 #include "utils/timeutil.h"
+#include "version.h"
 
 // ---------------------------------------------------------------------------
 // recurse_dir
@@ -59,10 +61,15 @@ std::vector<std::string> recurse_dir(std::string basepath, std::string additiona
     }
     else
     {
+        // opendir also fails on a plain file, which is how a "Paths=" entry
+        // pointing at a single save is handled — hence no error in that case.
         if (additionalpath != "")
             paths.push_back(additionalpath);
         else
+        {
             printf("Folder %s not found\n", basepath.c_str());
+            debugErrno("opendir", path);
+        }
     }
     return paths;
 }
@@ -114,6 +121,12 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         entry.remoteName = kv.first.substr(prefix.size());
         entry.localFiles = recurse_dir(kv.second, "", recursive);
         entry.direction = dir;
+        // An entry that found nothing locally is silently normal — the remote
+        // may hold everything — but it is also what a mistyped path looks like.
+        debugf("entry %s -> %s: %d local file(s), %s%s\n", entry.localBase.c_str(),
+               entry.remoteName.c_str(), (int)entry.localFiles.size(),
+               recursive ? "recursive" : "shallow",
+               dir == SYNC_UPLOAD_ONLY ? ", upload only" : "");
         entries.push_back(entry);
     }
     return entries;
@@ -215,25 +228,40 @@ ConflictChoice ConsoleSyncUi::resolveConflict(const std::string &localPath)
     return CONFLICT_CANCEL;
 }
 
-// waitForMainMenuKey — returns true to start sync, false to exit.
+// ---------------------------------------------------------------------------
+// waitForMainMenuKey  — which sync to run, or none
+// ---------------------------------------------------------------------------
+// Debug mode is a second entry point rather than a toggle: someone chasing a
+// failure re-runs the sync with Y, and everything the quiet run swallowed —
+// remote status codes, error bodies, per-file decisions — is printed.
+// ---------------------------------------------------------------------------
+enum MainMenuChoice
+{
+    MENU_EXIT,
+    MENU_SYNC,
+    MENU_SYNC_DEBUG
+};
 
-static bool waitForMainMenuKey()
+static MainMenuChoice waitForMainMenuKey()
 {
     printf("\n      A: Run sync\n");
+    printf("      Y: Run sync with debug output\n");
     printf("  START: Exit\n\n");
     while (aptMainLoop())
     {
         hidScanInput();
         u32 k = hidKeysDown();
         if (k & KEY_A)
-            return true;
+            return MENU_SYNC;
+        if (k & KEY_Y)
+            return MENU_SYNC_DEBUG;
         if (k & KEY_START)
-            return false;
+            return MENU_EXIT;
         gfxFlushBuffers();
         gfxSwapBuffers();
         gspWaitForVBlank();
     }
-    return false;
+    return MENU_EXIT;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,19 +295,30 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
     if (!provider.connect())
     {
         printf(CONSOLE_RED "%s: cannot connect — skipping.\n" CONSOLE_RESET, provider.name());
+        debugf("%s: connect() failed, fatal=%d\n", provider.name(),
+               provider.hasFatalError() ? 1 : 0);
         return;
     }
+    debugf("%s: connected, manifest prefix \"%s\"\n", provider.name(),
+           provider.manifestPrefix().c_str());
 
     // A wrong 3DS clock makes every mtime comparison suspect, so say so once.
     std::string serverTimeStr = provider.serverTime();
-    if (!serverTimeStr.empty())
+    if (serverTimeStr.empty())
+        debugf("%s: no server time reported, skew unchecked\n", provider.name());
+    else
     {
         time_t serverTime = parseServerTime(serverTimeStr);
         time_t localTime = time(NULL);
-        if (serverTime != 0)
+        if (serverTime == 0)
+            debugf("%s: cannot parse server time \"%s\"\n", provider.name(),
+                   serverTimeStr.c_str());
+        else
         {
             long skew = serverTime > localTime ? (long)(serverTime - localTime)
                                                : (long)(localTime - serverTime);
+            debugf("%s: server %s, skew %ld s\n", provider.name(),
+                   serverTimeStr.c_str(), skew);
             if (skew > 60)
             {
                 printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
@@ -317,7 +356,11 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
 
         if (!performSync(provider, manifest, entry, summary, uploadOnly, ui) &&
             !provider.hasFatalError())
+        {
+            debugf("%s: %s stopped short without a fatal error — treating as "
+                   "cancellation\n", provider.name(), entry.remoteName.c_str());
             ui.requestCancel();
+        }
 
         if (ui.cancelRequested())
         {
@@ -336,40 +379,68 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
 // ---------------------------------------------------------------------------
 // componentsInit / componentsExit
 // ---------------------------------------------------------------------------
+// The startup services all return a Result that the app used to discard.  Most
+// failures are survivable — romfsInit() fails on a build without a romfs, and
+// nothing here reads one — so a bad one is not made fatal, but it is recorded:
+// startup happens before the menu, so a debug run replays this afterwards
+// instead of printing to a screen nobody has chosen debug mode on yet.
+static std::vector<std::string> g_initLog;
+
+static void initStep(const char *what, Result res)
+{
+    char line[96];
+    if (R_FAILED(res))
+        snprintf(line, sizeof(line), "%s failed: 0x%08lX", what, (unsigned long)res);
+    else
+        snprintf(line, sizeof(line), "%s ok", what);
+    g_initLog.push_back(line);
+}
+
+static void dumpInitLog()
+{
+    if (!debugEnabled())
+        return;
+    for (auto &line : g_initLog)
+        debugf("%s\n", line.c_str());
+}
+
 bool componentsInit()
 {
     bool result = true;
     gfxInitDefault();
 
     consoleInit(GFX_BOTTOM, NULL);
-    printf(CONSOLE_RED "\n 3DSync " VERSION_STRING " modified by michvllni, original by Kyraminol" CONSOLE_RESET);
+    printf(CONSOLE_RED "\n 3DSync v" APP_VERSION " modified by michvllni, original by Kyraminol" CONSOLE_RESET);
     printf("\n\n\n\n\n\n  Sync your saves with another 3DS,\n   a PC or even a cloud.");
-    printf("\n\n\n\n\n\n Commit: " CONSOLE_BLUE REVISION_STRING CONSOLE_RESET);
+    printf("\n\n\n\n\n\n Version: " CONSOLE_BLUE "v" APP_VERSION CONSOLE_RESET);
 
     consoleInit(GFX_TOP, NULL);
     printf("Initializing components...\n\n");
 
-    APT_SetAppCpuTimeLimit(30);
-    cfguInit();
-    romfsInit();
-    pxiDevInit();
-    amInit();
-    acInit();
+    initStep("APT_SetAppCpuTimeLimit", APT_SetAppCpuTimeLimit(30));
+    initStep("cfguInit", cfguInit());
+    initStep("romfsInit", romfsInit());
+    initStep("pxiDevInit", pxiDevInit());
+    initStep("amInit", amInit());
+    initStep("acInit", acInit());
 
     u32 *socketBuffer = (u32 *)memalign(0x1000, 0x100000);
     if (socketBuffer == NULL)
     {
         printf("Failed to create socket buffer.\n");
+        g_initLog.push_back("memalign for the socket buffer failed");
         result = false;
     }
-    if (socInit(socketBuffer, 0x100000))
+    Result socRes = socInit(socketBuffer, 0x100000);
+    initStep("socInit", socRes);
+    if (socRes)
     {
         printf("socInit failed.\n");
         result = false;
     }
 
-    httpcInit(0);
-    sslcInit(0);
+    initStep("httpcInit", httpcInit(0));
+    initStep("sslcInit", sslcInit(0));
     return result;
 }
 
@@ -403,11 +474,72 @@ static FtpTlsMode parseTlsMode(std::string value)
 }
 
 // ---------------------------------------------------------------------------
+// debugConfigSummary  — what the INI actually parsed to
+// ---------------------------------------------------------------------------
+// A mistyped section name or a stray character is invisible otherwise: inih
+// skips the bad line and the app reports only "no remote configured".
+// Credentials sit in 3DSync.ini in plaintext and a debug screen is what ends up
+// photographed into a bug report, so anything that looks like a secret is
+// reported as a length alone — enough to spot the trailing space that causes
+// half of all "login denied" reports, without printing the password.
+// ---------------------------------------------------------------------------
+static bool looksSecret(const std::string &sectionAndKey)
+{
+    // In the path sections the key is a remote name the user chose, which is
+    // not a secret and is the most useful line here — and "Monkey=" would
+    // otherwise match on "key".
+    static const char *pathSections[] = {"paths=", "shallowpaths=",
+                                         "uploadpaths=", "uploadshallowpaths="};
+    for (const char *section : pathSections)
+        if (sectionAndKey.rfind(section, 0) == 0)
+            return false;
+
+    // Matched as substrings rather than by exact field name so a field added
+    // later is hidden by default.
+    static const char *needles[] = {"password", "secret", "token", "key"};
+    for (const char *needle : needles)
+        if (sectionAndKey.find(needle) != std::string::npos)
+            return true;
+    return false;
+}
+
+static void debugConfigSummary(const INIReader &reader)
+{
+    if (!debugEnabled())
+        return;
+
+    int parseError = reader.ParseError();
+    if (parseError > 0)
+        debugf("3DSync.ini: syntax error on line %d, that line was ignored\n",
+               parseError);
+    else if (parseError < 0)
+        debugf("3DSync.ini: cannot be opened\n");
+
+    // INIReader stores "section=key", both lowercased.
+    for (auto &kv : reader.GetValues())
+    {
+        if (looksSecret(kv.first))
+            debugf("ini %s = set, %d chars\n", kv.first.c_str(), (int)kv.second.size());
+        else
+            debugf("ini %s = %s\n", kv.first.c_str(), kv.second.c_str());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // runSync  — one full sync pass; called from main loop
 // ---------------------------------------------------------------------------
 static void runSync(const INIReader &reader)
 {
     ConsoleSyncUi ui;
+
+    if (debugEnabled())
+    {
+        printf(CONSOLE_MAGENTA "--- debug mode: verbose output ---"
+               CONSOLE_RESET "\n");
+        debugf("3DSync v%s\n", APP_VERSION);
+        dumpInitLog();
+        debugConfigSummary(reader);
+    }
 
     std::string dropboxToken = reader.Get("Dropbox", "token", "");
     std::string dropboxAppKey = reader.Get("Dropbox", "appkey", "");
@@ -432,6 +564,9 @@ static void runSync(const INIReader &reader)
 
     std::string webdavUrl = reader.Get("WebDAV", "url", "");
     bool hasWebdav = !webdavUrl.empty();
+
+    debugf("remotes configured: dropbox=%d drive=%d smb=%d ftp=%d webdav=%d\n",
+           hasDropbox, hasGoogleDrive, hasSmb, hasFtp, hasWebdav);
 
     if (!hasDropbox && !hasGoogleDrive && !hasSmb && !hasFtp && !hasWebdav)
     {
@@ -502,7 +637,9 @@ static void runSync(const INIReader &reader)
         syncProvider(webdav, syncEntries, manifest, summary, ui);
     }
 
-    manifest.save();
+    if (!manifest.save())
+        printf(CONSOLE_RED "Sync state could not be saved — the next run will\n"
+               "re-examine every file.\n" CONSOLE_RESET);
 
     printf("\n--- Sync Summary ---\n");
     if (summary.changes.empty())
@@ -542,13 +679,21 @@ int main(int argc, char **argv)
 
     while (true)
     {
-        if (!waitForMainMenuKey())
+        MainMenuChoice choice = waitForMainMenuKey();
+        if (choice == MENU_EXIT)
             break;
+
+        // Set before anything else runs: the providers read it when they build
+        // their libcurl handle, and the engine when it logs a decision.
+        setDebugEnabled(choice == MENU_SYNC_DEBUG);
 
         if (reader.ParseError() >= 0)
             runSync(reader);
         else
+        {
             printf("Can't load configuration\n");
+            debugConfigSummary(reader);
+        }
 
         // after sync: fall back to the menu (sync again or exit)
     }

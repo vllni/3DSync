@@ -7,6 +7,7 @@
 
 #include <3ds.h>
 
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/hash.h"
 #include "../utils/json.h"
@@ -64,6 +65,7 @@ bool Dropbox::_refreshAccessToken()
         printf(CONSOLE_RED "  FATAL: Dropbox token refresh failed." CONSOLE_RESET "\n");
         printf("  The refresh token may have been revoked.\n");
         printf("  Re-run the configurator to obtain a new one.\n");
+        debugf("token refresh returned %d\n", res);
         _fatalError = true;
         return false;
     }
@@ -72,9 +74,11 @@ bool Dropbox::_refreshAccessToken()
     if (accessToken.empty())
     {
         printf("Failed to parse access_token from refresh response\n");
+        debugBody("refresh response", _curl.getResponse());
         _fatalError = true;
         return false;
     }
+    debugf("access token refreshed, %d chars\n", (int)accessToken.size());
 
     _token = accessToken;
     return true;
@@ -158,6 +162,7 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
         if (curlRes != 0)
         {
             printf("  Network error (attempt %d/3)\n", attempt + 1);
+            debugf("  %s\n", _curl.getURL().c_str());
             if (attempt < 2)
             {
                 _curl.rewindDownloadFile(); // discard any partial body
@@ -171,6 +176,7 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
             return 0;
 
         printf(CONSOLE_RED "  Dropbox API error: HTTP %ld" CONSOLE_RESET "\n", status);
+        debugf("  %s (attempt %d/3)\n", _curl.getURL().c_str(), attempt + 1);
 
         // Rate limited — Dropbox states the wait in Retry-After.
         if (status == 429 && attempt < 2)
@@ -215,11 +221,14 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
         // 400 (malformed request) and 409 (path conflict, insufficient space,
         // …) carry the reason in the body and affect only this call.
         std::string body = _curl.getResponse();
+        // Cut at 200 characters so one error cannot fill the screen; debug
+        // mode has already printed the whole body from perform().
         if (!body.empty())
             printf(CONSOLE_RED "  %s" CONSOLE_RESET "\n", body.substr(0, 200).c_str());
 
         return (int)status;
     }
+    debugf("  giving up on %s after 3 attempts\n", _curl.getURL().c_str());
     return -1; // exhausted retries
 }
 
@@ -237,11 +246,14 @@ std::string Dropbox::ensureRoot(const std::string &remoteName)
     // which is the outcome we wanted anyway.
     std::string body = "{\"path\":\"" + jsonEscape(root) + "\",\"autorename\":false}";
     int res = _rpc("https://api.dropboxapi.com/2/files/create_folder_v2", body);
+    if (res == 409)
+        debugf("%s already exists (409), which is what was wanted\n", root.c_str());
     if (res != 0 && res != 409)
     {
         if (_fatalError)
             return "";
         printf("Dropbox: cannot create %s\n", root.c_str());
+        debugf("create_folder_v2 returned %d for %s\n", res, root.c_str());
         return "";
     }
     return root;
@@ -261,14 +273,26 @@ bool Dropbox::list(const std::string &root,
         {
             if (_fatalError)
                 return false;
-            // 409 path/not_found: nothing has been uploaded here yet.
+            // 409 path/not_found: nothing has been uploaded here yet.  It is
+            // also what a wrong Path= looks like, so say which it was.
             if (res == 409)
+            {
+                debugf("list_folder 409 for \"%s\" — treated as an empty "
+                       "folder\n", root.c_str());
                 return true;
+            }
+            debugf("list_folder failed with %d for \"%s\"\n", res, root.c_str());
             return false;
         }
 
         std::string response = _curl.getResponse();
+        size_t before = out.size();
         parseDropboxEntries(response, root, out);
+        // A listing that parses to nothing while the response was not empty
+        // means the entries did not match the root — a path-case problem.
+        if (out.size() == before)
+            debugf("list_folder page added no entries under \"%s\" (%d bytes of "
+                   "response)\n", root.c_str(), (int)response.size());
 
         if (!jsonTrue(response, "has_more"))
             break;
@@ -313,8 +337,12 @@ bool Dropbox::download(const RemoteFileInfo &file, const std::string &localPath)
 
     if (res != 0)
     {
-        // On an error the body is the JSON error, which went into the temp file.
+        // On an error the body is the JSON error, which went into the temp file
+        // and is about to be deleted with the reason still in it.
         printf("Dropbox: download failed for %s\n", file.relPath.c_str());
+        debugf("download of %s (%s) returned %d\n", file.relPath.c_str(),
+               file.id.c_str(), res);
+        debugFileBody("  error body", tmpPath);
         remove(tmpPath.c_str());
         return false;
     }
@@ -333,6 +361,7 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
     if (!fp)
     {
         printf("Dropbox: cannot read %s\n", localPath.c_str());
+        debugErrno("fopen", localPath);
         return false;
     }
 
@@ -374,6 +403,7 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
     if (res != 0)
     {
         printf("Dropbox: upload failed for %s\n", relPath.c_str());
+        debugf("upload of %s returned %d\n", remotePath.c_str(), res);
         return false;
     }
 
@@ -388,6 +418,8 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
     {
         // Fall back to hashing what we just sent rather than leaving the
         // manifest without a tag, which would re-upload on every run.
+        debugf("upload response carried no content_hash, hashing locally\n");
+        debugBody("  upload response", response);
         outTag = computeDropboxHash(localPath);
     }
     return true;
