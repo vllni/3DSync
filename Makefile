@@ -13,7 +13,7 @@ LIBRARIES += curl mbedtls mbedx509 mbedcrypto z ctru m
 
 EXTRA_OUTPUT_FILES := 
 
-BUILD_FLAGS := -Wno-format-truncation -DVERSION_STRING="\"`git describe --tags --abbrev=0`\"" -DREVISION_STRING="\"`git rev-parse --short HEAD``git diff-index --quiet HEAD -- || echo ' (dirty)'`\""
+BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=1024 -DVERSION_STRING="\"`git describe --tags --abbrev=0`\"" -DREVISION_STRING="\"`git rev-parse --short HEAD``git diff-index --quiet HEAD -- || echo ' (dirty)'`\""
 
 VERSION_PARTS := $(subst ., ,$(shell git describe --tags --abbrev=0))
 

@@ -201,7 +201,7 @@ static ConflictChoice waitForConflictKey()
         if (k & KEY_L)
         {
             printf("  Apply resolution to ALL remaining conflicts:\n");
-            printf("  A: 3DS wins all  B: remote wins all  X: skip all  L: cancel\n\n");
+            printf("  A: 3DS wins all  B: remote wins all\n  X: skip all  L: cancel\n\n");
             bool inSubmenu = true;
             while (aptMainLoop() && inSubmenu)
             {
@@ -231,7 +231,7 @@ static ConflictChoice waitForConflictKey()
                 gspWaitForVBlank();
             }
             // L pressed again — cancel apply-all, reprint conflict prompt
-            printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
+            printf("  A: keep 3DS version  B: keep remote version\n  X: skip  START: cancel  L: apply all\n\n");
         }
         gfxFlushBuffers();
         gfxSwapBuffers();
@@ -486,7 +486,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         // Both changed — conflict
         printf("\n  *** CONFLICT: %s\n", localPath.c_str());
-        printf("  A: keep 3DS version  B: keep remote version  X: skip  START: cancel  L: apply all\n\n");
+        printf("  A: keep 3DS version  B: keep remote version\n  X: skip  START: cancel  L: apply all\n\n");
         ConflictChoice choice = waitForConflictKey();
 
         if (choice == CONFLICT_CANCEL)
@@ -612,8 +612,15 @@ static void runSync(const INIReader &reader)
         for (auto &e : syncEntries)
             legacyPaths[std::make_pair(e.localBase, e.remoteName)] = e.localFiles;
         Dropbox dropbox(dropboxToken);
-        if (!dropbox.upload(legacyPaths))
-            g_cancelRequested = true;
+        if (!dropbox.validateToken())
+            printf("Skipping Dropbox uploads.\n");
+        else if (!dropbox.upload(legacyPaths))
+        {
+            if (dropbox.hasFatalError())
+                printf(CONSOLE_RED "Dropbox uploads aborted.\n" CONSOLE_RESET);
+            else
+                g_cancelRequested = true; // START pressed
+        }
     }
 
     // --- Google Drive ---
