@@ -1,5 +1,51 @@
 #include "curl.h"
+
+#include <stdlib.h>
 #include <unistd.h>
+
+std::string urlEncodePath(const std::string &path)
+{
+    static const char *hex = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : path)
+    {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+            c == '~' || c == '/')
+        {
+            out += (char)c;
+        }
+        else
+        {
+            out += '%';
+            out += hex[(c >> 4) & 0xf];
+            out += hex[c & 0xf];
+        }
+    }
+    return out;
+}
+
+std::string urlDecode(const std::string &value)
+{
+    std::string out;
+    for (size_t i = 0; i < value.size(); i++)
+    {
+        if (value[i] == '%' && i + 2 < value.size())
+        {
+            char hex[3] = {value[i + 1], value[i + 2], 0};
+            char *end = NULL;
+            long byte = strtol(hex, &end, 16);
+            if (end && *end == 0)
+            {
+                out += (char)byte;
+                i += 2;
+                continue;
+            }
+        }
+        out += value[i];
+    }
+    return out;
+}
 
 Curl::Curl() : _downloadFile(nullptr)
 {
@@ -7,6 +53,11 @@ Curl::Curl() : _downloadFile(nullptr)
     _curl = curl_easy_init();
     if (!_curl)
         printf("Failed to init libcurl.\n");
+    _applyDefaults();
+}
+
+void Curl::_applyDefaults()
+{
     curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" VERSION_STRING);
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -130,17 +181,96 @@ void Curl::clearCustomRequest()
     curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, NULL);
 }
 
+void Curl::reset()
+{
+    curl_easy_reset(_curl);
+    _postData.clear();
+    _downloadFile = nullptr;
+    _applyDefaults();
+}
+
+void Curl::setUserPassword(const std::string &user, const std::string &password)
+{
+    _userPassword = user + ":" + password;
+    curl_easy_setopt(_curl, CURLOPT_USERPWD, _userPassword.c_str());
+    curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_ANY);
+}
+
+void Curl::setCustomRequest(const char *method)
+{
+    curl_easy_setopt(_curl, CURLOPT_CUSTOMREQUEST, method);
+}
+
+void Curl::setNoBody(bool enabled)
+{
+    curl_easy_setopt(_curl, CURLOPT_NOBODY, enabled ? 1L : 0L);
+}
+
+void Curl::setFileTime(bool enabled)
+{
+    curl_easy_setopt(_curl, CURLOPT_FILETIME, enabled ? 1L : 0L);
+}
+
+void Curl::setUploadFile(FILE *fp, curl_off_t size)
+{
+    curl_easy_setopt(_curl, CURLOPT_UPLOAD, 1L);
+    curl_easy_setopt(_curl, CURLOPT_READFUNCTION, _read_callback);
+    curl_easy_setopt(_curl, CURLOPT_READDATA, fp);
+    curl_easy_setopt(_curl, CURLOPT_INFILESIZE_LARGE, size);
+}
+
+void Curl::setUseSSL(long level)
+{
+    curl_easy_setopt(_curl, CURLOPT_USE_SSL, level);
+}
+
+void Curl::setDirListOnly(bool enabled)
+{
+    curl_easy_setopt(_curl, CURLOPT_DIRLISTONLY, enabled ? 1L : 0L);
+}
+
+void Curl::setCreateMissingDirs(bool enabled)
+{
+    curl_easy_setopt(_curl, CURLOPT_FTP_CREATE_MISSING_DIRS,
+                     enabled ? (long)CURLFTP_CREATE_DIR_RETRY : (long)CURLFTP_CREATE_DIR_NONE);
+}
+
+void Curl::setActiveMode(bool enabled)
+{
+    // "-" makes libcurl listen on its own address instead of issuing PASV.
+    curl_easy_setopt(_curl, CURLOPT_FTPPORT, enabled ? "-" : NULL);
+}
+
+void Curl::setPostQuote(curl_slist *commands)
+{
+    curl_easy_setopt(_curl, CURLOPT_POSTQUOTE, commands);
+}
+
+void Curl::setWildcardMatch(ChunkBeginFn fn, void *userdata)
+{
+    curl_easy_setopt(_curl, CURLOPT_WILDCARDMATCH, fn ? 1L : 0L);
+    curl_easy_setopt(_curl, CURLOPT_CHUNK_BGN_FUNCTION, fn);
+    curl_easy_setopt(_curl, CURLOPT_CHUNK_DATA, userdata);
+}
+
+long Curl::getFileTime() const
+{
+    long filetime = -1;
+    curl_easy_getinfo(_curl, CURLINFO_FILETIME, &filetime);
+    return filetime;
+}
+
+curl_off_t Curl::getContentLength() const
+{
+    curl_off_t length = -1;
+    curl_easy_getinfo(_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &length);
+    return length;
+}
+
 size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     FILE *readhere = (FILE *)userdata;
-    curl_off_t nread;
-    size_t retcode = fread(ptr, size, nmemb, readhere);
-    nread = (curl_off_t)retcode;
-    if (nread > 0)
-    {
-        printf("Sent %" CURL_FORMAT_CURL_OFF_T " bytes from file\n", nread);
-    }
-    return retcode;
+    return fread(ptr, size, nmemb, readhere);
 }
 
 size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userdata)

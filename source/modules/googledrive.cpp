@@ -1,4 +1,6 @@
 #include "googledrive.h"
+
+#include "../utils/fsutil.h"
 #include <3ds.h>
 #include <errno.h>
 #include <stdio.h>
@@ -206,6 +208,12 @@ bool GoogleDrive::_refreshAccessToken()
     _curl.setPostData(body);
     int result = _performWithRetry();
     curl_slist_free_all(headers);
+
+    // Earliest point at which a server clock is available, so clock-skew
+    // detection has something to compare against before the first transfer.
+    std::string date = _curl.getResponseHeader("Date");
+    if (!date.empty())
+        _lastServerTime = date;
 
     if (result != 0)
     {
@@ -811,4 +819,73 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
 std::string GoogleDrive::getServerTime() const
 {
     return _lastServerTime;
+}
+
+// ---------------------------------------------------------------------------
+// SyncProvider implementation
+// ---------------------------------------------------------------------------
+// Thin adapters over the Drive-native methods above.  The engine only ever
+// sees RemoteFileInfo; Drive file IDs travel in its id field.
+// ---------------------------------------------------------------------------
+
+std::string GoogleDrive::ensureRoot(const std::string &remoteName)
+{
+    return ensureFolderPath(remoteName);
+}
+
+bool GoogleDrive::list(const std::string &root,
+                       std::map<std::string, RemoteFileInfo> &out)
+{
+    std::map<std::string, DriveFileInfo> driveFiles = listFolderRecursive(root);
+    if (_fatalError)
+        return false;
+
+    for (auto &kv : driveFiles)
+    {
+        RemoteFileInfo info;
+        info.id = kv.second.id;
+        info.relPath = kv.first;
+        info.tag = kv.second.md5;
+        out[kv.first] = info;
+    }
+    return true;
+}
+
+bool GoogleDrive::download(const RemoteFileInfo &file, const std::string &localPath)
+{
+    DriveFileInfo dfi = {};
+    dfi.id = file.id;
+    dfi.relPath = file.relPath;
+    dfi.md5 = file.tag;
+    return downloadFile(dfi, localPath);
+}
+
+bool GoogleDrive::upload(const std::string &root, const std::string &relPath,
+                         const std::string &localPath, const RemoteFileInfo *existing,
+                         std::string &outTag, std::string &outId)
+{
+    std::string existingId = existing ? existing->id : std::string();
+    std::string md5;
+    std::string fileId = syncUpload(root, relPath, localPath, existingId, md5);
+    if (fileId.empty())
+        return false;
+
+    outTag = md5;
+    outId = fileId;
+    return true;
+}
+
+std::string GoogleDrive::localTag(const std::string &localPath)
+{
+    return computeMd5Hex(localPath);
+}
+
+bool GoogleDrive::legacyUpload(const std::string &localBase,
+                               const std::string &remoteName,
+                               const std::vector<std::string> &files)
+{
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
+    paths[std::make_pair(localBase, remoteName)] = files;
+    upload(paths);
+    return true;
 }

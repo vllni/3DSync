@@ -22,8 +22,19 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # The published image is only rebuilt on pushes to master, so a PR that
+      # changes the image definition has to build it here — pulling would
+      # otherwise succeed and silently test against the old toolchain.
       - name: Prepare build image
-        run: docker pull "$BUILD_IMAGE" || docker build -f docker/3dsync-devcontainer.Dockerfile -t "$BUILD_IMAGE" .
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+               | grep -qE '^docker/.*Dockerfile$'; then
+            echo "Dockerfile changed in this PR — building the image locally"
+            docker build -f docker/3dsync-devcontainer.Dockerfile -t "$BUILD_IMAGE" .
+          else
+            docker pull "$BUILD_IMAGE" \
+              || docker build -f docker/3dsync-devcontainer.Dockerfile -t "$BUILD_IMAGE" .
+          fi
 
       - name: Build
         run: |
