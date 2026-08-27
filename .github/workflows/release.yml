@@ -43,10 +43,52 @@ jobs:
 
       - name: Upload release assets
         run: |
-          gh release upload "${{ github.ref_name }}" \
+          gh release upload "${{ github.ref_name }}" --clobber \
             output/3DSync-${{ github.ref_name }}.zip \
             output/3ds-arm/3ds/3DSync/3DSync-${{ github.ref_name }}.3dsx \
             output/3ds-arm/3DSync-${{ github.ref_name }}.3ds \
             output/3ds-arm/3DSync-${{ github.ref_name }}.cia
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate FBI install QR code
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qrencode
+          # FBI's "Scan QR Code" remote install expects the plain URL of the .cia.
+          qrencode -o "output/3DSync-${{ github.ref_name }}-QR.png" -s 8 -m 3 -l M "$CIA_URL"
+        env:
+          CIA_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/3DSync-${{ github.ref_name }}.cia
+
+      - name: Upload QR code asset
+        run: |
+          gh release upload "${{ github.ref_name }}" --clobber \
+            "output/3DSync-${{ github.ref_name }}-QR.png"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Inject QR code into release notes
+        run: |
+          # Drop any previously injected block so re-runs replace it instead of stacking.
+          gh release view "${{ github.ref_name }}" --json body -q .body > body.md
+          sed -n '/<!-- 3dsync-qr:start -->/q;p' body.md > notes.md
+          # Command substitution drops trailing newlines, so re-runs don't accrue blank lines.
+          printf '%s\n' "$(cat notes.md)" > notes.md
+          {
+            echo
+            echo '<!-- 3dsync-qr:start -->'
+            echo '## Install on your 3DS'
+            echo
+            echo 'Open **FBI** -> **Remote Install** -> **Scan QR Code**, then scan:'
+            echo
+            echo "<img src=\"$QR_URL\" alt=\"QR code to install 3DSync $TAG with FBI\" width=\"260\">"
+            echo
+            echo "Direct link: [\`3DSync-$TAG.cia\`]($CIA_URL)"
+            echo '<!-- 3dsync-qr:end -->'
+          } >> notes.md
+          gh release edit "${{ github.ref_name }}" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          CIA_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/3DSync-${{ github.ref_name }}.cia
+          QR_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/3DSync-${{ github.ref_name }}-QR.png
