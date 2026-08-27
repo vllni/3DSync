@@ -8,7 +8,7 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 | SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
 | FTP / FTPS | bidirectional | 🧪 experimental |
 | WebDAV | bidirectional | 🧪 experimental |
-| Dropbox | upload-only | 🧪 experimental |
+| Dropbox | bidirectional | 🧪 experimental |
 
 > 🧪 **Experimental** backends work but have had far less testing against real
 > servers than Google Drive. Keep a backup of your saves, and please report
@@ -36,12 +36,19 @@ The INI file lives at `/3ds/3DSync/3DSync.ini`.
 
 ### Dropbox
 
-🧪 Experimental, and upload-only — Dropbox never downloads, so it cannot restore a save to the 3DS.
+🧪 Experimental.
 
 ```ini
 [Dropbox]
-Token=<access token from configurator>
+AppKey=<app key from configurator>
+RefreshToken=<refresh token from configurator>
+Path=                     ; optional folder inside the Dropbox account
 ```
+
+Configs with a bare `Token=` still work, but Dropbox access tokens expire after
+about four hours — re-run the configurator to get a refresh token instead.
+`AppSecret=` is only needed if you bring your own non-PKCE ("confidential")
+Dropbox app.
 
 ### Google Drive
 
@@ -152,6 +159,7 @@ Bidirectional paths (`[Paths]` / `[ShallowPaths]`) compare each file against:
    | Remote | Change tag |
    |---|---|
    | Google Drive | MD5 checksum from the Drive API |
+   | Dropbox | `content_hash` (SHA-256 over per-4 MiB-block SHA-256) |
    | WebDAV | `ETag`, falling back to size + `Last-Modified` |
    | SMB | size + modification time |
    | FTP | size + `MDTM` |
@@ -171,9 +179,10 @@ Bidirectional paths (`[Paths]` / `[ShallowPaths]`) compare each file against:
 "Changed" means the local mtime/size, or the remote tag, differs from the last manifest entry.  
 On first run (no manifest entry yet), the local file is uploaded and the manifest is initialised.
 
-Only Google Drive can verify a local file by content: its tag is an MD5, so a
+Google Drive and Dropbox can verify a local file by content — their tags are an
+MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
 save whose mtime never moves (some emulators never update it) is still detected.
-On the other remotes an unchanged mtime *and* size is taken as unchanged.
+On SMB, FTP and WebDAV an unchanged mtime *and* size is taken as unchanged.
 
 ### Subfolder structure on the remote
 
@@ -181,8 +190,9 @@ Bidirectional paths preserve the relative directory structure.
 Example: local file `/3ds/Checkpoint/saves/TitleA/001.sav` synced with remote name `Checkpoint` appears at `Checkpoint/saves/TitleA/001.sav`.
 
 Upload-only paths on **Google Drive** still use **flat filenames**
-(`saves_TitleA_001.sav`) for backwards compatibility. On the other remotes they
-mirror the local structure, skipping files that have not changed.
+(`saves_TitleA_001.sav`) for backwards compatibility. On the other remotes,
+Dropbox included, they mirror the local structure, skipping files that have not
+changed.
 
 ### Manifest file
 

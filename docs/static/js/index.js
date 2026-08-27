@@ -1,12 +1,9 @@
 $(function () {
     const DEFAULT_DROPBOX_CLIENT_ID = 'y88zxdudhuoo41q';
 
-    let hashParams = new URLSearchParams(window.location.hash.substr(1));
     let queryParams = new URLSearchParams(window.location.search);
-    let dropboxToken = hashParams.get('access_token');
-    let dropboxState = hashParams.get('state');
-    let googleCode = queryParams.get('code');
-    let googleState = queryParams.get('state');
+    let authCode = queryParams.get('code');
+    let authState = queryParams.get('state');
     let paths = [];
 
     let stepperInstace = new MStepper(document.querySelector('.stepper'), {
@@ -15,30 +12,35 @@ $(function () {
         stepTitleNavigation: false,
     });
 
-    // --- Dropbox redirect callback ---
-    if (dropboxToken !== null && dropboxState !== null) {
-        if (dropboxState === localStorage.getItem('dropboxStateToken')) {
-            localStorage.setItem('dropboxToken', dropboxToken);
-            localStorage.setItem('provider', 'dropbox');
-            stepperInstace.nextStep();
-        }
-    }
-    localStorage.removeItem('dropboxStateToken');
-
-    // --- Google Drive redirect callback ---
-    if (googleCode !== null && googleState !== null) {
-        if (googleState === localStorage.getItem('gdriveState')) {
+    // --- OAuth redirect callback ---
+    // Both providers use the PKCE authorization-code flow and come back with
+    // ?code=&state=, so the stored state decides which one is answering.
+    if (authCode !== null && authState !== null) {
+        if (authState === localStorage.getItem('gdriveState')) {
             let codeVerifier = localStorage.getItem('gdriveCodeVerifier');
             localStorage.removeItem('gdriveState');
             localStorage.removeItem('gdriveCodeVerifier');
             // Clean the auth code from the URL to avoid reuse on refresh
             history.replaceState(null, '', window.location.pathname);
-            exchangeGoogleCode(googleCode, codeVerifier).then(function (success) {
+            exchangeGoogleCode(authCode, codeVerifier).then(function (success) {
                 if (success) {
                     localStorage.setItem('provider', 'googledrive');
                     stepperInstace.nextStep();
                 } else {
                     alert('Google Drive authentication failed. Please try again.');
+                }
+            });
+        } else if (authState === localStorage.getItem('dropboxState')) {
+            let codeVerifier = localStorage.getItem('dropboxCodeVerifier');
+            localStorage.removeItem('dropboxState');
+            localStorage.removeItem('dropboxCodeVerifier');
+            history.replaceState(null, '', window.location.pathname);
+            exchangeDropboxCode(authCode, codeVerifier).then(function (success) {
+                if (success) {
+                    localStorage.setItem('provider', 'dropbox');
+                    stepperInstace.nextStep();
+                } else {
+                    alert('Dropbox authentication failed. Please try again.');
                 }
             });
         }
@@ -94,6 +96,36 @@ $(function () {
         }
     }
 
+    async function exchangeDropboxCode(code, codeVerifier) {
+        let clientId = localStorage.getItem('dropboxClientId');
+        try {
+            let response = await fetch('https://api.dropbox.com/oauth2/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    code: code,
+                    grant_type: 'authorization_code',
+                    client_id: clientId,
+                    redirect_uri: dropboxRedirectUri(),
+                    code_verifier: codeVerifier
+                })
+            });
+            let data = await response.json();
+            // token_access_type=offline is what makes Dropbox return this; a
+            // bare access token would expire after about four hours.
+            if (data.refresh_token) {
+                localStorage.setItem('dropboxRefreshToken', data.refresh_token);
+                localStorage.removeItem('dropboxToken');
+                return true;
+            }
+            console.error('No refresh_token in response:', data);
+            return false;
+        } catch (e) {
+            console.error('Dropbox token exchange failed:', e);
+            return false;
+        }
+    }
+
     // --- Dropbox expert mode: bring your own app key ---
     // Same value the authorize request sends, so the hint can never drift from it
     function dropboxRedirectUri() {
@@ -126,18 +158,29 @@ $(function () {
     });
 
     // --- Login button handlers ---
-    $('#dropbox-login').on('click', function (e) {
+    $('#dropbox-login').on('click', async function (e) {
         e.preventDefault();
         let clientId = DEFAULT_DROPBOX_CLIENT_ID;
         if ($('#dropbox-expert-mode').prop('checked')) {
             clientId = $('#dropbox-client-id').val().trim() || DEFAULT_DROPBOX_CLIENT_ID;
         }
         localStorage.setItem('dropboxClientId', clientId);
-        let token = generateCodeVerifier();
-        localStorage.setItem('dropboxStateToken', token);
-        let redirectUri = encodeURIComponent(dropboxRedirectUri());
-        window.location.href = "https://www.dropbox.com/oauth2/authorize?client_id=" + encodeURIComponent(clientId)
-            + "&response_type=token&redirect_uri=" + redirectUri + "&state=" + token;
+
+        let state = generateCodeVerifier();
+        let codeVerifier = generateCodeVerifier();
+        let codeChallenge = await generateCodeChallenge(codeVerifier);
+        localStorage.setItem('dropboxState', state);
+        localStorage.setItem('dropboxCodeVerifier', codeVerifier);
+
+        // PKCE + token_access_type=offline yields a refresh token, so the 3DS
+        // can sync without re-authenticating every four hours.
+        window.location.href = 'https://www.dropbox.com/oauth2/authorize?client_id=' + encodeURIComponent(clientId)
+            + '&response_type=code'
+            + '&redirect_uri=' + encodeURIComponent(dropboxRedirectUri())
+            + '&token_access_type=offline'
+            + '&state=' + encodeURIComponent(state)
+            + '&code_challenge=' + codeChallenge
+            + '&code_challenge_method=S256';
     });
 
     // Auto-extract folder ID when user pastes a full Google Drive URL
@@ -253,7 +296,16 @@ $(function () {
             if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
             return config;
         } else {
-            let config = '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken');
+            let refreshToken = localStorage.getItem('dropboxRefreshToken');
+            let config;
+            if (refreshToken) {
+                config = '[Dropbox]\nAppKey=' + localStorage.getItem('dropboxClientId')
+                    + '\nRefreshToken=' + refreshToken;
+            } else {
+                // Only reachable for a session that authenticated before the
+                // refresh-token flow; such a token expires in about 4 hours.
+                config = '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken');
+            }
             if (strPaths) config += '\n[Paths]\n' + strPaths;
             if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
             if (strUploadPaths) config += '\n[UploadPaths]\n' + strUploadPaths;
