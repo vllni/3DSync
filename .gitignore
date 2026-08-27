@@ -9,3 +9,6 @@ examples/
 internal_docs
 build.sh
 output/
+
+# Host test build output
+tests/build/

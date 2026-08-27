@@ -10,15 +10,6 @@ void mkdirs(const std::string &path);
 // Create the parent directories of a file path.
 void mkparents(const std::string &filePath);
 
-// MD5 of a local file as a lowercase hex string, "" on error.
-std::string computeMd5Hex(const std::string &path);
-
-// Dropbox content hash of a local file as a lowercase hex string, "" on error.
-// Dropbox does not publish an MD5: its content_hash is the SHA-256 of the
-// concatenated SHA-256 digests of each 4 MiB block of the file.
-// https://www.dropbox.com/developers/reference/content-hash
-std::string computeDropboxHash(const std::string &path);
-
 // Open "<localPath>.3dstmp" for writing, creating parent directories.
 // Returns NULL on failure; tmpPathOut receives the temp path.
 FILE *openTempFor(const std::string &localPath, std::string &tmpPathOut);

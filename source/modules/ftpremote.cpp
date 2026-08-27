@@ -7,6 +7,9 @@
 #include <3ds.h>
 
 #include "../utils/fsutil.h"
+#include "../utils/pathutil.h"
+#include "../utils/urlutil.h"
+#include "remoteparse.h"
 
 FtpRemote::FtpRemote(const std::string &host, int port, const std::string &user,
                      const std::string &password, const std::string &basePath,
@@ -16,11 +19,7 @@ FtpRemote::FtpRemote(const std::string &host, int port, const std::string &user,
       _fatalError(false)
 {
     // Strip the separators so paths can be joined without doubling them.
-    _basePath = basePath;
-    while (!_basePath.empty() && _basePath[0] == '/')
-        _basePath.erase(0, 1);
-    while (!_basePath.empty() && _basePath[_basePath.size() - 1] == '/')
-        _basePath.erase(_basePath.size() - 1);
+    _basePath = normalizeRemotePath(basePath);
 }
 
 std::string FtpRemote::manifestPrefix() const
@@ -34,11 +33,7 @@ bool FtpRemote::hasFatalError() const { return _fatalError; }
 
 std::string FtpRemote::_urlFor(const std::string &path) const
 {
-    char portBuf[32];
-    snprintf(portBuf, sizeof(portBuf), "%d", _port);
-    std::string url = (_tls == FTP_TLS_IMPLICIT ? "ftps://" : "ftp://") + _host +
-                      ":" + portBuf + "/";
-    return url + urlEncodePath(path);
+    return buildFtpUrl(_tls == FTP_TLS_IMPLICIT, _host, _port, path);
 }
 
 void FtpRemote::_prepare()
@@ -146,13 +141,9 @@ bool FtpRemote::connect()
 
 std::string FtpRemote::ensureRoot(const std::string &remoteName)
 {
-    std::string root = remoteName;
-    while (!root.empty() && root[0] == '/')
-        root.erase(0, 1);
+    std::string root = normalizeRemotePath(remoteName);
     if (!_basePath.empty())
-        root = _basePath + "/" + root;
-    while (!root.empty() && root[root.size() - 1] == '/')
-        root.erase(root.size() - 1);
+        root = normalizeRemotePath(_basePath + "/" + root);
 
     // Directories are created lazily on upload (CURLOPT_FTP_CREATE_MISSING_DIRS),
     // so nothing to do here beyond normalising the path.
@@ -192,9 +183,7 @@ std::string FtpRemote::_tagFor(const std::string &path)
 
     curl_off_t size = _curl.getContentLength();
     long mtime = _curl.getFileTime();
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lld:%ld", (long long)(size < 0 ? -1 : size), mtime);
-    return buf;
+    return sizeTimeTag((long long)(size < 0 ? -1 : size), (long long)mtime);
 }
 
 bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
@@ -202,8 +191,13 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
 {
     ListingContext ctx;
 
+    // The wildcard is appended after encoding: percent-escaping it would leave
+    // libcurl matching a literal "%2A" instead of listing the directory.
+    std::string listUrl = dirPath.empty() ? _urlFor("") + "*"
+                                          : _urlFor(dirPath) + "/*";
+
     _prepare();
-    _curl.setURL(_urlFor(dirPath.empty() ? "*" : dirPath + "/*"));
+    _curl.setURL(listUrl);
     _curl.setWildcardMatch(_onListEntry, &ctx);
 
     int res = _performWithRetry();
@@ -223,8 +217,7 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
         std::string childRel = prefix + "/" + fileName;
 
         // Skip our own interrupted transfers.
-        if (childRel.size() > 7 &&
-            childRel.compare(childRel.size() - 7, 7, ".3dstmp") == 0)
+        if (isTempTransferName(childRel))
             continue;
 
         RemoteFileInfo info;
@@ -280,7 +273,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     (void)existing;
 
     std::string remotePath = root + relPath;
-    std::string tmpRemote = remotePath + ".3dstmp";
+    std::string tmpRemote = remotePath + TEMP_SUFFIX;
 
     FILE *fp = fopen(localPath.c_str(), "rb");
     if (!fp)

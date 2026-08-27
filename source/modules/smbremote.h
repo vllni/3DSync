@@ -43,8 +43,6 @@ private:
     bool _connected;
     bool _fatalError;
 
-    // Share-relative path: no leading slash, '/' separated, no trailing slash.
-    static std::string _normalize(const std::string &path);
     // Create every missing component of a share-relative directory path.
     bool _mkdirs(const std::string &dirPath);
     // Recursive worker for list(); prefix is the relPath built so far.

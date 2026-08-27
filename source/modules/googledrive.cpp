@@ -1,6 +1,7 @@
 #include "googledrive.h"
 
 #include "../utils/fsutil.h"
+#include "../utils/hash.h"
 #include <3ds.h>
 #include <errno.h>
 #include <stdio.h>
@@ -767,13 +768,10 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
     if (_fatalError)
         return false;
 
-    std::string tmpPath = localPath + ".3dstmp";
-    FILE *fp = fopen(tmpPath.c_str(), "wb");
+    std::string tmpPath;
+    FILE *fp = openTempFor(localPath, tmpPath);
     if (!fp)
-    {
-        printf("downloadFile: cannot create temp file %s: %s\n", tmpPath.c_str(), strerror(errno));
         return false;
-    }
 
     std::string url = "https://www.googleapis.com/drive/v3/files/" + file.id + "?alt=media";
     std::string auth = "Authorization: Bearer " + _token;
@@ -796,24 +794,7 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
         return false;
     }
 
-    // FAT (3DS SD card) does not allow rename() to overwrite an existing file.
-    // Rename the existing destination to a temporary backup first so it can be
-    // restored if the swap fails for any reason (e.g. I/O error).
-    std::string bakPath = localPath + ".3dsbak";
-    bool hadExisting = (rename(localPath.c_str(), bakPath.c_str()) == 0);
-    if (rename(tmpPath.c_str(), localPath.c_str()) != 0)
-    {
-        printf("downloadFile: rename failed: %s\n", strerror(errno));
-        if (hadExisting)
-            rename(bakPath.c_str(), localPath.c_str()); // restore original
-        remove(tmpPath.c_str());
-        return false;
-    }
-    if (hadExisting)
-        remove(bakPath.c_str()); // discard backup on success
-
-    printf("Downloaded %s\n", localPath.c_str());
-    return true;
+    return replaceLocalFile(tmpPath, localPath);
 }
 
 std::string GoogleDrive::getServerTime() const

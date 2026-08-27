@@ -7,6 +7,10 @@
 #include <3ds.h>
 
 #include "../utils/fsutil.h"
+#include "../utils/pathutil.h"
+#include "../utils/urlutil.h"
+#include "../utils/xmlutil.h"
+#include "remoteparse.h"
 
 static const char *PROPFIND_BODY =
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
@@ -34,10 +38,8 @@ bool WebDavRemote::hasFatalError() const { return _fatalError; }
 
 std::string WebDavRemote::_urlFor(const std::string &path) const
 {
-    std::string clean = path;
-    while (!clean.empty() && clean[0] == '/')
-        clean.erase(0, 1);
-    return _baseUrl + urlEncodePath(clean);
+    // _baseUrl already ends with '/', so the path must not start with one.
+    return _baseUrl + urlEncodePath(normalizeRemotePath(path));
 }
 
 void WebDavRemote::_prepare()
@@ -112,76 +114,6 @@ bool WebDavRemote::connect()
     return true;
 }
 
-std::string WebDavRemote::_stripNamespaces(const std::string &xml)
-{
-    std::string out;
-    out.reserve(xml.size());
-
-    for (size_t i = 0; i < xml.size(); i++)
-    {
-        out += xml[i];
-        if (xml[i] != '<')
-            continue;
-
-        size_t nameStart = i + 1;
-        if (nameStart < xml.size() && xml[nameStart] == '/')
-        {
-            out += '/';
-            nameStart++;
-        }
-
-        // A ':' before the end of the tag name means the token is prefixed.
-        size_t scan = nameStart;
-        size_t colon = std::string::npos;
-        while (scan < xml.size() && xml[scan] != '>' && xml[scan] != ' ' &&
-               xml[scan] != '\t' && xml[scan] != '\r' && xml[scan] != '\n' &&
-               xml[scan] != '/')
-        {
-            if (xml[scan] == ':')
-            {
-                colon = scan;
-                break;
-            }
-            scan++;
-        }
-
-        if (colon != std::string::npos)
-            i = colon; // skip the prefix and the ':' itself
-        else
-            i = nameStart - 1;
-    }
-    return out;
-}
-
-std::string WebDavRemote::_tagBetween(const std::string &xml, const std::string &tag,
-                                      size_t from, size_t to)
-{
-    std::string open = "<" + tag;
-    size_t start = xml.find(open, from);
-    if (start == std::string::npos || start >= to)
-        return "";
-
-    size_t gt = xml.find('>', start);
-    if (gt == std::string::npos || gt >= to)
-        return "";
-    if (gt > start && xml[gt - 1] == '/')
-        return ""; // self-closing, no text content
-
-    size_t close = xml.find("</" + tag, gt);
-    if (close == std::string::npos || close > to)
-        return "";
-    return xml.substr(gt + 1, close - gt - 1);
-}
-
-std::string WebDavRemote::_normalizeEtag(std::string etag)
-{
-    if (etag.compare(0, 2, "W/") == 0)
-        etag.erase(0, 2);
-    if (etag.size() >= 2 && etag[0] == '"' && etag[etag.size() - 1] == '"')
-        etag = etag.substr(1, etag.size() - 2);
-    return etag;
-}
-
 bool WebDavRemote::_propfind(const std::string &path, const char *depth,
                              std::vector<DavEntry> &out)
 {
@@ -221,48 +153,7 @@ bool WebDavRemote::_propfind(const std::string &path, const char *depth,
         return false;
     }
 
-    std::string xml = _stripNamespaces(body);
-    size_t pos = 0;
-    while (true)
-    {
-        size_t start = xml.find("<response", pos);
-        if (start == std::string::npos)
-            break;
-        size_t end = xml.find("</response", start);
-        if (end == std::string::npos)
-            break;
-        pos = end + 1;
-
-        std::string href = urlDecode(_tagBetween(xml, "href", start, end));
-        if (href.empty())
-            continue;
-
-        // Strip the scheme and host if the server returned an absolute URL.
-        size_t schemeEnd = href.find("://");
-        if (schemeEnd != std::string::npos)
-        {
-            size_t slash = href.find('/', schemeEnd + 3);
-            href = (slash == std::string::npos) ? "/" : href.substr(slash);
-        }
-
-        if (href.compare(0, rootHref.size(), rootHref) != 0)
-            continue; // outside the listing root
-        std::string relPath = href.substr(rootHref.size());
-        while (!relPath.empty() && relPath[relPath.size() - 1] == '/')
-            relPath.erase(relPath.size() - 1);
-        if (relPath.empty())
-            continue; // the root itself
-
-        DavEntry entry;
-        entry.relPath = "/" + relPath;
-        entry.isCollection = (xml.find("<collection", start) != std::string::npos &&
-                              xml.find("<collection", start) < end);
-        entry.tag = _normalizeEtag(_tagBetween(xml, "getetag", start, end));
-        if (entry.tag.empty())
-            entry.tag = _tagBetween(xml, "getcontentlength", start, end) + ":" +
-                        _tagBetween(xml, "getlastmodified", start, end);
-        out.push_back(entry);
-    }
+    parseDavResponses(body, rootHref, out);
     return true;
 }
 
@@ -284,11 +175,7 @@ bool WebDavRemote::_mkcol(const std::string &path)
 
 std::string WebDavRemote::ensureRoot(const std::string &remoteName)
 {
-    std::string root = remoteName;
-    while (!root.empty() && root[0] == '/')
-        root.erase(0, 1);
-    while (!root.empty() && root[root.size() - 1] == '/')
-        root.erase(root.size() - 1);
+    std::string root = normalizeRemotePath(remoteName);
     if (root.empty())
         return root;
 
@@ -323,8 +210,7 @@ bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &pre
             continue;
         }
 
-        if (childRel.size() > 7 &&
-            childRel.compare(childRel.size() - 7, 7, ".3dstmp") == 0)
+        if (isTempTransferName(childRel))
             continue;
 
         RemoteFileInfo info;
@@ -348,8 +234,7 @@ bool WebDavRemote::list(const std::string &root,
             {
                 if (entry.isCollection)
                     continue;
-                if (entry.relPath.size() > 7 &&
-                    entry.relPath.compare(entry.relPath.size() - 7, 7, ".3dstmp") == 0)
+                if (isTempTransferName(entry.relPath))
                     continue;
 
                 RemoteFileInfo info;
@@ -427,7 +312,7 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
     // PUT beside the target, then MOVE over it: MOVE with Overwrite: T is
     // atomic server-side, so an interrupted upload never leaves a half-written
     // save in place.
-    std::string tmpPath = remotePath + ".3dstmp";
+    std::string tmpPath = remotePath + TEMP_SUFFIX;
 
     _prepare();
     _curl.setURL(_urlFor(tmpPath));

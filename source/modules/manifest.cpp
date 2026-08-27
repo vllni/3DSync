@@ -1,5 +1,7 @@
 #include "manifest.h"
 
+#include "../utils/json.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,19 +99,19 @@ bool Manifest::load()
         ManifestEntry entry = {};
 
         long long number = 0;
-        if (_extractInt(valueStr, "mtime", number))
+        if (jsonInt(valueStr, "mtime", number))
             entry.localMtime = (time_t)number;
-        if (_extractInt(valueStr, "size", number))
+        if (jsonInt(valueStr, "size", number))
             entry.localSize = number;
 
-        entry.remoteTag = _extractString(valueStr, "tag");
+        entry.remoteTag = jsonString(valueStr, "tag");
         if (entry.remoteTag.empty())
-            entry.remoteTag = _extractString(valueStr, "md5"); // pre-provider format
-        entry.remoteId = _extractString(valueStr, "id");
+            entry.remoteTag = jsonString(valueStr, "md5"); // pre-provider format
+        entry.remoteId = jsonString(valueStr, "id");
 
         // Keys without a provider prefix predate multi-provider support and can
         // only have come from Google Drive.
-        std::string key = _unescape(rawKey);
+        std::string key = jsonUnescape(rawKey);
         if (key.find('|') == std::string::npos)
             key = "drive|" + key;
 
@@ -139,11 +141,11 @@ bool Manifest::save() const
         first = false;
 
         fprintf(fp, "  \"%s\": {\"mtime\": %lld, \"size\": %lld, \"tag\": \"%s\", \"id\": \"%s\"}",
-                _escape(kv.first).c_str(),
+                jsonEscape(kv.first).c_str(),
                 (long long)kv.second.localMtime,
                 kv.second.localSize,
-                _escape(kv.second.remoteTag).c_str(),
-                _escape(kv.second.remoteId).c_str());
+                jsonEscape(kv.second.remoteTag).c_str(),
+                jsonEscape(kv.second.remoteId).c_str());
     }
     fputs("\n}\n", fp);
     fclose(fp);
@@ -175,91 +177,3 @@ void Manifest::remove(const std::string &key)
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
-
-std::string Manifest::_extractString(const std::string &json, const std::string &key)
-{
-    // Handles both compact ("key":"val") and spaced ("key": "val") separators
-    for (const char *sep : {"\":\"", "\": \""})
-    {
-        std::string search = "\"" + key + sep;
-        size_t pos = json.find(search);
-        if (pos != std::string::npos)
-        {
-            pos += search.size();
-            size_t end = json.find('"', pos);
-            if (end != std::string::npos)
-                return json.substr(pos, end - pos);
-        }
-    }
-    return "";
-}
-
-bool Manifest::_extractInt(const std::string &json, const std::string &key, long long &out)
-{
-    // Handles both compact ("key":123) and spaced ("key": 123) separators
-    for (const char *sep : {"\":", "\": "})
-    {
-        std::string search = "\"" + key + sep;
-        size_t pos = json.find(search);
-        if (pos != std::string::npos)
-        {
-            out = strtoll(json.c_str() + pos + search.size(), nullptr, 10);
-            return true;
-        }
-    }
-    return false;
-}
-
-std::string Manifest::_escape(const std::string &s)
-{
-    std::string result;
-    for (unsigned char c : s)
-    {
-        switch (c)
-        {
-        case '"':  result += "\\\""; break;
-        case '\\': result += "\\\\"; break;
-        case '\n': result += "\\n";  break;
-        case '\r': result += "\\r";  break;
-        case '\t': result += "\\t";  break;
-        default:
-            if (c < 0x20)
-            {
-                char buf[7];
-                snprintf(buf, sizeof(buf), "\\u%04x", c);
-                result += buf;
-            }
-            else
-            {
-                result += (char)c;
-            }
-            break;
-        }
-    }
-    return result;
-}
-
-std::string Manifest::_unescape(const std::string &s)
-{
-    std::string result;
-    for (size_t i = 0; i < s.size(); i++)
-    {
-        if (s[i] == '\\' && i + 1 < s.size())
-        {
-            switch (s[i + 1])
-            {
-            case '"':  result += '"';  i++; break;
-            case '\\': result += '\\'; i++; break;
-            case 'n':  result += '\n'; i++; break;
-            case 'r':  result += '\r'; i++; break;
-            case 't':  result += '\t'; i++; break;
-            default:   result += s[i]; break;
-            }
-        }
-        else
-        {
-            result += s[i];
-        }
-    }
-    return result;
-}

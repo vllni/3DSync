@@ -245,11 +245,26 @@ reproducible with `make`. 3DSync's own code remains MIT.
 
 ## Building
 
-Requires [devkitPro](https://devkitpro.org/) with 3DS support.
+Requires [devkitPro](https://devkitpro.org/) with 3DS support, plus
+[libsmb2](https://github.com/sahlberg/libsmb2) for the SMB backend — the
+devcontainer image builds it for you.
 
 ```bash
 make
 ```
 
 Output: `output/3ds-arm/3DSync.cia` and `output/3ds-arm/3ds/3DSync/3DSync.3dsx`.
+
+## Tests
+
+```bash
+make -C tests
+```
+
+The unit tests build for the machine you run them on, not for the 3DS, and cover
+the parts that decide what a sync does: the upload/download/conflict decision
+table, manifest persistence and migration, content hashing, and each remote's
+response parsing driven by recorded server responses. They run on every pull
+request. `libmbedtls-dev` enables the hashing tests; without it the rest still
+run and the runner says what it skipped.
 

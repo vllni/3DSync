@@ -14,6 +14,8 @@
 #include <smb2/libsmb2.h>
 
 #include "../utils/fsutil.h"
+#include "../utils/pathutil.h"
+#include "remoteparse.h"
 
 // Read/write in chunks, clamped to what the server negotiated.
 static const uint32_t SMB_CHUNK = 65536;
@@ -22,7 +24,7 @@ SmbRemote::SmbRemote(const std::string &server, const std::string &share,
                      const std::string &user, const std::string &password,
                      const std::string &domain, const std::string &basePath)
     : _server(server), _share(share), _user(user), _password(password),
-      _domain(domain), _basePath(_normalize(basePath)), _smb2(NULL),
+      _domain(domain), _basePath(normalizeRemotePath(basePath)), _smb2(NULL),
       _connected(false), _fatalError(false)
 {
 }
@@ -77,28 +79,9 @@ bool SmbRemote::connect()
     return true;
 }
 
-std::string SmbRemote::_normalize(const std::string &path)
-{
-    std::string out;
-    for (size_t i = 0; i < path.size(); i++)
-    {
-        char c = (path[i] == '\\') ? '/' : path[i];
-        // Collapse repeated separators; libsmb2 wants clean components.
-        if (c == '/' && (out.empty() || out[out.size() - 1] == '/'))
-            continue;
-        out += c;
-    }
-    while (!out.empty() && out[out.size() - 1] == '/')
-        out.erase(out.size() - 1);
-    return out;
-}
-
 std::string SmbRemote::_tagFor(const struct smb2_stat_64 &st)
 {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "%llu:%llu",
-             (unsigned long long)st.smb2_size, (unsigned long long)st.smb2_mtime);
-    return buf;
+    return sizeTimeTag((long long)st.smb2_size, (long long)st.smb2_mtime);
 }
 
 bool SmbRemote::_mkdirs(const std::string &dirPath)
@@ -135,7 +118,7 @@ bool SmbRemote::_mkdirs(const std::string &dirPath)
 
 std::string SmbRemote::ensureRoot(const std::string &remoteName)
 {
-    std::string root = _normalize(_basePath.empty() ? remoteName
+    std::string root = normalizeRemotePath(_basePath.empty() ? remoteName
                                                     : _basePath + "/" + remoteName);
     if (!_mkdirs(root))
         return "";
@@ -172,8 +155,7 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
         else if (ent->st.smb2_type == SMB2_TYPE_FILE)
         {
             // Skip our own interrupted transfers.
-            if (childRel.size() > 7 &&
-                childRel.compare(childRel.size() - 7, 7, ".3dstmp") == 0)
+            if (isTempTransferName(childRel))
                 continue;
 
             RemoteFileInfo info;
@@ -262,7 +244,7 @@ bool SmbRemote::upload(const std::string &root, const std::string &relPath,
 {
     (void)existing;
 
-    std::string remotePath = _normalize(root + relPath);
+    std::string remotePath = normalizeRemotePath(root + relPath);
     size_t slash = remotePath.rfind('/');
     if (slash != std::string::npos && !_mkdirs(remotePath.substr(0, slash)))
         return false;
@@ -276,7 +258,7 @@ bool SmbRemote::upload(const std::string &root, const std::string &relPath,
 
     // Write to a temp name and swap it in, so a failed transfer never leaves a
     // truncated save on the server.
-    std::string tmpRemote = remotePath + ".3dstmp";
+    std::string tmpRemote = remotePath + TEMP_SUFFIX;
     struct smb2fh *fh = smb2_open(_smb2, tmpRemote.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
     if (!fh)
     {
