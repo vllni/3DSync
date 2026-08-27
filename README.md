@@ -23,7 +23,7 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 
 ## Quick Start
 
-1. Open the [configurator](https://vllni.github.io/3DSync/configurator.html) and follow the three steps.
+1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. Install `output/3ds-arm/3DSync.cia` **or** run `3DSync.3dsx` from the Homebrew Launcher.
 4. Launch 3DSync. It will sync all configured paths and press **START** to exit.
@@ -225,8 +225,8 @@ If the 3DS system clock differs from the remote's clock by more than 60 seconds,
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project, enable the **Google Drive API**.
 3. Create an **OAuth 2.0 Web application** client (Client ID + Client Secret).
-4. Add the redirect URI: `https://vllni.github.io/3DSync/configurator.html`.
-5. Use the [configurator](https://vllni.github.io/3DSync/configurator.html) to authenticate; it performs PKCE and stores the refresh token.
+4. Add the redirect URI: `https://3dsync.villani-ulm.de/configurator.html`.
+5. Use the [configurator](https://3dsync.villani-ulm.de/configurator.html) to authenticate; it performs PKCE and stores the refresh token.
 
 > **Note:** Apps in *Testing* mode issue refresh tokens that expire after **7 days**. Publish the app or add your Google account as a test user to avoid frequent re-authentication.
 
@@ -245,11 +245,26 @@ reproducible with `make`. 3DSync's own code remains MIT.
 
 ## Building
 
-Requires [devkitPro](https://devkitpro.org/) with 3DS support.
+Requires [devkitPro](https://devkitpro.org/) with 3DS support, plus
+[libsmb2](https://github.com/sahlberg/libsmb2) for the SMB backend — the
+devcontainer image builds it for you.
 
 ```bash
 make
 ```
 
 Output: `output/3ds-arm/3DSync.cia` and `output/3ds-arm/3ds/3DSync/3DSync.3dsx`.
+
+## Tests
+
+```bash
+make -C tests
+```
+
+The unit tests build for the machine you run them on, not for the 3DS, and cover
+the parts that decide what a sync does: the upload/download/conflict decision
+table, manifest persistence and migration, content hashing, and each remote's
+response parsing driven by recorded server responses. They run on every pull
+request. `libmbedtls-dev` enables the hashing tests; without it the rest still
+run and the runner says what it skipped.
 

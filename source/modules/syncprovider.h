@@ -60,6 +60,8 @@ public:
 
     // Download file to localPath.  Must land atomically: write to a temp file
     // and swap it in, so an interrupted transfer cannot destroy a save.
+    // The parent directories of localPath already exist — the engine creates
+    // them — so an implementation only has to write the file.
     virtual bool download(const RemoteFileInfo &file,
                           const std::string &localPath) = 0;
 

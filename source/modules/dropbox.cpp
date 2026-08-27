@@ -8,6 +8,10 @@
 #include <3ds.h>
 
 #include "../utils/fsutil.h"
+#include "../utils/hash.h"
+#include "../utils/json.h"
+#include "../utils/pathutil.h"
+#include "remoteparse.h"
 
 // Dropbox rejects a single-request upload above 150 MB; larger files need the
 // upload_session endpoints, which nothing on a 3DS SD card should require.
@@ -20,25 +24,14 @@ Dropbox::Dropbox(const std::string &appKey, const std::string &appSecret,
       _token(directToken), _fatalError(false)
 {
     // Normalise to "" or "/a/b" — Dropbox wants the root as an empty string.
-    _basePath = basePath;
-    while (!_basePath.empty() && _basePath[0] == '/')
-        _basePath.erase(0, 1);
-    while (!_basePath.empty() && _basePath[_basePath.size() - 1] == '/')
-        _basePath.erase(_basePath.size() - 1);
-    if (!_basePath.empty())
-        _basePath = "/" + _basePath;
+    _basePath = normalizeRemotePath(basePath, true);
 }
 
 bool Dropbox::hasFatalError() const { return _fatalError; }
 
 std::string Dropbox::_pathFor(const std::string &path) const
 {
-    std::string clean = path;
-    while (!clean.empty() && clean[clean.size() - 1] == '/')
-        clean.erase(clean.size() - 1);
-    if (!clean.empty() && clean[0] != '/')
-        clean = "/" + clean;
-    return _basePath + clean;
+    return _basePath + normalizeRemotePath(path, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +68,7 @@ bool Dropbox::_refreshAccessToken()
         return false;
     }
 
-    std::string accessToken = _jsonString(_curl.getResponse(), "access_token");
+    std::string accessToken = jsonString(_curl.getResponse(), "access_token");
     if (accessToken.empty())
     {
         printf("Failed to parse access_token from refresh response\n");
@@ -242,7 +235,7 @@ std::string Dropbox::ensureRoot(const std::string &remoteName)
 
     // create_folder_v2 reports 409 path/conflict when it is already there,
     // which is the outcome we wanted anyway.
-    std::string body = "{\"path\":\"" + _jsonEscape(root) + "\",\"autorename\":false}";
+    std::string body = "{\"path\":\"" + jsonEscape(root) + "\",\"autorename\":false}";
     int res = _rpc("https://api.dropboxapi.com/2/files/create_folder_v2", body);
     if (res != 0 && res != 409)
     {
@@ -257,7 +250,7 @@ std::string Dropbox::ensureRoot(const std::string &remoteName)
 bool Dropbox::list(const std::string &root,
                    std::map<std::string, RemoteFileInfo> &out)
 {
-    std::string body = "{\"path\":\"" + _jsonEscape(root) +
+    std::string body = "{\"path\":\"" + jsonEscape(root) +
                        "\",\"recursive\":true,\"include_deleted\":false}";
     std::string endpoint = "https://api.dropboxapi.com/2/files/list_folder";
 
@@ -275,52 +268,18 @@ bool Dropbox::list(const std::string &root,
         }
 
         std::string response = _curl.getResponse();
-        std::vector<std::string> entries;
-        _splitEntries(response, entries);
+        parseDropboxEntries(response, root, out);
 
-        for (auto &entry : entries)
-        {
-            if (_jsonString(entry, ".tag") != "file")
-                continue;
-
-            std::string path = _jsonString(entry, "path_display");
-            if (path.empty())
-                path = _jsonString(entry, "path_lower");
-            if (path.size() <= root.size())
-                continue;
-
-            // Dropbox paths are case-insensitive, so compare the root that way
-            // and keep the server's spelling for the remainder.
-            if (strncasecmp(path.c_str(), root.c_str(), root.size()) != 0)
-                continue;
-            std::string relPath = path.substr(root.size());
-            if (relPath.empty() || relPath[0] != '/')
-                continue;
-
-            // Skip our own interrupted transfers.
-            if (relPath.size() > 7 &&
-                relPath.compare(relPath.size() - 7, 7, ".3dstmp") == 0)
-                continue;
-
-            RemoteFileInfo info;
-            // "rev:<rev>" pins the download to the revision listed here.
-            std::string rev = _jsonString(entry, "rev");
-            info.id = rev.empty() ? path : ("rev:" + rev);
-            info.relPath = relPath;
-            info.tag = _jsonString(entry, "content_hash");
-            out[relPath] = info;
-        }
-
-        if (!_jsonTrue(response, "has_more"))
+        if (!jsonTrue(response, "has_more"))
             break;
 
-        std::string cursor = _jsonString(response, "cursor");
+        std::string cursor = jsonString(response, "cursor");
         if (cursor.empty())
         {
             printf("Dropbox: has_more set but no cursor returned\n");
             break;
         }
-        body = "{\"cursor\":\"" + _jsonEscape(cursor) + "\"}";
+        body = "{\"cursor\":\"" + jsonEscape(cursor) + "\"}";
         endpoint = "https://api.dropboxapi.com/2/files/list_folder/continue";
     }
     return true;
@@ -333,7 +292,7 @@ bool Dropbox::download(const RemoteFileInfo &file, const std::string &localPath)
     if (!fp)
         return false;
 
-    std::string args("Dropbox-API-Arg: {\"path\":\"" + _headerJsonEscape(file.id) + "\"}");
+    std::string args("Dropbox-API-Arg: {\"path\":\"" + jsonEscapeAscii(file.id) + "\"}");
     std::string auth("Authorization: Bearer " + _token);
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, auth.c_str());
@@ -392,7 +351,7 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
 
     // "overwrite" replaces the remote file in place; the API default "add"
     // silently renames the upload to "name (1).ext" instead.
-    std::string args("Dropbox-API-Arg: {\"path\":\"" + _headerJsonEscape(remotePath) +
+    std::string args("Dropbox-API-Arg: {\"path\":\"" + jsonEscapeAscii(remotePath) +
                      "\",\"mode\":\"overwrite\",\"mute\":true}");
     std::string auth("Authorization: Bearer " + _token);
     struct curl_slist *headers = NULL;
@@ -421,8 +380,8 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
     // The upload response is the new file's metadata, so the tag needs no
     // extra round trip.
     std::string response = _curl.getResponse();
-    outTag = _jsonString(response, "content_hash");
-    std::string rev = _jsonString(response, "rev");
+    outTag = jsonString(response, "content_hash");
+    std::string rev = jsonString(response, "rev");
     outId = rev.empty() ? remotePath : ("rev:" + rev);
 
     if (outTag.empty())
@@ -437,238 +396,4 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
 std::string Dropbox::localTag(const std::string &localPath)
 {
     return computeDropboxHash(localPath);
-}
-
-// ---------------------------------------------------------------------------
-// JSON helpers
-// ---------------------------------------------------------------------------
-// Hand-rolled, like the rest of the project: no JSON library is available.
-// ---------------------------------------------------------------------------
-
-std::string Dropbox::_jsonString(const std::string &json, const std::string &key)
-{
-    // Handles both compact ("key":"value") and spaced ("key": "value") forms.
-    for (const char *sep : {"\":\"", "\": \""})
-    {
-        std::string search = "\"" + key + sep;
-        size_t pos = json.find(search);
-        if (pos == std::string::npos)
-            continue;
-        pos += search.size();
-
-        std::string out;
-        while (pos < json.size() && json[pos] != '"')
-        {
-            if (json[pos] == '\\' && pos + 1 < json.size())
-            {
-                char esc = json[pos + 1];
-                if (esc == 'n') out += '\n';
-                else if (esc == 'r') out += '\r';
-                else if (esc == 't') out += '\t';
-                else if (esc == 'u' && pos + 5 < json.size())
-                {
-                    // Dropbox only escapes non-ASCII this way in paths; keep
-                    // the BMP characters we can represent in one UTF-8 run.
-                    char hex[5] = {json[pos + 2], json[pos + 3], json[pos + 4], json[pos + 5], 0};
-                    unsigned int cp = (unsigned int)strtoul(hex, NULL, 16);
-                    if (cp < 0x80)
-                    {
-                        out += (char)cp;
-                    }
-                    else if (cp < 0x800)
-                    {
-                        out += (char)(0xc0 | (cp >> 6));
-                        out += (char)(0x80 | (cp & 0x3f));
-                    }
-                    else
-                    {
-                        out += (char)(0xe0 | (cp >> 12));
-                        out += (char)(0x80 | ((cp >> 6) & 0x3f));
-                        out += (char)(0x80 | (cp & 0x3f));
-                    }
-                    pos += 6;
-                    continue;
-                }
-                else out += esc;
-                pos += 2;
-                continue;
-            }
-            out += json[pos];
-            pos++;
-        }
-        return out;
-    }
-    return "";
-}
-
-bool Dropbox::_jsonTrue(const std::string &json, const std::string &key)
-{
-    for (const char *sep : {"\":", "\": "})
-    {
-        std::string search = "\"" + key + sep;
-        size_t pos = json.find(search);
-        if (pos != std::string::npos)
-            return json.compare(pos + search.size(), 4, "true") == 0;
-    }
-    return false;
-}
-
-void Dropbox::_splitEntries(const std::string &json, std::vector<std::string> &out)
-{
-    size_t arrayStart = json.find("\"entries\"");
-    if (arrayStart == std::string::npos)
-        return;
-    arrayStart = json.find('[', arrayStart);
-    if (arrayStart == std::string::npos)
-        return;
-
-    int depth = 0;
-    bool inString = false;
-    size_t objStart = 0;
-
-    for (size_t i = arrayStart + 1; i < json.size(); i++)
-    {
-        char c = json[i];
-
-        if (inString)
-        {
-            if (c == '\\')
-                i++; // skip the escaped character, braces included
-            else if (c == '"')
-                inString = false;
-            continue;
-        }
-
-        if (c == '"')
-            inString = true;
-        else if (c == '{')
-        {
-            if (depth == 0)
-                objStart = i;
-            depth++;
-        }
-        else if (c == '}')
-        {
-            depth--;
-            if (depth == 0)
-                out.push_back(json.substr(objStart, i - objStart + 1));
-        }
-        else if (c == ']' && depth == 0)
-        {
-            break; // end of the entries array
-        }
-    }
-}
-
-std::string Dropbox::_jsonEscape(const std::string &value)
-{
-    std::string out;
-    char buf[8];
-    for (unsigned char c : value)
-    {
-        if (c == '"' || c == '\\')
-        {
-            out += '\\';
-            out += (char)c;
-        }
-        else if (c < 0x20)
-        {
-            snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-        }
-        else
-        {
-            out += (char)c;
-        }
-    }
-    return out;
-}
-
-std::string Dropbox::_headerJsonEscape(const std::string &value)
-{
-    std::string out;
-    char buf[16];
-    size_t i = 0;
-
-    while (i < value.size())
-    {
-        unsigned char c = (unsigned char)value[i];
-
-        if (c == '"' || c == '\\')
-        {
-            out += '\\';
-            out += (char)c;
-            i++;
-        }
-        else if (c < 0x20 || c == 0x7f)
-        {
-            snprintf(buf, sizeof(buf), "\\u%04x", c);
-            out += buf;
-            i++;
-        }
-        else if (c < 0x80)
-        {
-            out += (char)c;
-            i++;
-        }
-        else
-        {
-            // Decode one UTF-8 sequence into a code point.
-            unsigned int cp = 0;
-            int extra = 0;
-            if ((c & 0xe0) == 0xc0)
-            {
-                cp = c & 0x1f;
-                extra = 1;
-            }
-            else if ((c & 0xf0) == 0xe0)
-            {
-                cp = c & 0x0f;
-                extra = 2;
-            }
-            else if ((c & 0xf8) == 0xf0)
-            {
-                cp = c & 0x07;
-                extra = 3;
-            }
-            else
-            {
-                i++; // invalid lead byte — drop it
-                continue;
-            }
-
-            if (i + (size_t)extra >= value.size())
-                break; // truncated sequence at end of string
-
-            bool valid = true;
-            for (int k = 1; k <= extra; k++)
-            {
-                unsigned char cont = (unsigned char)value[i + k];
-                if ((cont & 0xc0) != 0x80)
-                {
-                    valid = false;
-                    break;
-                }
-                cp = (cp << 6) | (cont & 0x3f);
-            }
-            if (!valid)
-            {
-                i++;
-                continue;
-            }
-            i += extra + 1;
-
-            if (cp >= 0x10000)
-            {
-                cp -= 0x10000;
-                snprintf(buf, sizeof(buf), "\\u%04x\\u%04x",
-                         0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
-            }
-            else
-                snprintf(buf, sizeof(buf), "\\u%04x", cp);
-            out += buf;
-        }
-    }
-
-    return out;
 }

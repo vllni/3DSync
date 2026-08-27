@@ -43,7 +43,9 @@
                 <div class="step-content">
                   <div class="row">
                     <div class="col s12 m5">
-                      <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span></h5>
+                      <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox<span
+                          style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+                      </h5>
                       <p class="white-text" style="font-size:0.85em;opacity:0.9;margin:0 0 10px 0">
                         Two-way sync, but newer than the Google Drive backend and less tested &mdash; keep a
                         backup of your saves and please report problems at
@@ -68,18 +70,20 @@
                             app.</span>
                         </div>
                         <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
-                          <p style="margin:0 0 8px 0">Create an app in the <a href="https://www.dropbox.com/developers/apps"
-                              target="_blank" rel="noopener noreferrer" class="white-text"
-                              style="text-decoration:underline">Dropbox App Console</a> with the <strong>Full
+                          <p style="margin:0 0 8px 0">Create an app in the <a
+                              href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer"
+                              class="white-text" style="text-decoration:underline">Dropbox App Console</a> with the
+                            <strong>Full
                               Dropbox</strong> or <strong>App folder</strong> access type, enable the
                             <strong>files.content.read</strong>, <strong>files.content.write</strong> and
                             <strong>files.metadata.read</strong> permissions, then paste its app key above.
                           </p>
-                          <p style="margin:0 0 4px 0">Under <strong>Settings &rarr; OAuth 2 &rarr; Redirect URIs</strong>,
+                          <p style="margin:0 0 4px 0">Under <strong>Settings &rarr; OAuth 2 &rarr; Redirect
+                              URIs</strong>,
                             add exactly this URI or the login will be rejected:</p>
                           <div class="valign-wrapper" style="flex-wrap:wrap">
                             <code id="dropbox-redirect-uri"
-                              style="background:rgba(0,0,0,0.3);padding:3px 6px;border-radius:3px;word-break:break-all">https://vllni.github.io/3DSync/configurator.html</code>
+                              style="background:rgba(0,0,0,0.3);padding:3px 6px;border-radius:3px;word-break:break-all">https://3dsync.villani-ulm.de/configurator.html</code>
                             <a href="#" id="dropbox-copy-redirect-uri" class="white-text"
                               style="margin-left:8px;text-decoration:underline;white-space:nowrap">Copy</a>
                             <span id="dropbox-copy-status" style="margin-left:6px"></span>
@@ -124,7 +128,7 @@
                             target="_blank" rel="noopener noreferrer" class="white-text"
                             style="text-decoration:underline">Google Cloud Console</a>, create a
                           project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
-                          credential. Add <strong>https://vllni.github.io/3DSync/configurator.html</strong> as an
+                          credential. Add <strong>https://3dsync.villani-ulm.de/configurator.html</strong> as an
                           authorized redirect
                           URI. The refresh token is stored in the config so you won't need to log in again.</p>
                         <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>

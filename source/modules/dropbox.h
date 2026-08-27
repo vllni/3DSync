@@ -70,16 +70,6 @@ private:
     // POST a JSON body to an api.dropboxapi.com RPC endpoint.
     int _rpc(const std::string &endpoint, const std::string &jsonBody);
 
-    // Dropbox-API-Arg is JSON carried in an HTTP header, so it has to be pure
-    // ASCII: escape the JSON specials and emit non-ASCII as \uXXXX.
-    static std::string _headerJsonEscape(const std::string &value);
-    // Same escaping rules, minus the ASCII restriction, for a request body.
-    static std::string _jsonEscape(const std::string &value);
-    static std::string _jsonString(const std::string &json, const std::string &key);
-    static bool _jsonTrue(const std::string &json, const std::string &key);
-    // Split the "entries" array of a list_folder response into its objects.
-    // Brace counting is string-aware: a file name may contain braces.
-    static void _splitEntries(const std::string &json, std::vector<std::string> &out);
     // Absolute Dropbox path for a sync-relative path ("" for the root).
     std::string _pathFor(const std::string &path) const;
 };

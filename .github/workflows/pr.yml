@@ -12,6 +12,23 @@ env:
   BUILD_IMAGE: ghcr.io/vllni/3dsync-devcontainer:latest
 
 jobs:
+  # The unit tests build for the host, not the 3DS: the logic they cover is kept
+  # free of libctru, libcurl and libsmb2 so it can run without hardware.  Split
+  # from the build job so a logic failure and a toolchain failure are easy to
+  # tell apart, and so both report even when one fails.
+  tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mbedtls
+        run: sudo apt-get update -q && sudo apt-get install -y -q libmbedtls-dev
+
+      - name: Run tests
+        run: make -C tests
+
   build:
     name: Build
     runs-on: ubuntu-latest

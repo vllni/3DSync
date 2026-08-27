@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../utils/curl.h"
+#include "remoteparse.h"
 #include "syncprovider.h"
 
 // WebDAV remote — Nextcloud/ownCloud, a NAS with WebDAV enabled, or any server
@@ -43,13 +44,6 @@ private:
     std::string _lastServerTime;
     Curl _curl;
 
-    struct DavEntry
-    {
-        std::string relPath; // relative to the PROPFIND root
-        std::string tag;
-        bool isCollection;
-    };
-
     void _prepare();
     std::string _urlFor(const std::string &path) const;
     // perform() with back-off; maps HTTP status to fatal / transient / per-file.
@@ -60,11 +54,6 @@ private:
     bool _listDepthOne(const std::string &root, const std::string &prefix,
                        std::map<std::string, RemoteFileInfo> &out);
     bool _mkcol(const std::string &path);
-    // Drop XML namespace prefixes so tags can be matched by local name alone.
-    static std::string _stripNamespaces(const std::string &xml);
-    static std::string _tagBetween(const std::string &xml, const std::string &tag,
-                                   size_t from, size_t to);
-    static std::string _normalizeEtag(std::string etag);
 };
 
 #endif

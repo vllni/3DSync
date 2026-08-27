@@ -32,10 +32,6 @@ public:
 private:
     std::string _path;
     std::map<std::string, ManifestEntry> _entries;
-    static std::string _extractString(const std::string &json, const std::string &key);
-    static bool _extractInt(const std::string &json, const std::string &key, long long &out);
-    static std::string _escape(const std::string &s);
-    static std::string _unescape(const std::string &s);
 };
 
 #endif

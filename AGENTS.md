@@ -10,7 +10,7 @@
 
 Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, Dropbox, an SMB2/3 file server, FTP/FTPS or WebDAV. Written in C++11, built with devkitPro/devkitARM.
 
-Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.github.io/3DSync/`) generates the INI config file via OAuth and a stepper UI.
+Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.villani-ulm.de/`) generates the INI config file via OAuth and a stepper UI.
 
 ---
 
@@ -18,7 +18,10 @@ Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.git
 
 ```
 source/             C++ application source
-  main.cpp          Entry point, sync engine, INI parsing
+  main.cpp          Entry point, INI parsing, provider construction, 3DS UI
+  sync/
+    syncengine.cpp/h  The decision table: what to upload, download, prompt
+                    about or skip.  Free of 3DS APIs — see "Tests".
   modules/
     syncprovider.h  SyncProvider interface + RemoteFileInfo — the sync engine's
                     only view of a remote.  Add a backend by implementing it.
@@ -27,12 +30,22 @@ source/             C++ application source
     ftpremote.cpp/h    FTP/FTPS via libcurl
     webdavremote.cpp/h WebDAV via libcurl (PROPFIND/MKCOL/PUT/MOVE)
     dropbox.cpp/h   Dropbox: content_hash tags, PKCE refresh-token auth
+    remoteparse.cpp/h  Response parsing and URL building for the remotes,
+                    kept free of libcurl/libsmb2 so it is directly testable
     manifest.cpp/h  Local JSON manifest tracking sync state
   utils/
     curl.cpp/h      libcurl wrapper (methods, upload/download streaming, FTP
-                    options, wildcard listing, header capture) + URL helpers
-    fsutil.cpp/h    mkdirs, MD5, temp-file + atomic-replace helpers
+                    options, wildcard listing, header capture)
+    json.cpp/h      JSON member lookups, escaping, array splitting
+    xmlutil.cpp/h   WebDAV multistatus reading
+    urlutil.cpp/h   Percent-encoding
+    pathutil.cpp/h  Remote path normalisation, in-flight transfer names
+    timeutil.cpp/h  Server clock parsing (RFC 3339 and RFC 7231)
+    fsutil.cpp/h    mkdirs, temp-file + atomic-replace helpers
+    hash.cpp/h      MD5 and the Dropbox content hash
+    console.h       CONSOLE_* colours, from <3ds.h> or defined for the host
   libs/inih/        INI parser (inih + INIReader)
+tests/              Host unit tests (see "Tests")
 docs/               Configurator static site
   index.html        Three-step stepper UI (auth → paths → download)
   static/js/index.js  All UI logic (PKCE OAuth, path config, INI generation)
@@ -80,6 +93,7 @@ Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the
 ## Key C++ conventions
 
 - **C++11**, no exceptions, no RTTI.
+- Logic worth testing goes in a unit that does not include `<3ds.h>`, libcurl or libsmb2, and gets a test. The providers should stay thin: talk to the network, hand the response to a parser.
 - All HTTP goes through the `Curl` wrapper (`source/utils/curl.h`). Never call libcurl directly.
 - `Curl::perform()` returns 0 on network success. **HTTP status is not checked by `perform()`** — callers must call `getStatusCode()`. `CURLOPT_FAILONERROR` is intentionally disabled so error response bodies are captured.
 - Every provider owns a `_performWithRetry()` that maps transport errors to *transient* (retry with back-off), *fatal* (`_fatalError`, stop the run) or *per-file* (log and skip). Never call `_curl.perform()` directly from a provider method — the retry helper is also where the server `Date` header is captured.
@@ -97,6 +111,28 @@ Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the
 - The console is **50 columns** wide and wraps mid-word. Keep any line of output — key prompts especially — under that.
 - Keep sync output quiet: print per-entry headers, the experimental notice, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
+
+---
+
+## Tests
+
+```bash
+make -C tests            # build and run
+make -C tests F=engine   # only tests whose "suite.name" contains "engine"
+```
+
+They build for the **host**, not the 3DS, and run in the `Unit Tests` job of `pr.yml`. Nothing here needs hardware or an emulator, which is only possible because the logic under test is kept free of libctru, libcurl and libsmb2 — keep it that way when adding code:
+
+- `sync/syncengine.cpp` talks to `SyncProvider` and `SyncUi` and nothing else. Cancellation and the conflict prompt arrive through `SyncUi` precisely so the decision table can be driven by a scripted stand-in; do not reach for `hidKeysDown()` or `aptMainLoop()` in there.
+- Response parsing lives in `modules/remoteparse.cpp`, so a provider's `list()` is a request plus a call into a testable function. New protocol parsing belongs there, not inline in the provider.
+- `utils/console.h` supplies the `CONSOLE_*` macros off-console, so host-portable code must include it instead of `<3ds.h>`.
+- The hash tests need mbedtls on the host (`libmbedtls-dev`). Without it the suite still builds and runs, and the runner prints what was left out — deliberately loud rather than a silent pass.
+
+The framework is `tests/framework.h`, about eighty lines: the build image has no gtest and vendoring one for this is more dependency than it is worth. `TEST(suite, name)` registers a case; `CHECK`/`CHECK_EQ`/`CHECK_STR_EQ` record a failure and keep going, so one broken case reports every mismatch rather than only the first.
+
+**Mocking.** `tests/mocks.h` has `MockRemote` (a `SyncProvider` holding its files in memory, with scripted failures and recorded calls), `MockUi` (scripted conflict answers and cancellation), and `TempDir` (a real scratch directory for the local side). Mocking at `SyncProvider` is deliberate: it is the one seam every backend shares, so those tests cover the engine for all five remotes at once. An HTTP-level mock could not — SMB does not speak HTTP. Per-remote behaviour is covered instead by feeding recorded server responses through `remoteparse`.
+
+What is *not* covered, and would need hardware or a much larger seam: the request-building paths inside each provider (libcurl option wiring, libsmb2 calls), retry and back-off behaviour, and the OAuth flows. A mockable transport interface would reach the first of those; it was left out because it means rewriting request code in four providers that have not yet been validated against real servers.
 
 ---
 
@@ -189,7 +225,7 @@ RemoteName=/LocalPath
 ## Configurator (docs/)
 
 - Pure static site — no server. Credentials are entered by the user (their own Google Cloud project). The client secret lives in `localStorage` only long enough to survive the OAuth redirect, and must be cleared from `localStorage` after `exchangeGoogleCode` succeeds.
-- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://vllni.github.io/3DSync/`.
+- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
 - INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
 
@@ -205,7 +241,7 @@ RemoteName=/LocalPath
 
 - Feature branches: `feat/...`, bug fixes: `fix/...` or `fiX/...`
 - PRs target `vllni/3DSync:master` (the fork), **not** `Kyraminol/3DSync:master` (the upstream).
-- Always run `make` and verify a clean build before committing C++ changes.
+- Always run `make` and `make -C tests` before committing C++ changes.
 - Commit messages: short imperative subject, blank line, then bullet-point body describing *why*.
 - `.github/CODEOWNERS` assigns `@vllni` as the default reviewer for the whole repo.
 - Never reuse code from a closed PR whose author has withdrawn permission for it. Implementing the same fix independently is fine; copying the commits is not.
