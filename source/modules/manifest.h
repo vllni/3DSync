@@ -8,13 +8,15 @@
 // Record of one file's last-known sync state.
 struct ManifestEntry
 {
-    time_t localMtime;    // st_mtime at the time of the last successful sync
-    std::string driveMd5; // md5Checksum returned by Drive after the last sync
-    std::string driveId;  // Drive file ID (for update/download without a name search)
+    time_t localMtime;     // st_mtime after the last successful sync
+    long long localSize;   // st_size after the last successful sync (0 = unknown)
+    std::string remoteTag; // provider change token: MD5, ETag or "<size>:<mtime>"
+    std::string remoteId;  // provider handle (Drive file ID, or the remote path)
 };
 
 // Persists sync state to /3ds/3DSync/manifest.json.
-// Keys are the full local filesystem paths (e.g. /3ds/Checkpoint/saves/Game/001.sav).
+// Keys are "<provider prefix>|<full local path>", e.g.
+// "drive|/3ds/Checkpoint/saves/Game/001.sav" — see SyncProvider::manifestPrefix().
 class Manifest
 {
 public:
@@ -31,6 +33,7 @@ private:
     std::string _path;
     std::map<std::string, ManifestEntry> _entries;
     static std::string _extractString(const std::string &json, const std::string &key);
+    static bool _extractInt(const std::string &json, const std::string &key, long long &out);
     static std::string _escape(const std::string &s);
     static std::string _unescape(const std::string &s);
 };

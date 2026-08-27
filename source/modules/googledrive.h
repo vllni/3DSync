@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../utils/curl.h"
+#include "syncprovider.h"
 
 // Metadata for one file returned by the Drive files.list API.
 struct DriveFileInfo
@@ -19,7 +20,7 @@ struct DriveFileInfo
     bool        isFolder;
 };
 
-class GoogleDrive
+class GoogleDrive : public SyncProvider
 {
 public:
     // Refresh-token based construction (preferred): exchanges refresh token for
@@ -31,13 +32,28 @@ public:
                 const std::string &directToken = std::string());
     ~GoogleDrive() {}
 
+    // --- SyncProvider ---
+    const char *name() const override { return "Drive"; }
+    std::string manifestPrefix() const override { return "drive"; }
+    // The original backend: bidirectional sync here has been in use longest.
+    bool isExperimental() const override { return false; }
+    bool connect() override { return ensureToken(); }
+    bool hasFatalError() const override;
+    std::string ensureRoot(const std::string &remoteName) override;
+    bool list(const std::string &root,
+              std::map<std::string, RemoteFileInfo> &out) override;
+    bool download(const RemoteFileInfo &file, const std::string &localPath) override;
+    bool upload(const std::string &root, const std::string &relPath,
+                const std::string &localPath, const RemoteFileInfo *existing,
+                std::string &outTag, std::string &outId) override;
+    // Drive tags are MD5 checksums, so a local MD5 is directly comparable.
+    std::string localTag(const std::string &localPath) override;
+    std::string serverTime() const override { return _lastServerTime; }
+    bool legacyUpload(const std::string &localBase, const std::string &remoteName,
+                      const std::vector<std::string> &files) override;
+
     // Ensures the access token is valid; call once before any sync operations.
     bool ensureToken();
-
-    // Returns true if a fatal, unrecoverable API error has occurred (e.g. 401
-    // auth failure or 403 API-disabled).  When true, all subsequent Drive calls
-    // will be skipped and the sync loop should be aborted.
-    bool hasFatalError() const;
 
     // Legacy flat-name upload (unchanged behaviour).
     bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);

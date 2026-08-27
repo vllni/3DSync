@@ -12,9 +12,14 @@ Manifest::Manifest(const std::string &path) : _path(path) {}
 // ---------------------------------------------------------------------------
 // Parses the JSON file produced by save().  The format is:
 //   {
-//     "/full/path/file.sav": {"mtime": 1234567890, "md5": "abc", "id": "xyz"},
+//     "drive|/full/path/file.sav":
+//         {"mtime": 1234567890, "size": 512, "tag": "abc", "id": "xyz"},
 //     ...
 //   }
+// Manifests written before multi-provider support used a bare local path as the
+// key and called the tag "md5"; both are still read, and such keys are migrated
+// to the "drive|" prefix so the first sync after an upgrade is not treated as a
+// conflict on every file.
 // We hand-roll the parser because no external JSON library is available.
 // The parser tolerates both compact ("key":"val") and spaced ("key": "val")
 // separators, matching the convention used by _extractString / GoogleDrive.
@@ -91,22 +96,24 @@ bool Manifest::load()
 
         ManifestEntry entry = {};
 
-        // Parse "mtime" (integer value — no surrounding quotes)
-        for (const char *sep : {"\"mtime\": ", "\"mtime\":"})
-        {
-            size_t mpos = valueStr.find(sep);
-            if (mpos != std::string::npos)
-            {
-                mpos += strlen(sep);
-                entry.localMtime = (time_t)strtoll(valueStr.c_str() + mpos, nullptr, 10);
-                break;
-            }
-        }
+        long long number = 0;
+        if (_extractInt(valueStr, "mtime", number))
+            entry.localMtime = (time_t)number;
+        if (_extractInt(valueStr, "size", number))
+            entry.localSize = number;
 
-        entry.driveMd5 = _extractString(valueStr, "md5");
-        entry.driveId  = _extractString(valueStr, "id");
+        entry.remoteTag = _extractString(valueStr, "tag");
+        if (entry.remoteTag.empty())
+            entry.remoteTag = _extractString(valueStr, "md5"); // pre-provider format
+        entry.remoteId = _extractString(valueStr, "id");
 
-        _entries[_unescape(rawKey)] = entry;
+        // Keys without a provider prefix predate multi-provider support and can
+        // only have come from Google Drive.
+        std::string key = _unescape(rawKey);
+        if (key.find('|') == std::string::npos)
+            key = "drive|" + key;
+
+        _entries[key] = entry;
         pos = objEnd + 1;
     }
     return true;
@@ -131,11 +138,12 @@ bool Manifest::save() const
         if (!first) fputs(",\n", fp);
         first = false;
 
-        fprintf(fp, "  \"%s\": {\"mtime\": %lld, \"md5\": \"%s\", \"id\": \"%s\"}",
+        fprintf(fp, "  \"%s\": {\"mtime\": %lld, \"size\": %lld, \"tag\": \"%s\", \"id\": \"%s\"}",
                 _escape(kv.first).c_str(),
                 (long long)kv.second.localMtime,
-                _escape(kv.second.driveMd5).c_str(),
-                _escape(kv.second.driveId).c_str());
+                kv.second.localSize,
+                _escape(kv.second.remoteTag).c_str(),
+                _escape(kv.second.remoteId).c_str());
     }
     fputs("\n}\n", fp);
     fclose(fp);
@@ -184,6 +192,22 @@ std::string Manifest::_extractString(const std::string &json, const std::string 
         }
     }
     return "";
+}
+
+bool Manifest::_extractInt(const std::string &json, const std::string &key, long long &out)
+{
+    // Handles both compact ("key":123) and spaced ("key": 123) separators
+    for (const char *sep : {"\":", "\": "})
+    {
+        std::string search = "\"" + key + sep;
+        size_t pos = json.find(search);
+        if (pos != std::string::npos)
+        {
+            out = strtoll(json.c_str() + pos + search.size(), nullptr, 10);
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string Manifest::_escape(const std::string &s)

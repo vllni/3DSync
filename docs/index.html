@@ -130,7 +130,9 @@
         <h1 class="white-text">3DSync</h1>
         <p class="white-text subtitle">
           Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with cloud storage.<br>
-          Supports <strong>Dropbox</strong> and <strong>Google Drive</strong> (bidirectional sync).
+          Bidirectional sync with <strong>Google Drive</strong>, plus experimental support for an
+          <strong>SMB2/3 file server</strong>, <strong>FTP/FTPS</strong> and <strong>WebDAV</strong>.
+          Dropbox is upload-only and experimental.
         </p>
         <a href="configurator.html" class="btn teal darken-1 waves-effect waves-light">
           <i class="material-icons left">settings</i>Open Configurator
@@ -164,7 +166,7 @@
         <h4>Configuration</h4>
         <p>The INI file lives at <code>/3ds/3DSync/3DSync.ini</code>.</p>
 
-        <h5 class="white-text"><i class="fa fa-dropbox" style="margin-right:6px"></i>Dropbox</h5>
+        <h5 class="white-text"><i class="fa fa-dropbox" style="margin-right:6px"></i>Dropbox<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span></h5>
         <pre><code>[Dropbox]
 Token=&lt;access token from configurator&gt;</code></pre>
 
@@ -180,6 +182,68 @@ FolderId=&lt;optional root folder ID&gt;</code></pre>
         <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
           <code>FolderId</code> restricts all Drive operations to one folder. Leave it out to use Drive root.
         </p>
+
+        <h5 class="white-text" style="margin-top:1.25rem">
+          <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">storage</i>SMB
+          file server (NAS, Windows share)<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+        </h5>
+        <pre><code>[SMB]
+Server=192.168.1.10
+Share=3ds
+User=&lt;username&gt;
+Password=&lt;password&gt;
+Domain=                   ; optional, for a Windows domain
+Path=                     ; optional folder inside the share</code></pre>
+        <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
+          Speaks SMB2/SMB3, the dialects modern NAS boxes and Windows accept by default. SMB1 does not need to
+          be re-enabled.
+        </p>
+
+        <h5 class="white-text" style="margin-top:1.25rem">
+          <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">folder_shared</i>FTP
+          / FTPS<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+        </h5>
+        <pre><code>[FTP]
+Host=192.168.1.10
+Port=                     ; optional, 21 (990 for TLS=implicit)
+User=&lt;username&gt;
+Password=&lt;password&gt;
+Path=                     ; optional base directory
+TLS=try                   ; none | try | require | implicit
+Mode=passive              ; passive | active</code></pre>
+        <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
+          <code>TLS=try</code> encrypts the session when the server offers <code>AUTH TLS</code> and falls back
+          to plaintext otherwise. SFTP is not supported &mdash; the 3DS build of libcurl has no libssh2.
+        </p>
+
+        <h5 class="white-text" style="margin-top:1.25rem">
+          <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">cloud_queue</i>WebDAV<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+        </h5>
+        <pre><code>[WebDAV]
+Url=https://nas.example/remote.php/dav/files/username/
+User=&lt;username&gt;
+Password=&lt;app password&gt;</code></pre>
+        <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
+          Works with Nextcloud/ownCloud and any NAS with WebDAV enabled. Prefer an app password over your
+          account password.
+        </p>
+
+        <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">
+          Configure as many remotes as you like &mdash; each is synced in turn against the same set of paths,
+          and each keeps its own state in the manifest. The configurator only writes the Dropbox and Google
+          Drive sections; add the others by hand.
+        </p>
+        <div class="card-panel blue darken-4 white-text" style="font-size:0.88em;margin-top:1rem">
+          <p style="margin:0 0 6px 0"><strong>About the <span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:0;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span> badge</strong></p>
+          <p style="margin:0">
+            Only Google Drive has seen wide use so far. The other backends work, but have had far less testing
+            against real servers &mdash; keep a backup of your saves, and please report anything that goes wrong
+            at <a class="white-text" style="text-decoration:underline"
+              href="https://github.com/vllni/3DSync/issues" target="_blank"
+              rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>. Bug reports and feedback are what
+            move a backend off this list. 3DSync also prints this notice on the 3DS before it syncs.
+          </p>
+        </div>
       </div>
 
       <hr class="divider-line">

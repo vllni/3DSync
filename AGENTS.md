@@ -8,7 +8,7 @@
 
 ## What this repo is
 
-Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and cloud storage (Dropbox or Google Drive). Written in C++11, built with devkitPro/devkitARM.
+Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, an SMB2/3 file server, FTP/FTPS, WebDAV, or Dropbox (upload-only). Written in C++11, built with devkitPro/devkitARM.
 
 Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.github.io/3DSync/`) generates the INI config file via OAuth and a stepper UI.
 
@@ -20,11 +20,18 @@ Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.git
 source/             C++ application source
   main.cpp          Entry point, sync engine, INI parsing
   modules/
+    syncprovider.h  SyncProvider interface + RemoteFileInfo — the sync engine's
+                    only view of a remote.  Add a backend by implementing it.
+    googledrive.cpp/h  Google Drive: OAuth refresh, MD5 tags, flat legacy upload
+    smbremote.cpp/h    SMB2/3 via libsmb2 (NAS, Windows share)
+    ftpremote.cpp/h    FTP/FTPS via libcurl
+    webdavremote.cpp/h WebDAV via libcurl (PROPFIND/MKCOL/PUT/MOVE)
     dropbox.cpp/h   Dropbox upload (upload-only — see "Dropbox module")
-    googledrive.cpp/h  Google Drive bidirectional sync + OAuth token refresh
     manifest.cpp/h  Local JSON manifest tracking sync state
   utils/
-    curl.cpp/h      libcurl wrapper (GET/POST/PATCH, streaming download, header capture)
+    curl.cpp/h      libcurl wrapper (methods, upload/download streaming, FTP
+                    options, wildcard listing, header capture) + URL helpers
+    fsutil.cpp/h    mkdirs, MD5, temp-file + atomic-replace helpers
   libs/inih/        INI parser (inih + INIReader)
 docs/               Configurator static site
   index.html        Three-step stepper UI (auth → paths → download)
@@ -39,7 +46,16 @@ buildtools/         devkitPro build scaffolding (git submodule) — do not edit
 
 ## Build
 
-Requires devkitPro with 3DS support (`DEVKITPRO` environment variable set).
+Requires devkitPro with 3DS support (`DEVKITPRO` environment variable set), plus **libsmb2**, which devkitPro does not package. The devcontainer image cross-compiles it into `$DEVKITPRO/portlibs/3ds` (see `docker/3dsync-devcontainer.Dockerfile`, pinned to a commit). To build it by hand:
+
+```bash
+cmake -S libsmb2 -B build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
+  -DCMAKE_INSTALL_PREFIX=$DEVKITPRO/portlibs/3ds -DBUILD_SHARED_LIBS=OFF \
+  -DENABLE_EXAMPLES=OFF -DENABLE_LIBKRB5=OFF -DENABLE_GSSAPI=OFF -DENABLE_LIBDCERPC=OFF
+cmake --build build && cmake --install build
+```
+
+Because the published CI image is only rebuilt on pushes to master, `.github/workflows/pr.yml` builds it locally when a PR touches `docker/*Dockerfile`.
 
 ```bash
 make          # produces output/3ds-arm/3DSync.cia and .3dsx
@@ -66,17 +82,40 @@ Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the
 - **C++11**, no exceptions, no RTTI.
 - All HTTP goes through the `Curl` wrapper (`source/utils/curl.h`). Never call libcurl directly.
 - `Curl::perform()` returns 0 on network success. **HTTP status is not checked by `perform()`** — callers must call `getStatusCode()`. `CURLOPT_FAILONERROR` is intentionally disabled so error response bodies are captured.
-- All Google Drive API calls go through `GoogleDrive::_performWithRetry()`, which handles 429 back-off, 401/403 fatal detection, and `_fatalError` propagation. Do not call `_curl.perform()` directly from Drive methods.
+- Every provider owns a `_performWithRetry()` that maps transport errors to *transient* (retry with back-off), *fatal* (`_fatalError`, stop the run) or *per-file* (log and skip). Never call `_curl.perform()` directly from a provider method — the retry helper is also where the server `Date` header is captured.
+- libcurl options are sticky on a handle. Providers that issue more than one shape of request call `Curl::reset()` first (via their own `_prepare()`); otherwise `NOBODY`, `UPLOAD`, `WILDCARDMATCH` or a custom method leaks into the next call.
 - Fatal Drive errors (401 / unrecoverable 403) set `_fatalError = true` and cause all subsequent Drive calls to no-op. Check `hasFatalError()` in callers to break out of sync loops early.
-- File downloads use a temp file (`localPath + ".3dstmp"`) + atomic rename. On FAT (3DS SD), `rename()` cannot overwrite an existing file — the existing file is first renamed to `.3dsbak`, then the temp is renamed in, then the backup is removed. Restore the backup on failure.
-- `performSync()` in `main.cpp` returns `bool` — `false` means cancellation was requested or a fatal error occurred, and the sync loop must stop.
+- File downloads use a temp file (`localPath + ".3dstmp"`) + atomic rename, via `openTempFor()` / `replaceLocalFile()` in `utils/fsutil.h`. On FAT (3DS SD), `rename()` cannot overwrite an existing file — the existing file is first renamed to `.3dsbak`, then the temp is renamed in, then the backup is removed. Restore the backup on failure.
+- Uploads are equally guarded: write to `<remote>.3dstmp`, then swap it into place (WebDAV `MOVE` with `Overwrite: T`, FTP `RNFR`/`RNTO` post-quote, SMB unlink-then-rename because libsmb2 sends `ReplaceIfExists=0`). Listings skip `.3dstmp` leftovers.
+- `performSync()` in `main.cpp` is provider-neutral: it talks only to `SyncProvider`. It returns `bool` — `false` means cancellation was requested or a fatal error occurred, and the sync loop must stop. Its `uploadOnly` argument mirrors local → remote: never download, never prompt, leave remote-only files alone.
+- Change detection compares the local mtime **and** size against the manifest, plus the remote's `tag`. `SyncProvider::localTag()` is the content-based fallback for stale mtimes and is only meaningful where the remote's tag is derivable from file contents (Drive's MD5); it returns "" elsewhere.
+- Manifest keys are `SyncProvider::manifestPrefix() + "|" + localPath`. Changing a provider's prefix orphans every existing entry for that remote, which makes the next sync treat every file as unseen — so keep them stable.
 - Conflict resolution in `performSync()` calls `waitForConflictKey()` which returns a `ConflictChoice` enum: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START).
 - The manifest (`/3ds/3DSync/manifest.json`) is a hand-parsed JSON file. Use `Manifest::set/get/has/remove` — never write JSON by hand elsewhere.
 - `svcSleepThread(nanoseconds)` is the 3DS sleep call (from `<3ds.h>`). Use it for rate-limit back-offs.
 - `printf` output goes to the 3DS top-screen console. Use `CONSOLE_RED` / `CONSOLE_RESET` (from `<3ds.h>`) for error messages.
 - The console is **50 columns** wide and wraps mid-word. Keep any line of output — key prompts especially — under that.
-- Keep sync output quiet: print per-entry headers, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen.
+- Keep sync output quiet: print per-entry headers, the experimental notice, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
+
+---
+
+## Remotes
+
+Everything the engine needs from a backend is in `SyncProvider` (`source/modules/syncprovider.h`): `connect`, `ensureRoot`, `list`, `download`, `upload`, `hasFatalError`, and the optional `localTag` / `serverTime` / `legacyUpload` / `isExperimental`. A new protocol means one new module and three lines in `runSync()`; `performSync()` should not need to change.
+
+`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. Only `GoogleDrive` overrides it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer. Dropbox does not implement `SyncProvider`, so its notice is raised directly in `runSync()` — move it to the override if that module ever becomes a provider.
+
+Flipping a backend to stable is four edits, and all four should move together: the `isExperimental()` override, the status table at the top of `README.md`, the section note under its INI example there, and the badge on `docs/index.html` (plus `docs/configurator.html` for a backend the configurator can write).
+
+Constraints that shaped the current set — worth knowing before proposing a fourth:
+
+- **No SFTP.** devkitPro's libcurl 8.4.0 is built without libssh2 (`libcurl_la-libssh2.o` is empty; `curl-config --protocols` lists no SCP/SFTP). FTPS is the encrypted option.
+- **curl's SMB is useless for sync.** It is SMB1-only (`NT LM 0.12`) and cannot list a directory, hence libsmb2 instead.
+- **libsmb2's sync API blocks on `poll()`**, which libctru provides (`libctru/include/poll.h`). Include `smb2/smb2.h` *before* `smb2/libsmb2.h` — the latter uses macros the former defines.
+- **`curl_fileinfo::time` is documented "always zero"**, so FTP timestamps come from a per-file `MDTM`/`SIZE` request after the wildcard listing. That is one extra round trip per file; do not "optimise" it away by trusting the listing's time.
+- **Only Drive offers a content hash.** The others tag with size + mtime (or an ETag), so a modification that preserves both is invisible to them.
+- Credentials for SMB/FTP/WebDAV sit in plaintext in `3DSync.ini`, as the INI is the only configuration channel. Do not log them.
 
 ---
 
@@ -110,6 +149,28 @@ ClientSecret=...
 RefreshToken=...
 FolderId=...          ; optional
 
+[SMB]                 ; SMB2/3 file server
+Server=192.168.1.10
+Share=3ds
+User=...
+Password=...
+Domain=               ; optional
+Path=                 ; optional folder inside the share
+
+[FTP]
+Host=192.168.1.10
+Port=                 ; optional, 21 / 990 for TLS=implicit
+User=...
+Password=...
+Path=                 ; optional base directory
+TLS=try               ; none | try | require | implicit
+Mode=passive          ; passive | active
+
+[WebDAV]
+Url=https://host/remote.php/dav/files/user/
+User=...
+Password=...
+
 [Paths]               ; bidirectional, recursive
 RemoteName=/LocalPath
 
@@ -126,6 +187,12 @@ RemoteName=/LocalPath
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://vllni.github.io/3DSync/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
 - INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
+
+---
+
+## Licensing
+
+3DSync's own code is MIT. **libsmb2 is LGPL-2.1** and is statically linked, so the released binaries are a combined work. The relinking requirement is met by keeping the source public and the libsmb2 commit pinned in the Dockerfile — do not vendor a modified copy without recording the changes, and keep the note in README.md accurate.
 
 ---
 

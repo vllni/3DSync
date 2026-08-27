@@ -7,16 +7,21 @@
 #include <map>
 #include <set>
 #include <iostream>
+#include <string.h>
 
 #include <3ds.h>
 
 #include <curl/curl.h>
-#include <mbedtls/md5.h>
 
 #include "libs/inih/INIReader/INIReader.h"
 #include "modules/dropbox.h"
+#include "modules/ftpremote.h"
 #include "modules/googledrive.h"
 #include "modules/manifest.h"
+#include "modules/smbremote.h"
+#include "modules/syncprovider.h"
+#include "modules/webdavremote.h"
+#include "utils/fsutil.h"
 
 // ---------------------------------------------------------------------------
 // Sync direction per configured path
@@ -78,21 +83,6 @@ std::vector<std::string> recurse_dir(std::string basepath, std::string additiona
 }
 
 // ---------------------------------------------------------------------------
-// mkdirs  — create every directory component of path
-// ---------------------------------------------------------------------------
-static void mkdirs(const std::string &path)
-{
-    size_t pos = 1;
-    while ((pos = path.find('/', pos)) != std::string::npos)
-    {
-        std::string dir = path.substr(0, pos);
-        mkdir(dir.c_str(), 0755);
-        pos++;
-    }
-    mkdir(path.c_str(), 0755);
-}
-
-// ---------------------------------------------------------------------------
 // getConfiguredSyncPaths
 // ---------------------------------------------------------------------------
 static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
@@ -145,26 +135,48 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
 }
 
 // ---------------------------------------------------------------------------
-// parseRFC3339  — convert "2024-05-28T14:32:00.000Z" to time_t (UTC)
+// parseServerTime  — convert a server timestamp to time_t (UTC), 0 on failure
 // ---------------------------------------------------------------------------
-static time_t parseRFC3339(const std::string &s)
+// Two formats turn up: RFC 3339 ("2024-05-28T14:32:00.000Z") from Drive's JSON,
+// and RFC 7231 ("Tue, 28 May 2024 14:32:00 GMT") from the HTTP Date header that
+// every provider returns.  mktime() interprets the fields as local time; the
+// 3DS clock is kept as UTC, so the two line up.
+// ---------------------------------------------------------------------------
+static time_t parseServerTime(const std::string &s)
 {
+    static const char *months[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     struct tm t = {};
     int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
+    char monthName[8] = {};
+
     if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &min, &sec) == 6)
     {
-        t.tm_year = year - 1900;
-        t.tm_mon = month - 1;
-        t.tm_mday = day;
-        t.tm_hour = hour;
-        t.tm_min = min;
-        t.tm_sec = sec;
-        t.tm_isdst = 0;
-        // mktime uses local time; Drive timestamps are UTC.
-        // On 3DS the clock is typically stored as UTC so this should be consistent.
-        return mktime(&t);
+        // RFC 3339
     }
-    return 0;
+    else if (sscanf(s.c_str(), "%*3s, %d %3s %d %d:%d:%d",
+                    &day, monthName, &year, &hour, &min, &sec) == 6)
+    {
+        month = 0;
+        for (int i = 0; i < 12; i++)
+            if (strncmp(monthName, months[i], 3) == 0)
+                month = i + 1;
+        if (month == 0)
+            return 0;
+    }
+    else
+    {
+        return 0;
+    }
+
+    t.tm_year = year - 1900;
+    t.tm_mon = month - 1;
+    t.tm_mday = day;
+    t.tm_hour = hour;
+    t.tm_min = min;
+    t.tm_sec = sec;
+    t.tm_isdst = 0;
+    return mktime(&t);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,37 +279,6 @@ static bool waitForMainMenuKey()
 static bool g_cancelRequested = false;
 
 // ---------------------------------------------------------------------------
-// computeMd5Hex  — return the MD5 of a local file as a lowercase hex string,
-// or "" on error.  Used to detect content changes when mtime is stale
-// (FAT32 has 2-second granularity and some emulators never update mtime).
-// ---------------------------------------------------------------------------
-static std::string computeMd5Hex(const std::string &path)
-{
-    FILE *fp = fopen(path.c_str(), "rb");
-    if (!fp)
-        return "";
-
-    mbedtls_md5_context ctx;
-    mbedtls_md5_init(&ctx);
-    mbedtls_md5_starts(&ctx);
-
-    unsigned char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
-        mbedtls_md5_update(&ctx, buf, n);
-    fclose(fp);
-
-    unsigned char digest[16];
-    mbedtls_md5_finish(&ctx, digest);
-    mbedtls_md5_free(&ctx);
-
-    char hex[33];
-    for (int i = 0; i < 16; i++)
-        snprintf(hex + i * 2, 3, "%02x", digest[i]);
-    return std::string(hex, 32);
-}
-
-// ---------------------------------------------------------------------------
 // SyncSummary  — accumulates per-file outcomes for end-of-sync report
 // ---------------------------------------------------------------------------
 struct SyncSummary
@@ -315,35 +296,91 @@ struct SyncSummary
 };
 
 // ---------------------------------------------------------------------------
-// performSync  — bidirectional sync for one SyncEntry
-// Returns false if a fatal Drive error occurred or cancellation was requested.
+// recordUpload / recordDownload — transfer one file and update the manifest
 // ---------------------------------------------------------------------------
-static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry &entry, SyncSummary &summary)
+static bool recordUpload(SyncProvider &provider, Manifest &manifest,
+                         const std::string &key, const std::string &root,
+                         const std::string &relPath, const std::string &localPath,
+                         const RemoteFileInfo *existing, SyncSummary &summary)
 {
-    if (drive.hasFatalError())
+    std::string tag, id;
+    if (!provider.upload(root, relPath, localPath, existing, tag, id))
         return false;
 
-    // Resolve (and create if missing) the Drive folder hierarchy
-    std::string rootFolderId = drive.ensureFolderPath(entry.remoteName);
-    if (rootFolderId.empty())
+    struct stat st = {};
+    stat(localPath.c_str(), &st);
+    manifest.set(key, {st.st_mtime, (long long)st.st_size, tag, id});
+    summary.uploaded++;
+    summary.changes.push_back({localPath, "uploaded"});
+    return true;
+}
+
+static bool recordDownload(SyncProvider &provider, Manifest &manifest,
+                           const std::string &key, const RemoteFileInfo &file,
+                           const std::string &localPath, SyncSummary &summary)
+{
+    if (!provider.download(file, localPath))
+        return false;
+
+    struct stat st = {};
+    stat(localPath.c_str(), &st);
+    manifest.set(key, {st.st_mtime, (long long)st.st_size, file.tag, file.id});
+    summary.downloaded++;
+    summary.changes.push_back({localPath, "downloaded"});
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// performSync  — sync one SyncEntry against one remote
+// ---------------------------------------------------------------------------
+// uploadOnly mirrors local to remote: nothing is ever downloaded, no conflict
+// is ever raised (the 3DS wins), and files that exist only on the remote are
+// left untouched.
+//
+// Returns false if a fatal provider error occurred or cancellation was
+// requested.
+// ---------------------------------------------------------------------------
+static bool performSync(SyncProvider &provider, Manifest &manifest,
+                        const SyncEntry &entry, SyncSummary &summary,
+                        bool uploadOnly)
+{
+    if (provider.hasFatalError())
+        return false;
+
+    // Resolve (and create if missing) the remote folder for this entry
+    std::string root = provider.ensureRoot(entry.remoteName);
+    if (root.empty() && !entry.remoteName.empty())
     {
-        if (drive.hasFatalError())
+        if (provider.hasFatalError())
             return false;
-        printf("Cannot resolve Drive folder for %s — skipping\n", entry.remoteName.c_str());
+        printf("Cannot resolve %s folder for %s — skipping\n",
+               provider.name(), entry.remoteName.c_str());
         return true;
     }
 
-    // List current Drive contents
-    printf("Listing Drive folder: %s\n", entry.remoteName.c_str());
-    auto driveFiles = drive.listFolderRecursive(rootFolderId);
+    printf("Listing %s:%s\n", provider.name(), entry.remoteName.c_str());
+    std::map<std::string, RemoteFileInfo> remoteFiles;
+    if (!provider.list(root, remoteFiles))
+    {
+        if (provider.hasFatalError())
+            return false;
+        printf("Cannot list %s:%s — skipping\n",
+               provider.name(), entry.remoteName.c_str());
+        return true;
+    }
 
-    // Build the full set of relative paths to consider:
-    // union of what is local and what is on Drive.
+    // Build the full set of relative paths to consider: everything local, plus
+    // everything on the remote unless we are only pushing.
     std::set<std::string> allRelPaths;
     for (auto &f : entry.localFiles)
         allRelPaths.insert(f);
-    for (auto &df : driveFiles)
-        allRelPaths.insert(df.first);
+    if (!uploadOnly)
+        for (auto &rf : remoteFiles)
+            allRelPaths.insert(rf.first);
+
+    // Manifest keys are scoped per remote so two providers syncing the same
+    // local folder keep separate state.
+    const std::string keyPrefix = provider.manifestPrefix() + "|";
 
     for (auto &relPath : allRelPaths)
     {
@@ -359,178 +396,230 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             break;
 
         std::string localPath = entry.localBase + relPath;
+        std::string key = keyPrefix + localPath;
 
         // --- Local file info ---
         struct stat localSt = {};
         bool localExists = (stat(localPath.c_str(), &localSt) == 0);
         time_t localMtime = localExists ? localSt.st_mtime : 0;
+        long long localSize = localExists ? (long long)localSt.st_size : 0;
 
-        // --- Drive file info ---
-        auto driveIt = driveFiles.find(relPath);
-        bool driveExists = (driveIt != driveFiles.end());
-        const DriveFileInfo *dfi = driveExists ? &driveIt->second : nullptr;
+        // --- Remote file info ---
+        auto remoteIt = remoteFiles.find(relPath);
+        bool remoteExists = (remoteIt != remoteFiles.end());
+        const RemoteFileInfo *rfi = remoteExists ? &remoteIt->second : NULL;
 
         // --- Manifest entry ---
-        bool inManifest = manifest.has(localPath);
-        ManifestEntry mEntry = inManifest ? manifest.get(localPath) : ManifestEntry{};
+        bool inManifest = manifest.has(key);
+        ManifestEntry mEntry = inManifest ? manifest.get(key) : ManifestEntry{};
 
-        // No manifest entry + both sides exist = no baseline to diff against, treat as conflict.
-        bool firstSync = !inManifest && localExists && driveExists;
-        bool localChanged = firstSync || (inManifest && (localMtime != mEntry.localMtime));
-        bool driveChanged = firstSync || (inManifest && driveExists && (dfi->md5 != mEntry.driveMd5));
+        // No manifest entry + both sides exist = no baseline to diff against,
+        // treat as conflict.
+        bool firstSync = !inManifest && localExists && remoteExists;
+        bool localChanged = firstSync ||
+                            (inManifest && (localMtime != mEntry.localMtime ||
+                                            (mEntry.localSize != 0 &&
+                                             localSize != mEntry.localSize)));
+        bool remoteChanged = firstSync ||
+                             (inManifest && remoteExists && rfi->tag != mEntry.remoteTag);
 
         // FAT32 mtime has 2-second granularity and some emulators never update
-        // the timestamp at all.  If mtime is unchanged but we have a Drive MD5
-        // from the last sync, compare file content as a reliable fallback.
-        if (!localChanged && inManifest && localExists && !mEntry.driveMd5.empty())
+        // the timestamp at all.  Where the provider's tag is derivable from file
+        // contents (Drive returns an MD5), compare contents as a fallback.
+        if (!localChanged && inManifest && localExists && !mEntry.remoteTag.empty())
         {
-            std::string localMd5 = computeMd5Hex(localPath);
-            if (!localMd5.empty() && localMd5 != mEntry.driveMd5)
-            {
-                printf("  (content changed, mtime frozen — uploading)\n");
+            std::string tag = provider.localTag(localPath);
+            if (!tag.empty() && tag != mEntry.remoteTag)
                 localChanged = true;
-            }
         }
 
-        printf("  %s: ", relPath.c_str());
-
-        if (drive.hasFatalError())
+        if (provider.hasFatalError())
             break;
 
         // ----------------------------------------------------------------
         // Decision table
         // ----------------------------------------------------------------
 
-        if (!localExists && !driveExists)
+        if (!localExists && !remoteExists)
         {
             // Both gone — clean up manifest
             if (inManifest)
-                manifest.remove(localPath);
+                manifest.remove(key);
             continue;
         }
 
-        if (!localExists && driveExists)
+        if (!localExists && remoteExists)
         {
-            // File only on Drive (new or local was deleted) — download
-            printf("Downloading %s\n", relPath.c_str());
-            // Create parent directories
-            size_t slash = localPath.rfind('/');
-            if (slash != std::string::npos)
-                mkdirs(localPath.substr(0, slash));
-
-            if (drive.downloadFile(*dfi, localPath))
-            {
-                struct stat st = {};
-                stat(localPath.c_str(), &st);
-                manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
-                summary.downloaded++;
-                summary.changes.push_back({localPath, "downloaded"});
-            }
+            // File only on the remote (new there, or deleted locally)
+            if (uploadOnly)
+                continue;
+            recordDownload(provider, manifest, key, *rfi, localPath, summary);
             continue;
         }
 
-        if (localExists && !driveExists)
+        if (localExists && !remoteExists)
         {
-            // File only local (new, or deleted on Drive) — upload
-            printf("Uploading %s\n", relPath.c_str());
-            std::string md5;
-            std::string existingId = inManifest ? mEntry.driveId : "";
-            std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
-            if (!fileId.empty())
-            {
-                manifest.set(localPath, {localMtime, md5, fileId});
-                summary.uploaded++;
-                summary.changes.push_back({localPath, "uploaded"});
-            }
+            // File only local (new, or deleted on the remote) — upload
+            recordUpload(provider, manifest, key, root, relPath, localPath, NULL, summary);
             continue;
         }
 
         // Both exist
-        if (!localChanged && !driveChanged)
+        if (!localChanged && !remoteChanged)
         {
-            // No change — skip
-            printf("Up to date\n");
             summary.checkedPaths.insert(localPath);
             continue;
         }
 
-        if (localChanged && !driveChanged)
+        if (localChanged && !remoteChanged)
         {
-            // Local changed — upload
-            printf("Local changed, uploading %s\n", relPath.c_str());
-            std::string md5;
-            std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, mEntry.driveId, md5);
-            if (!fileId.empty())
-            {
-                manifest.set(localPath, {localMtime, md5, fileId});
-                summary.uploaded++;
-                summary.changes.push_back({localPath, "uploaded"});
-            }
+            recordUpload(provider, manifest, key, root, relPath, localPath, rfi, summary);
             continue;
         }
 
-        if (!localChanged && driveChanged)
+        if (!localChanged && remoteChanged)
         {
-            // Remote changed — download
-            printf("Remote changed, downloading %s\n", relPath.c_str());
-            if (drive.downloadFile(*dfi, localPath))
-            {
-                struct stat st = {};
-                stat(localPath.c_str(), &st);
-                manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
-                summary.downloaded++;
-                summary.changes.push_back({localPath, "downloaded"});
-            }
+            if (uploadOnly)
+                continue;
+            recordDownload(provider, manifest, key, *rfi, localPath, summary);
             continue;
         }
 
-        // Both changed — conflict
-        printf("\n  *** CONFLICT: %s\n", localPath.c_str());
+        // Both changed
+        if (uploadOnly)
+        {
+            recordUpload(provider, manifest, key, root, relPath, localPath, rfi, summary);
+            continue;
+        }
+
+        printf("\n  *** CONFLICT: %s\n\n", localPath.c_str());
         printf("  A: keep 3DS version  B: keep remote version\n  X: skip  START: cancel  L: apply all\n\n");
         ConflictChoice choice = waitForConflictKey();
 
         if (choice == CONFLICT_CANCEL)
         {
-            printf("Sync cancelled\n");
+            printf("  -> Sync cancelled\n");
             return false;
         }
         if (choice == CONFLICT_SKIP)
         {
-            printf("Skipped\n");
+            printf("  -> Skipped\n");
             summary.changes.push_back({localPath, "skipped"});
             continue;
         }
         if (choice == CONFLICT_KEEP_LOCAL)
         {
-            printf("Keeping 3DS version, uploading\n");
-            std::string md5;
-            std::string existingId = inManifest ? mEntry.driveId : dfi->id;
-            std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
-            if (!fileId.empty())
+            printf("  -> Keeping 3DS version, uploading\n");
+            recordUpload(provider, manifest, key, root, relPath, localPath, rfi, summary);
+        }
+        else
+        {
+            printf("  -> Keeping remote version, downloading\n");
+            recordDownload(provider, manifest, key, *rfi, localPath, summary);
+        }
+
+        if (provider.hasFatalError())
+            break;
+    }
+
+    return !provider.hasFatalError() && !g_cancelRequested;
+}
+
+// ---------------------------------------------------------------------------
+// printExperimentalNotice  — shown once per experimental backend, per run
+// ---------------------------------------------------------------------------
+// Kept to the console's 50 columns.  The URL is the issue tracker rather than
+// the repository root: someone reading this is being asked to report something.
+// ---------------------------------------------------------------------------
+static const char *ISSUES_URL = "github.com/vllni/3DSync/issues";
+
+static void printExperimentalNotice(const char *backendName)
+{
+    printf(CONSOLE_YELLOW "  %s support is EXPERIMENTAL." CONSOLE_RESET "\n",
+           backendName);
+    printf("  It has seen far less testing than Drive, so\n");
+    printf("  please keep a backup of your saves.\n");
+    printf("  Bugs and feedback are very welcome at\n");
+    printf(CONSOLE_CYAN "  %s" CONSOLE_RESET "\n\n", ISSUES_URL);
+}
+
+// ---------------------------------------------------------------------------
+// syncProvider  — run every configured entry against one remote
+// ---------------------------------------------------------------------------
+static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &entries,
+                         Manifest &manifest, SyncSummary &summary)
+{
+    printf("\n=== %s ===\n", provider.name());
+    if (provider.isExperimental())
+        printExperimentalNotice(provider.name());
+
+    if (!provider.connect())
+    {
+        printf(CONSOLE_RED "%s: cannot connect — skipping.\n" CONSOLE_RESET, provider.name());
+        return;
+    }
+
+    // A wrong 3DS clock makes every mtime comparison suspect, so say so once.
+    std::string serverTimeStr = provider.serverTime();
+    if (!serverTimeStr.empty())
+    {
+        time_t serverTime = parseServerTime(serverTimeStr);
+        time_t localTime = time(NULL);
+        if (serverTime != 0)
+        {
+            long skew = serverTime > localTime ? (long)(serverTime - localTime)
+                                               : (long)(localTime - serverTime);
+            if (skew > 60)
             {
-                manifest.set(localPath, {localMtime, md5, fileId});
-                summary.uploaded++;
-                summary.changes.push_back({localPath, "uploaded"});
+                printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
+                printf("Timestamps may be unreliable. Set the 3DS clock.\n\n");
+            }
+        }
+    }
+
+    for (auto &entry : entries)
+    {
+        bool uploadOnly = (entry.direction == SYNC_UPLOAD_ONLY);
+
+        if (uploadOnly)
+        {
+            printf("\nUploading [%s] -> %s:%s\n", entry.localBase.c_str(),
+                   provider.name(), entry.remoteName.c_str());
+            // Providers that shipped their own one-way upload keep using it so
+            // the remote layout their users already have does not change.
+            if (provider.legacyUpload(entry.localBase, entry.remoteName, entry.localFiles))
+            {
+                if (provider.hasFatalError())
+                {
+                    printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
+                           provider.name());
+                    break;
+                }
+                continue;
             }
         }
         else
         {
-            printf("Keeping remote version, downloading\n");
-            if (drive.downloadFile(*dfi, localPath))
-            {
-                struct stat st = {};
-                stat(localPath.c_str(), &st);
-                manifest.set(localPath, {st.st_mtime, dfi->md5, dfi->id});
-                summary.downloaded++;
-                summary.changes.push_back({localPath, "downloaded"});
-            }
+            printf("\nSyncing [%s] <-> %s:%s\n", entry.localBase.c_str(),
+                   provider.name(), entry.remoteName.c_str());
         }
 
-        if (drive.hasFatalError())
-            break;
-    }
+        if (!performSync(provider, manifest, entry, summary, uploadOnly) &&
+            !provider.hasFatalError())
+            g_cancelRequested = true;
 
-    return !drive.hasFatalError() && !g_cancelRequested;
+        if (g_cancelRequested)
+        {
+            printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
+            break;
+        }
+        if (provider.hasFatalError())
+        {
+            printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
+                   provider.name());
+            break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +675,23 @@ void componentsExit()
 }
 
 // ---------------------------------------------------------------------------
+// parseTlsMode  — INI "TLS=" value for the FTP remote
+// ---------------------------------------------------------------------------
+static FtpTlsMode parseTlsMode(std::string value)
+{
+    for (char &c : value)
+        c = (char)tolower((unsigned char)c);
+
+    if (value == "none")
+        return FTP_TLS_NONE;
+    if (value == "require" || value == "required" || value == "explicit")
+        return FTP_TLS_REQUIRE;
+    if (value == "implicit")
+        return FTP_TLS_IMPLICIT;
+    return FTP_TLS_TRY; // default: use TLS when the server offers it
+}
+
+// ---------------------------------------------------------------------------
 // runSync  — one full sync pass; called from main loop
 // ---------------------------------------------------------------------------
 static void runSync(const INIReader &reader)
@@ -594,6 +700,7 @@ static void runSync(const INIReader &reader)
     g_applyAllChoice = -1;
 
     std::string dropboxToken = reader.Get("Dropbox", "token", "");
+
     std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
     std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
     std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
@@ -601,16 +708,46 @@ static void runSync(const INIReader &reader)
     std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
     bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
 
-    std::vector<SyncEntry> syncEntries;
-    if (dropboxToken != "" || hasGoogleDrive)
-        syncEntries = getConfiguredSyncPaths(reader);
+    std::string smbServer = reader.Get("SMB", "server", "");
+    std::string smbShare = reader.Get("SMB", "share", "");
+    bool hasSmb = !smbServer.empty() && !smbShare.empty();
 
-    // --- Dropbox ---
-    if (dropboxToken != "" && !syncEntries.empty())
+    std::string ftpHost = reader.Get("FTP", "host", "");
+    bool hasFtp = !ftpHost.empty();
+
+    std::string webdavUrl = reader.Get("WebDAV", "url", "");
+    bool hasWebdav = !webdavUrl.empty();
+
+    if (dropboxToken.empty() && !hasGoogleDrive && !hasSmb && !hasFtp && !hasWebdav)
+    {
+        printf("No remote configured in 3DSync.ini\n");
+        printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP] or [WebDAV] section.\n");
+        return;
+    }
+
+    std::vector<SyncEntry> syncEntries = getConfiguredSyncPaths(reader);
+    if (syncEntries.empty())
+    {
+        printf("No sync paths configured in 3DSync.ini\n");
+        return;
+    }
+
+    Manifest manifest("/3ds/3DSync/manifest.json");
+    manifest.load();
+    SyncSummary summary;
+
+    // --- Dropbox (upload-only; see modules/dropbox.cpp) ---
+    if (!dropboxToken.empty())
     {
         std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
         for (auto &e : syncEntries)
             legacyPaths[std::make_pair(e.localBase, e.remoteName)] = e.localFiles;
+
+        printf("\n=== Dropbox ===\n");
+        // Dropbox does not implement SyncProvider yet (it is upload-only), so
+        // its notice is raised here rather than through isExperimental().
+        printExperimentalNotice("Dropbox");
+
         Dropbox dropbox(dropboxToken);
         if (!dropbox.validateToken())
             printf("Skipping Dropbox uploads.\n");
@@ -624,98 +761,69 @@ static void runSync(const INIReader &reader)
     }
 
     // --- Google Drive ---
-    if (hasGoogleDrive)
+    if (hasGoogleDrive && !g_cancelRequested)
     {
         GoogleDrive drive(googleDriveClientId, googleDriveClientSecret,
                           googleDriveRefreshToken, googleDriveFolderId,
                           googleDriveToken);
-
-        if (!drive.ensureToken())
-        {
-            printf("Failed to obtain Google Drive access token\n");
-        }
-        else
-        {
-            std::string serverTimeStr = drive.getServerTime();
-            if (!serverTimeStr.empty())
-            {
-                time_t serverTime = parseRFC3339(serverTimeStr);
-                time_t localTime = time(NULL);
-                long skew = serverTime > localTime
-                                ? (long)(serverTime - localTime)
-                                : (long)(localTime - serverTime);
-                if (skew > 60)
-                {
-                    printf("WARNING: 3DS clock skew detected (%ld s).\n", skew);
-                    printf("Timestamps may be unreliable. Set the 3DS clock.\n\n");
-                }
-            }
-
-            Manifest manifest("/3ds/3DSync/manifest.json");
-            manifest.load();
-
-            SyncSummary summary;
-
-            for (auto &entry : syncEntries)
-            {
-                if (entry.direction == SYNC_BOTH)
-                {
-                    printf("\nSyncing [%s] <-> Drive:%s\n",
-                           entry.localBase.c_str(), entry.remoteName.c_str());
-                    if (!performSync(drive, manifest, entry, summary) && !drive.hasFatalError())
-                        g_cancelRequested = true;
-                }
-                else
-                {
-                    printf("\nUploading [%s] -> Drive:%s\n",
-                           entry.localBase.c_str(), entry.remoteName.c_str());
-                    std::map<std::pair<std::string, std::string>, std::vector<std::string>> legacyPaths;
-                    legacyPaths[{entry.localBase, entry.remoteName}] = entry.localFiles;
-                    if (!drive.upload(legacyPaths) && !drive.hasFatalError())
-                        g_cancelRequested = true;
-                }
-
-                if (g_cancelRequested)
-                {
-                    printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
-                    break;
-                }
-                if (drive.hasFatalError())
-                {
-                    printf(CONSOLE_RED "\nSync aborted: remaining entries skipped.\n" CONSOLE_RESET);
-                    break;
-                }
-            }
-
-            manifest.save();
-
-            printf("\n--- Sync Summary ---\n");
-            if (summary.changes.empty())
-            {
-                printf("All %d files up to date.\n",
-                       (int)summary.checkedPaths.size());
-            }
-            else
-            {
-                printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
-                       summary.uploaded, summary.downloaded,
-                       (int)summary.checkedPaths.size());
-                printf("\nChanged files:\n");
-                for (auto &c : summary.changes)
-                    printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
-            }
-
-            if (drive.hasFatalError())
-                printf(CONSOLE_RED "\nSync did not complete. Check the errors above.\n" CONSOLE_RESET);
-            else if (g_cancelRequested)
-                printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
-            else
-                printf("\nSync complete.\n");
-        }
+        syncProvider(drive, syncEntries, manifest, summary);
     }
 
-    if (dropboxToken == "" && !hasGoogleDrive)
-        printf("Can't load Dropbox or Google Drive token from 3DSync.ini\n");
+    // --- SMB2/3 file server (NAS, Windows share) ---
+    if (hasSmb && !g_cancelRequested)
+    {
+        SmbRemote smb(smbServer, smbShare,
+                      reader.Get("SMB", "user", ""),
+                      reader.Get("SMB", "password", ""),
+                      reader.Get("SMB", "domain", ""),
+                      reader.Get("SMB", "path", ""));
+        syncProvider(smb, syncEntries, manifest, summary);
+    }
+
+    // --- FTP / FTPS ---
+    if (hasFtp && !g_cancelRequested)
+    {
+        std::string mode = reader.Get("FTP", "mode", "passive");
+        FtpRemote ftp(ftpHost,
+                      (int)reader.GetInteger("FTP", "port", 0),
+                      reader.Get("FTP", "user", "anonymous"),
+                      reader.Get("FTP", "password", ""),
+                      reader.Get("FTP", "path", ""),
+                      parseTlsMode(reader.Get("FTP", "tls", "try")),
+                      mode == "active");
+        syncProvider(ftp, syncEntries, manifest, summary);
+    }
+
+    // --- WebDAV ---
+    if (hasWebdav && !g_cancelRequested)
+    {
+        WebDavRemote webdav(webdavUrl,
+                            reader.Get("WebDAV", "user", ""),
+                            reader.Get("WebDAV", "password", ""));
+        syncProvider(webdav, syncEntries, manifest, summary);
+    }
+
+    manifest.save();
+
+    printf("\n--- Sync Summary ---\n");
+    if (summary.changes.empty())
+    {
+        printf("All %d files up to date.\n", (int)summary.checkedPaths.size());
+    }
+    else
+    {
+        printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
+               summary.uploaded, summary.downloaded,
+               (int)summary.checkedPaths.size());
+        printf("\nChanged files:\n");
+        for (auto &c : summary.changes)
+            printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
+    }
+
+    if (g_cancelRequested)
+        printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
+    else
+        printf("\nSync complete.\n");
 }
 
 // ---------------------------------------------------------------------------

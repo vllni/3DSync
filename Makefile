@@ -9,7 +9,7 @@ SOURCE_DIRS := source
 ROMFS_DIR := romfs
 
 LIBRARY_DIRS += $(DEVKITPRO)/libctru $(DEVKITPRO)/portlibs/armv6k $(DEVKITPRO)/portlibs/3ds
-LIBRARIES += curl mbedtls mbedx509 mbedcrypto z ctru m
+LIBRARIES += smb2 curl mbedtls mbedx509 mbedcrypto z ctru m
 
 EXTRA_OUTPUT_FILES := 
 
