@@ -1,5 +1,6 @@
 #include "manifest.h"
 
+#include "../utils/debug.h"
 #include "../utils/json.h"
 
 #include <errno.h>
@@ -30,13 +31,20 @@ bool Manifest::load()
 {
     FILE *fp = fopen(_path.c_str(), "r");
     if (!fp)
-        return true; // Normal on first run — empty manifest
+    {
+        // Normal on a first run, and indistinguishable from a card that cannot
+        // be read — in which case every file will look like a first sync.
+        debugErrno("opening the manifest", _path);
+        return true;
+    }
 
     std::string json;
     char buf[4096];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
         json.append(buf, n);
+    if (ferror(fp))
+        debugErrno("reading the manifest", _path);
     fclose(fp);
 
     _entries.clear();
@@ -92,7 +100,14 @@ bool Manifest::load()
         size_t objStart = after + 1;
         size_t objEnd   = json.find('}', objStart);
         if (objEnd == std::string::npos)
+        {
+            // A half-written manifest (an interrupted save, a full card) stops
+            // the parse here, and every file after this point then looks
+            // unseen — which means a conflict prompt on each of them.
+            debugf("manifest truncated after %d entries, %d bytes in\n",
+                   (int)_entries.size(), (int)objStart);
             break;
+        }
 
         std::string valueStr = json.substr(objStart, objEnd - objStart);
 
@@ -118,6 +133,7 @@ bool Manifest::load()
         _entries[key] = entry;
         pos = objEnd + 1;
     }
+    debugf("manifest: %d entries from %s\n", (int)_entries.size(), _path.c_str());
     return true;
 }
 
@@ -148,8 +164,19 @@ bool Manifest::save() const
                 jsonEscape(kv.second.remoteId).c_str());
     }
     fputs("\n}\n", fp);
-    fclose(fp);
-    return true;
+
+    // The manifest is written at the very end of a run, so a card that fills up
+    // during the sync fails here — and the file that is left is the truncated
+    // one load() then gives up on.
+    bool ok = (ferror(fp) == 0);
+    if (fclose(fp) != 0)
+        ok = false;
+    if (!ok)
+    {
+        printf("Manifest: writing %s failed: %s\n", _path.c_str(), strerror(errno));
+        debugf("%d entries were not saved\n", (int)_entries.size());
+    }
+    return ok;
 }
 
 bool Manifest::has(const std::string &key) const

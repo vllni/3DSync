@@ -13,6 +13,7 @@ BIN := $(BUILD)/run-tests
 
 # Units under test, compiled from the app sources.
 UNITS := \
+	../source/utils/debug.cpp \
 	../source/utils/json.cpp \
 	../source/utils/pathutil.cpp \
 	../source/utils/timeutil.cpp \
@@ -24,7 +25,7 @@ UNITS := \
 	../source/sync/syncengine.cpp
 
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
-	test_engine.cpp test_json.cpp test_manifest.cpp test_path.cpp \
+	test_debug.cpp test_engine.cpp test_json.cpp test_manifest.cpp test_path.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp
 
 # The hash tests need mbedtls, which is how the app hashes on the console too.

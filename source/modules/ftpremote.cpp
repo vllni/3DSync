@@ -6,6 +6,7 @@
 
 #include <3ds.h>
 
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
 #include "../utils/urlutil.h"
@@ -101,12 +102,17 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
         // Missing file or directory — affects this entry only.
         case CURLE_REMOTE_FILE_NOT_FOUND:
         case CURLE_FTP_COULDNT_RETR_FILE:
+            // Silent by design: callers read this as "nothing there yet".  It is
+            // also what a permission problem on a real directory looks like.
+            debugf("%s: %s\n", _curl.getURL().c_str(),
+                   curl_easy_strerror((CURLcode)res));
             return res;
 
         // Transient: retry.
         default:
             printf("  FTP error: %s (attempt %d/3)\n", curl_easy_strerror((CURLcode)res),
                    attempt + 1);
+            debugf("  curl %d on %s\n", res, _curl.getURL().c_str());
             if (attempt < 2)
             {
                 svcSleepThread(2000000000LL);
@@ -133,7 +139,11 @@ bool FtpRemote::connect()
     // The base directory may simply not exist yet; that is not a login problem.
     if (!_fatalError && (res == CURLE_REMOTE_FILE_NOT_FOUND ||
                          res == CURLE_FTP_COULDNT_RETR_FILE))
+    {
+        debugf("base directory \"%s\" is not listable yet, continuing\n",
+               _basePath.c_str());
         return true;
+    }
 
     printf("FTP: cannot reach %s\n", _host.c_str());
     return false;
@@ -178,11 +188,19 @@ std::string FtpRemote::_tagFor(const std::string &path)
     _curl.setNoBody(true);
     _curl.setFileTime(true);
 
-    if (_performWithRetry() != 0)
+    int res = _performWithRetry();
+    if (res != 0)
+    {
+        // The caller turns this into "upload failed" with nothing to explain it.
+        debugf("MDTM/SIZE failed for %s (%d)\n", path.c_str(), res);
         return "";
+    }
 
     curl_off_t size = _curl.getContentLength();
     long mtime = _curl.getFileTime();
+    if (size < 0 || mtime < 0)
+        debugf("%s: server reported size=%lld mtime=%ld — the change tag will "
+               "not be reliable\n", path.c_str(), (long long)size, mtime);
     return sizeTimeTag((long long)(size < 0 ? -1 : size), (long long)mtime);
 }
 
@@ -207,9 +225,16 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
     {
         // A directory that does not exist yet simply has nothing in it.
         if (res == CURLE_REMOTE_FILE_NOT_FOUND || res == CURLE_FTP_COULDNT_RETR_FILE)
+        {
+            debugf("nothing to list under \"%s\", treated as empty\n",
+                   dirPath.c_str());
             return true;
+        }
+        debugf("listing \"%s\" failed with %d\n", dirPath.c_str(), res);
         return false;
     }
+    debugf("\"%s\": %d file(s), %d dir(s)\n", dirPath.c_str(), (int)ctx.files.size(),
+           (int)ctx.dirs.size());
 
     for (auto &fileName : ctx.files)
     {
@@ -260,6 +285,8 @@ bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPat
     if (res != 0)
     {
         printf("FTP: download failed for %s\n", file.id.c_str());
+        debugf("  curl %d for %s\n", res, _curl.getURL().c_str());
+        debugFileBody("  partial download", tmpPath);
         remove(tmpPath.c_str());
         return false;
     }
@@ -279,6 +306,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     if (!fp)
     {
         printf("FTP: cannot read %s\n", localPath.c_str());
+        debugErrno("fopen", localPath);
         return false;
     }
 
@@ -316,10 +344,14 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     if (res != 0)
     {
         printf("FTP: upload failed for %s\n", remotePath.c_str());
+        debugf("  curl %d; the DELE/RNFR/RNTO quote may also have failed\n", res);
         return false;
     }
 
     outTag = _tagFor(remotePath);
     outId = remotePath;
+    if (outTag.empty())
+        printf("FTP: %s uploaded but its timestamp could not be read\n",
+               remotePath.c_str());
     return !outTag.empty();
 }

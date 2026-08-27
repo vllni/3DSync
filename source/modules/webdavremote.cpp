@@ -6,6 +6,7 @@
 
 #include <3ds.h>
 
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
 #include "../utils/urlutil.h"
@@ -65,6 +66,7 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile)
         if (curlRes != 0)
         {
             printf("  Network error (attempt %d/3)\n", attempt + 1);
+            debugf("  %s\n", _curl.getURL().c_str());
             if (attempt < 2)
             {
                 _curl.rewindDownloadFile();
@@ -98,8 +100,10 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile)
         }
 
         printf(CONSOLE_RED "  WebDAV error: HTTP %ld" CONSOLE_RESET "\n", status);
+        debugf("  %s\n", _curl.getURL().c_str());
         return (int)status;
     }
+    debugf("  giving up on %s after 3 attempts\n", _curl.getURL().c_str());
     return -1;
 }
 
@@ -147,13 +151,23 @@ bool WebDavRemote::_propfind(const std::string &path, const char *depth,
         // caller walk the tree one level at a time instead.
         if (status == 403 || status == 507)
         {
+            debugf("PROPFIND Depth: %s on \"%s\" refused with HTTP %ld\n", depth,
+                   requestPath.c_str(), status);
             _noInfiniteDepth = true;
             return false;
         }
+        debugf("PROPFIND Depth: %s on \"%s\" failed with %d (HTTP %ld)\n", depth,
+               requestPath.c_str(), res, status);
         return false;
     }
 
+    size_t before = out.size();
     parseDavResponses(body, rootHref, out);
+    // Nothing parsed out of a 207 means the hrefs did not start with the root
+    // this code expects, which would otherwise look like an empty remote.
+    if (out.size() == before)
+        debugf("PROPFIND on \"%s\" parsed no entries below \"%s\" from %d bytes\n",
+               requestPath.c_str(), rootHref.c_str(), (int)body.size());
     return true;
 }
 
@@ -170,6 +184,7 @@ bool WebDavRemote::_mkcol(const std::string &path)
     if (res == 0 || status == 405)
         return true;
     printf("WebDAV: cannot create %s (HTTP %ld)\n", path.c_str(), status);
+    debugf("MKCOL returned %d\n", res);
     return false;
 }
 
@@ -248,7 +263,11 @@ bool WebDavRemote::list(const std::string &root,
         if (_fatalError)
             return false;
         if (!_noInfiniteDepth)
+        {
+            debugf("infinite-depth listing of \"%s\" failed for another reason "
+                   "than depth\n", root.c_str());
             return false; // a real failure, not a depth restriction
+        }
         printf("  Server refuses Depth: infinity, walking one level at a time\n");
     }
     return _listDepthOne(root, "", out);
@@ -272,6 +291,9 @@ bool WebDavRemote::download(const RemoteFileInfo &file, const std::string &local
     if (res != 0)
     {
         printf("WebDAV: download failed for %s\n", file.id.c_str());
+        debugf("  %d for %s\n", res, _curl.getURL().c_str());
+        // A server error page was streamed into the temp file.
+        debugFileBody("  error body", tmpPath);
         remove(tmpPath.c_str());
         return false;
     }
@@ -299,6 +321,7 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
     if (!fp)
     {
         printf("WebDAV: cannot read %s\n", localPath.c_str());
+        debugErrno("fopen", localPath);
         return false;
     }
 
@@ -324,6 +347,7 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
     if (res != 0)
     {
         printf("WebDAV: upload failed for %s\n", remotePath.c_str());
+        debugf("  PUT of %s returned %d\n", tmpPath.c_str(), res);
         return false;
     }
 
@@ -343,6 +367,8 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
     if (res != 0)
     {
         printf("WebDAV: cannot move %s into place\n", tmpPath.c_str());
+        debugf("  MOVE returned %d; the upload is left as %s\n", res,
+               tmpPath.c_str());
         return false;
     }
 
@@ -356,6 +382,8 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
         // Depth 0 on a file reports the file itself, so an empty list means the
         // server answered oddly; fall back to a local stamp so the next sync
         // still has something to compare.
+        debugf("no ETag for %s after upload, using a local size:mtime stamp\n",
+               remotePath.c_str());
         struct stat st = {};
         if (stat(localPath.c_str(), &st) == 0)
         {

@@ -1,20 +1,28 @@
 #include "curl.h"
 
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+
+#include "../version.h"
+#include "debug.h"
 
 Curl::Curl() : _downloadFile(nullptr)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
     if (!_curl)
+    {
         printf("Failed to init libcurl.\n");
+        return; // every setopt below would be a null dereference
+    }
     _applyDefaults();
 }
 
 void Curl::_applyDefaults()
 {
-    curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" VERSION_STRING);
+    curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" APP_VERSION);
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 1L);
@@ -24,9 +32,15 @@ void Curl::_applyDefaults()
     curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
     curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, _header_callback);
     curl_easy_setopt(_curl, CURLOPT_HEADERDATA, this);
-#ifdef DEBUG
-    curl_easy_setopt(_curl, CURLOPT_VERBOSE, 1L);
-#endif
+
+    // Options are re-applied after every reset(), so a run started in debug
+    // mode traces every request without the handle having to be rebuilt.
+    if (debugEnabled())
+    {
+        curl_easy_setopt(_curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(_curl, CURLOPT_DEBUGFUNCTION, _trace_callback);
+        curl_easy_setopt(_curl, CURLOPT_DEBUGDATA, this);
+    }
 }
 
 Curl::~Curl()
@@ -36,7 +50,13 @@ Curl::~Curl()
 
 void Curl::setURL(std::string URL)
 {
+    _lastUrl = URL;
     curl_easy_setopt(_curl, CURLOPT_URL, URL.c_str());
+}
+
+std::string Curl::getURL() const
+{
+    return _lastUrl;
 }
 
 void Curl::setHeaders(curl_slist *headers)
@@ -71,9 +91,51 @@ int Curl::perform()
 {
     _responseData.clear();
     _rawHeaders.clear();
+
+    if (!_curl)
+    {
+        printf("Network error: libcurl was not initialised.\n");
+        return CURLE_FAILED_INIT;
+    }
+
     CURLcode rescode = curl_easy_perform(_curl);
+    long status = getStatusCode();
+
     if (rescode != CURLE_OK)
         printf("Network error: %s\n", curl_easy_strerror(rescode));
+
+    if (debugEnabled())
+    {
+        double seconds = 0;
+        curl_easy_getinfo(_curl, CURLINFO_TOTAL_TIME, &seconds);
+        debugf("status %ld, %d bytes, %d ms  <-  %s\n", status,
+               (int)_responseData.size(), (int)(seconds * 1000),
+               _lastUrl.c_str());
+
+        if (rescode != CURLE_OK)
+        {
+            // The transport failure is the one error worth spelling out twice:
+            // the code above is what a bug report needs, and the OS errno says
+            // whether the console got as far as a socket.
+            debugf("curl error %d (%s)\n", (int)rescode, curl_easy_strerror(rescode));
+            long oserrno = 0;
+            if (curl_easy_getinfo(_curl, CURLINFO_OS_ERRNO, &oserrno) == CURLE_OK &&
+                oserrno != 0)
+                debugf("  socket errno %ld: %s\n", oserrno, strerror((int)oserrno));
+        }
+
+        // A non-2xx body is the remote explaining itself, and the callers that
+        // only look at the status code throw it away.  Status 0 with no error
+        // is a protocol that reports none (an FTP listing), not a failure —
+        // dumping there would print the listing itself.
+        if (rescode != CURLE_OK || status >= 300 || (status != 0 && status < 200))
+        {
+            if (_downloadFile != nullptr)
+                debugf("  body went to the download file\n");
+            else
+                debugBody("  response", _responseData);
+        }
+    }
     return rescode;
 }
 
@@ -226,7 +288,12 @@ curl_off_t Curl::getContentLength() const
 size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     FILE *readhere = (FILE *)userdata;
-    return fread(ptr, size, nmemb, readhere);
+    size_t read = fread(ptr, size, nmemb, readhere);
+    // A short read is normal at the end of the file; an error is not, and
+    // libcurl can only report it as a vague "read function failure".
+    if (read < nmemb && ferror(readhere))
+        debugf("upload: reading the local file failed: %s\n", strerror(errno));
+    return read;
 }
 
 size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userdata)
@@ -235,12 +302,16 @@ size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userda
     size_t totalSize = size * nmemb;
     if (self->_downloadFile != nullptr)
     {
-        return fwrite(data, size, nmemb, self->_downloadFile);
+        size_t written = fwrite(data, size, nmemb, self->_downloadFile);
+        // Returning less than asked aborts the transfer with CURLE_WRITE_ERROR,
+        // which says nothing about the SD card being full or write-protected.
+        if (written < nmemb)
+            debugf("download: writing to the SD card failed after %d of %d "
+                   "bytes: %s\n", (int)(written * size), (int)totalSize,
+                   strerror(errno));
+        return written;
     }
     self->_responseData.append(static_cast<char *>(data), totalSize);
-#ifdef DEBUG
-    fwrite(data, size, nmemb, stdout);
-#endif
     return totalSize;
 }
 
@@ -250,4 +321,54 @@ size_t Curl::_header_callback(void *data, size_t size, size_t nmemb, void *userd
     size_t totalSize = size * nmemb;
     self->_rawHeaders.append(static_cast<char *>(data), totalSize);
     return totalSize;
+}
+
+// ---------------------------------------------------------------------------
+// _trace_callback  — libcurl's protocol trace, debug mode only
+// ---------------------------------------------------------------------------
+// Only the informational and header lines are shown: the payload would bury
+// them, and a save file printed to the console is noise.  Header lines go
+// through debugRedact() because the request ones carry the bearer token.
+// ---------------------------------------------------------------------------
+int Curl::_trace_callback(CURL *handle, curl_infotype type, char *data,
+                          size_t size, void *userdata)
+{
+    (void)handle;
+    (void)userdata;
+
+    const char *prefix;
+    switch (type)
+    {
+    case CURLINFO_TEXT:
+        prefix = "*";
+        break;
+    case CURLINFO_HEADER_OUT:
+        prefix = ">";
+        break;
+    case CURLINFO_HEADER_IN:
+        prefix = "<";
+        break;
+    default:
+        return 0; // DATA_IN / DATA_OUT / SSL_DATA_*
+    }
+
+    // One call can carry several lines, and every one wants its own prefix.
+    std::string text = debugRedact(std::string(data, size));
+    size_t start = 0;
+    while (start < text.size())
+    {
+        size_t end = text.find('\n', start);
+        std::string line = text.substr(start, (end == std::string::npos)
+                                                  ? std::string::npos
+                                                  : end - start);
+        while (!line.empty() && (line[line.size() - 1] == '\r' ||
+                                 line[line.size() - 1] == ' '))
+            line.erase(line.size() - 1);
+        if (!line.empty())
+            debugf("%s %s\n", prefix, line.c_str());
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    return 0;
 }

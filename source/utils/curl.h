@@ -72,6 +72,8 @@ public:
     void clearCustomRequest();
     int perform();
     std::string getResponse() const;
+    // The URL of the last request, for error messages that have to name it.
+    std::string getURL() const;
     long getStatusCode() const;
     // Case-insensitive search in the last response's headers (e.g. "Date").
     std::string getResponseHeader(const std::string &name) const;
@@ -82,11 +84,17 @@ private:
     std::string _userPassword;
     std::string _responseData;
     std::string _rawHeaders;
+    // Kept so a failure can say which request failed: libcurl will not hand
+    // back the URL once the handle has been reset.
+    std::string _lastUrl;
     FILE *_downloadFile;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
     static size_t _write_callback(void *data, size_t size, size_t nmemb, void *userdata);
     static size_t _header_callback(void *data, size_t size, size_t nmemb, void *userdata);
+    // libcurl's own protocol trace, wired up only in debug mode.
+    static int _trace_callback(CURL *handle, curl_infotype type, char *data,
+                               size_t size, void *userdata);
 };
 
 #endif

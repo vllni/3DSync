@@ -26,7 +26,8 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. Install `output/3ds-arm/3DSync.cia` **or** run `3DSync.3dsx` from the Homebrew Launcher.
-4. Launch 3DSync. It will sync all configured paths and press **START** to exit.
+4. Launch 3DSync and press **A** to sync all configured paths, or **Y** to sync
+   with [debug output](#debug-mode). **START** exits.
 
 ---
 
@@ -220,6 +221,39 @@ If the 3DS system clock differs from the remote's clock by more than 60 seconds,
 
 ---
 
+## Debug Mode
+
+A normal sync is quiet on purpose: it prints one header per configured path,
+errors that stop something, and the closing summary. That means a good deal is
+handled without a word — a folder that does not exist yet is treated as empty, a
+file the remote refuses is skipped, an unreadable timestamp is read as
+unchanged. When a sync does something you do not expect, run it again with **Y**
+instead of **A**.
+
+Debug mode prints:
+
+- every HTTP status, the URL behind it, and the response body of anything that
+  was not a success — including the API error that a failed download writes into
+  the temp file, which a normal run deletes unread
+- libcurl's connection and header trace, and the socket error behind a
+  "Network error"
+- what `3DSync.ini` actually parsed to, including the line number of a syntax
+  error that was skipped
+- the per-file decision: whether each side exists, whether the manifest knew
+  about it, which side changed, and what was done about it
+- the failures the local side hides: a `mkdir` the SD card refused, a manifest
+  that was truncated by an interrupted write, a hash that could not be computed
+
+Passwords, tokens and OAuth secrets are replaced with `<redacted>`, so the
+output is safe to attach to a [bug report](https://github.com/vllni/3DSync/issues).
+The rest is not filtered — a debug run prints one line per file examined, so for
+a large sync photograph the screen rather than trying to read it live.
+
+The version the app is running is on the lower screen, and belongs in any
+report.
+
+---
+
 ## Google Drive App Setup
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
@@ -254,6 +288,11 @@ make
 ```
 
 Output: `output/3ds-arm/3DSync.cia` and `output/3ds-arm/3ds/3DSync/3DSync.3dsx`.
+
+The version shown on the lower screen comes from `source/version.h`, and the
+Makefile reads the CIA metadata version from the same line — so a build from a
+tarball or a shallow clone reports the same version a tagged release does. A
+release whose tag disagrees with that header fails in CI before it is built.
 
 ## Tests
 

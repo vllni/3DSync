@@ -13,6 +13,7 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 
+#include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
 #include "remoteparse.h"
@@ -63,6 +64,8 @@ bool SmbRemote::connect()
     if (!_domain.empty())
         smb2_set_domain(_smb2, _domain.c_str());
 
+    debugf("connecting to \\\\%s\\%s as %s\n", _server.c_str(), _share.c_str(),
+           _user.empty() ? "<guest>" : _user.c_str());
     int res = smb2_connect_share(_smb2, _server.c_str(), _share.c_str(),
                                  _user.empty() ? NULL : _user.c_str());
     if (res != 0)
@@ -71,6 +74,7 @@ bool SmbRemote::connect()
                _server.c_str(), _share.c_str());
         printf("  %s\n", smb2_get_error(_smb2));
         printf("  Check the server address, share name and credentials.\n");
+        debugf("smb2_connect_share returned %d\n", res);
         _fatalError = true; // wrong host or credentials — retrying will not help
         return false;
     }
@@ -108,7 +112,11 @@ bool SmbRemote::_mkdirs(const std::string &dirPath)
             // Another sync may have created it between the stat and the mkdir.
             if (smb2_stat(_smb2, part.c_str(), &st) == 0 &&
                 st.smb2_type == SMB2_TYPE_DIRECTORY)
+            {
+                debugf("%s already existed when creating it: %s\n", part.c_str(),
+                       smb2_get_error(_smb2));
                 continue;
+            }
             printf("SMB: cannot create %s: %s\n", part.c_str(), smb2_get_error(_smb2));
             return false;
         }
@@ -166,6 +174,8 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
         }
     }
     smb2_closedir(_smb2, dir);
+    debugf("\"%s\": %d subdir(s), %d file(s) so far\n", dirPath.c_str(),
+           (int)subdirs.size(), (int)out.size());
 
     for (auto &sub : subdirs)
     {
@@ -232,6 +242,8 @@ bool SmbRemote::download(const RemoteFileInfo &file, const std::string &localPat
 
     if (!ok)
     {
+        debugf("download of %s stopped after %llu bytes\n", file.id.c_str(),
+               (unsigned long long)offset);
         remove(tmpPath.c_str());
         return false;
     }
@@ -253,6 +265,7 @@ bool SmbRemote::upload(const std::string &root, const std::string &relPath,
     if (!fp)
     {
         printf("SMB: cannot read %s\n", localPath.c_str());
+        debugErrno("fopen", localPath);
         return false;
     }
 
@@ -302,18 +315,26 @@ bool SmbRemote::upload(const std::string &root, const std::string &relPath,
 
     if (!ok)
     {
-        smb2_unlink(_smb2, tmpRemote.c_str());
+        if (smb2_unlink(_smb2, tmpRemote.c_str()) != 0)
+            debugf("could not clean up %s: %s\n", tmpRemote.c_str(),
+                   smb2_get_error(_smb2));
         return false;
     }
 
     // smb2_rename() never replaces an existing target (libsmb2 sends
-    // ReplaceIfExists=0), so the old file has to go first.
-    smb2_unlink(_smb2, remotePath.c_str());
+    // ReplaceIfExists=0), so the old file has to go first.  A failure here is
+    // expected on a first upload and fatal on any other, and the rename below
+    // is what actually reports it.
+    if (smb2_unlink(_smb2, remotePath.c_str()) != 0)
+        debugf("no %s to replace: %s\n", remotePath.c_str(),
+               smb2_get_error(_smb2));
     if (smb2_rename(_smb2, tmpRemote.c_str(), remotePath.c_str()) != 0)
     {
         printf("SMB: cannot rename %s into place: %s\n", tmpRemote.c_str(),
                smb2_get_error(_smb2));
-        smb2_unlink(_smb2, tmpRemote.c_str());
+        if (smb2_unlink(_smb2, tmpRemote.c_str()) != 0)
+            debugf("and %s is left behind: %s\n", tmpRemote.c_str(),
+                   smb2_get_error(_smb2));
         return false;
     }
 

@@ -13,9 +13,19 @@ LIBRARIES += smb2 curl mbedtls mbedx509 mbedcrypto z ctru m
 
 EXTRA_OUTPUT_FILES := 
 
-BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=1024 -DVERSION_STRING="\"`git describe --tags --abbrev=0`\"" -DREVISION_STRING="\"`git rev-parse --short HEAD``git diff-index --quiet HEAD -- || echo ' (dirty)'`\""
+BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=1024
 
-VERSION_PARTS := $(subst ., ,$(shell git describe --tags --abbrev=0))
+# The version comes from source/version.h, not from `git describe`: the number
+# on screen has to be a property of the source, so a shallow clone or a tarball
+# build shows the same thing a tagged release does.  The release workflow checks
+# the tag against this same line.
+APP_VERSION := $(shell sed -n 's/^.*#define[[:space:]]*APP_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' source/version.h)
+
+ifeq ($(strip $(APP_VERSION)),)
+    $(error Could not read APP_VERSION from source/version.h)
+endif
+
+VERSION_PARTS := $(subst ., ,$(APP_VERSION))
 
 VERSION_MAJOR := $(word 1, $(VERSION_PARTS))
 VERSION_MINOR := $(word 2, $(VERSION_PARTS))
