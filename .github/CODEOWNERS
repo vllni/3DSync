@@ -1,0 +1,6 @@
+# Code owners for 3DSync.
+# Every PR against this repo requests a review from the owner listed here.
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repository.
+*       @vllni
