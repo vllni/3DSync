@@ -392,11 +392,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
             }
         }
 
-        printf("  %s: local=%s drive=%s manifest=%s\n",
-               relPath.c_str(),
-               localExists ? "yes" : "no",
-               driveExists ? "yes" : "no",
-               inManifest ? "yes" : "no");
+        printf("  %s: ", relPath.c_str());
 
         if (drive.hasFatalError())
             break;
@@ -416,7 +412,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (!localExists && driveExists)
         {
             // File only on Drive (new or local was deleted) — download
-            printf("  -> Downloading %s\n", relPath.c_str());
+            printf("Downloading %s\n", relPath.c_str());
             // Create parent directories
             size_t slash = localPath.rfind('/');
             if (slash != std::string::npos)
@@ -436,7 +432,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (localExists && !driveExists)
         {
             // File only local (new, or deleted on Drive) — upload
-            printf("  -> Uploading %s\n", relPath.c_str());
+            printf("Uploading %s\n", relPath.c_str());
             std::string md5;
             std::string existingId = inManifest ? mEntry.driveId : "";
             std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
@@ -453,7 +449,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (!localChanged && !driveChanged)
         {
             // No change — skip
-            printf("  -> Up to date\n");
+            printf("Up to date\n");
             summary.checkedPaths.insert(localPath);
             continue;
         }
@@ -461,7 +457,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (localChanged && !driveChanged)
         {
             // Local changed — upload
-            printf("  -> Local changed, uploading %s\n", relPath.c_str());
+            printf("Local changed, uploading %s\n", relPath.c_str());
             std::string md5;
             std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, mEntry.driveId, md5);
             if (!fileId.empty())
@@ -476,7 +472,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         if (!localChanged && driveChanged)
         {
             // Remote changed — download
-            printf("  -> Remote changed, downloading %s\n", relPath.c_str());
+            printf("Remote changed, downloading %s\n", relPath.c_str());
             if (drive.downloadFile(*dfi, localPath))
             {
                 struct stat st = {};
@@ -495,18 +491,18 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
 
         if (choice == CONFLICT_CANCEL)
         {
-            printf("  -> Sync cancelled\n");
+            printf("Sync cancelled\n");
             return false;
         }
         if (choice == CONFLICT_SKIP)
         {
-            printf("  -> Skipped\n");
+            printf("Skipped\n");
             summary.changes.push_back({localPath, "skipped"});
             continue;
         }
         if (choice == CONFLICT_KEEP_LOCAL)
         {
-            printf("  -> Keeping 3DS version, uploading\n");
+            printf("Keeping 3DS version, uploading\n");
             std::string md5;
             std::string existingId = inManifest ? mEntry.driveId : dfi->id;
             std::string fileId = drive.syncUpload(rootFolderId, relPath, localPath, existingId, md5);
@@ -519,7 +515,7 @@ static bool performSync(GoogleDrive &drive, Manifest &manifest, const SyncEntry 
         }
         else
         {
-            printf("  -> Keeping remote version, downloading\n");
+            printf("Keeping remote version, downloading\n");
             if (drive.downloadFile(*dfi, localPath))
             {
                 struct stat st = {};
