@@ -10,7 +10,7 @@
 
 Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, Dropbox, an SMB2/3 file server, FTP/FTPS or WebDAV. Written in C++11, built with devkitPro/devkitARM.
 
-Companion static web configurator at `docs/` (GitHub Pages at `https://vllni.github.io/3DSync/`) generates the INI config file via OAuth and a stepper UI.
+Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.villani-ulm.de/`) generates the INI config file via OAuth and a stepper UI.
 
 ---
 
@@ -225,7 +225,7 @@ RemoteName=/LocalPath
 ## Configurator (docs/)
 
 - Pure static site — no server. Credentials are entered by the user (their own Google Cloud project). The client secret lives in `localStorage` only long enough to survive the OAuth redirect, and must be cleared from `localStorage` after `exchangeGoogleCode` succeeds.
-- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://vllni.github.io/3DSync/`.
+- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
 - INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
 

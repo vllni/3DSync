@@ -166,7 +166,9 @@
         <h4>Configuration</h4>
         <p>The INI file lives at <code>/3ds/3DSync/3DSync.ini</code>.</p>
 
-        <h5 class="white-text"><i class="fa fa-dropbox" style="margin-right:6px"></i>Dropbox<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span></h5>
+        <h5 class="white-text"><i class="fa fa-dropbox" style="margin-right:6px"></i>Dropbox<span
+            style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+        </h5>
         <pre><code>[Dropbox]
 AppKey=&lt;app key from configurator&gt;
 RefreshToken=&lt;refresh token from configurator&gt;
@@ -191,7 +193,8 @@ FolderId=&lt;optional root folder ID&gt;</code></pre>
 
         <h5 class="white-text" style="margin-top:1.25rem">
           <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">storage</i>SMB
-          file server (NAS, Windows share)<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+          file server (NAS, Windows share)<span
+            style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
         </h5>
         <pre><code>[SMB]
 Server=192.168.1.10
@@ -207,7 +210,8 @@ Path=                     ; optional folder inside the share</code></pre>
 
         <h5 class="white-text" style="margin-top:1.25rem">
           <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">folder_shared</i>FTP
-          / FTPS<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+          / FTPS<span
+            style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
         </h5>
         <pre><code>[FTP]
 Host=192.168.1.10
@@ -223,7 +227,9 @@ Mode=passive              ; passive | active</code></pre>
         </p>
 
         <h5 class="white-text" style="margin-top:1.25rem">
-          <i class="material-icons" style="vertical-align:middle;font-size:1.2rem;margin-right:4px">cloud_queue</i>WebDAV<span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+          <i class="material-icons"
+            style="vertical-align:middle;font-size:1.2rem;margin-right:4px">cloud_queue</i>WebDAV<span
+            style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:8px;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
         </h5>
         <pre><code>[WebDAV]
 Url=https://nas.example/remote.php/dav/files/username/
@@ -240,13 +246,15 @@ Password=&lt;app password&gt;</code></pre>
           Drive sections; add the others by hand.
         </p>
         <div class="card-panel blue darken-4 white-text" style="font-size:0.88em;margin-top:1rem">
-          <p style="margin:0 0 6px 0"><strong>About the <span style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:0;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span> badge</strong></p>
+          <p style="margin:0 0 6px 0"><strong>About the <span
+                style="background:#e65100;color:#fff;border-radius:3px;padding:1px 6px;font-size:0.62em;vertical-align:middle;margin-left:0;letter-spacing:0.04em;font-weight:600">EXPERIMENTAL</span>
+              badge</strong></p>
           <p style="margin:0">
             Only Google Drive has seen wide use so far. The other backends work, but have had far less testing
             against real servers &mdash; keep a backup of your saves, and please report anything that goes wrong
-            at <a class="white-text" style="text-decoration:underline"
-              href="https://github.com/vllni/3DSync/issues" target="_blank"
-              rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>. Bug reports and feedback are what
+            at <a class="white-text" style="text-decoration:underline" href="https://github.com/vllni/3DSync/issues"
+              target="_blank" rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>. Bug reports and feedback are
+            what
             move a backend off this list. 3DSync also prints this notice on the 3DS before it syncs.
           </p>
         </div>
@@ -298,7 +306,8 @@ roms/nds/saves=/roms/nds/saves
 Backup=/3ds/MyGame</code></pre>
         <ul class="readme-bullets" style="margin-top:0.75rem">
           <li><strong>RemoteName</strong> is the Drive folder path (use <code>/</code> for nesting, e.g.
-            <code>roms/nds</code>).</li>
+            <code>roms/nds</code>).
+          </li>
           <li><strong>LocalPath</strong> is the absolute path on the SD card.</li>
           <li>Bidirectional entries use a <strong>manifest</strong> (<code>/3ds/3DSync/manifest.json</code>) to detect
             which side changed.</li>
@@ -343,7 +352,8 @@ Backup=/3ds/MyGame</code></pre>
               <td>Yes</td>
               <td>Yes</td>
               <td><strong>Conflict</strong> — press <strong>A</strong> to keep 3DS version (upload) or
-                <strong>B</strong> to keep Drive version (download)</td>
+                <strong>B</strong> to keep Drive version (download)
+              </td>
             </tr>
             <tr>
               <td>Local missing</td>
@@ -389,7 +399,7 @@ Backup=/3ds/MyGame</code></pre>
               class="white-text" style="text-decoration:underline">Google Cloud Console</a>.</li>
           <li>Create a project and enable the <strong>Google Drive API</strong>.</li>
           <li>Create an <strong>OAuth 2.0 Web application</strong> credential (Client ID + Client Secret).</li>
-          <li>Add the redirect URI: <code>https://vllni.github.io/3DSync/configurator.html</code></li>
+          <li>Add the redirect URI: <code>https://3dsync.villani-ulm.de/configurator.html</code></li>
           <li>Use the <a href="configurator.html" class="white-text" style="text-decoration:underline">configurator</a>
             to authenticate; it performs PKCE and stores the refresh token.</li>
         </ol>
