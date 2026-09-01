@@ -36,6 +36,25 @@ void parseDavResponses(const std::string &xml, const std::string &rootHref,
 void parseDropboxEntries(const std::string &response, const std::string &root,
                          std::map<std::string, RemoteFileInfo> &out);
 
+// ---------------------------------------------------------------------------
+// What a Dropbox answer says about a path
+// ---------------------------------------------------------------------------
+// get_metadata and create_folder_v2 both describe the same thing in two
+// shapes: a 2xx body naming what is there, or a 409 whose "error_summary" is a
+// slash-separated reason.  Reading either one wrong is how a sync ends up
+// writing into the wrong place, so the reading is here rather than inline.
+enum DropboxPathState
+{
+    DROPBOX_PATH_FOLDER,     // a folder is there — created just now or already
+    DROPBOX_PATH_NOT_FOLDER, // something else occupies the path (a file)
+    DROPBOX_PATH_MISSING,    // nothing there yet (409 path/not_found)
+    DROPBOX_PATH_ERROR       // malformed_path, no_write_permission, unreadable…
+};
+
+// status is what Dropbox::_performWithRetry() returned: 0 for a 2xx, otherwise
+// the HTTP status.  response is the body that came with it.
+DropboxPathState dropboxPathState(int status, const std::string &response);
+
 // Build an FTP URL for a path relative to the login directory.
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);

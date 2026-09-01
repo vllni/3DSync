@@ -106,6 +106,36 @@ void parseDropboxEntries(const std::string &response, const std::string &root,
     }
 }
 
+DropboxPathState dropboxPathState(int status, const std::string &response)
+{
+    if (status == 0)
+    {
+        // get_metadata answers with the entry itself; create_folder_v2 wraps
+        // it in "metadata".  Either way the first ".tag" describes the path.
+        std::string tag = jsonString(response, ".tag");
+        if (tag == "folder")
+            return DROPBOX_PATH_FOLDER;
+        if (tag.empty())
+            return DROPBOX_PATH_ERROR; // a 2xx we cannot read is not a verdict
+        return DROPBOX_PATH_NOT_FOLDER;
+    }
+
+    // Only 409 carries a reason worth reading; everything else (429, 5xx, a
+    // network failure) says nothing about the path.
+    if (status != 409)
+        return DROPBOX_PATH_ERROR;
+
+    // "path/not_found/.", "path/conflict/folder/.", "path/malformed_path/..."
+    std::string reason = jsonString(response, "error_summary");
+    if (reason.rfind("path/not_found", 0) == 0)
+        return DROPBOX_PATH_MISSING;
+    if (reason.rfind("path/conflict/folder", 0) == 0)
+        return DROPBOX_PATH_FOLDER;
+    if (reason.rfind("path/conflict/file", 0) == 0)
+        return DROPBOX_PATH_NOT_FOLDER;
+    return DROPBOX_PATH_ERROR;
+}
+
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path)
 {

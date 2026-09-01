@@ -65,10 +65,25 @@ private:
     // failure, or the HTTP status for a per-file error.  Sets _fatalError on
     // 401/403.  uploadFile, when given, is rewound before each retry so the
     // streamed request body starts from the beginning.
-    int _performWithRetry(FILE *uploadFile = NULL);
+    //
+    // expectedStatus names one status the caller handles as a normal outcome
+    // rather than a failure: it is still returned, and still explained through
+    // debugf(), but it is not announced on the console.  Dropbox answers
+    // "the folder is already there" with 409, and a red API error for the
+    // most ordinary thing a sync can do is only alarming.
+    int _performWithRetry(FILE *uploadFile = NULL, long expectedStatus = 0);
 
     // POST a JSON body to an api.dropboxapi.com RPC endpoint.
-    int _rpc(const std::string &endpoint, const std::string &jsonBody);
+    int _rpc(const std::string &endpoint, const std::string &jsonBody,
+             long expectedStatus = 0);
+
+    // create_folder_v2 for a root that ensureRoot's probe found missing.
+    // Returns root, or "" if it could not be created.
+    std::string _createFolder(const std::string &root);
+
+    // Print the reason behind a 409 that _rpc() was told to expect, for the
+    // cases where the expectation turned out to be wrong.
+    void _report409Reason();
 
     // Absolute Dropbox path for a sync-relative path ("" for the root).
     std::string _pathFor(const std::string &path) const;
