@@ -61,6 +61,7 @@ RUN dkp-pacman -Sy --noconfirm \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
+    gh \
     openssh-client \
     && git lfs install \
     && rm -rf /var/lib/apt/lists/*
