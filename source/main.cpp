@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include <3ds.h>
+#include <sys/iosupport.h>
 
 #include <curl/curl.h>
 
@@ -265,6 +266,71 @@ static MainMenuChoice waitForMainMenuKey()
 }
 
 // ---------------------------------------------------------------------------
+// offerDebugLogSave  — end of a debug run: keep the transcript or drop it
+// ---------------------------------------------------------------------------
+// The whole point of debug mode is to produce something that can be attached
+// to a bug report, and a screen that has already scrolled is not that.  The
+// save is offered rather than done, because the transcript is a plaintext file
+// on a shared SD card and the run it came from listed every save path on the
+// console — asking is what makes writing it the user's decision.
+// ---------------------------------------------------------------------------
+static std::string debugLogPath()
+{
+    time_t now = time(NULL);
+    struct tm *lt = (now > 0) ? localtime(&now) : NULL;
+
+    char stamp[32];
+    // A clock that has not been set yet would name every run the same; the
+    // fixed name is honest about that, and the previous one is overwritten.
+    if (lt == NULL || strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", lt) == 0)
+        snprintf(stamp, sizeof(stamp), "unknown-time");
+
+    return std::string("/3ds/3DSync/logs/debug-") + stamp + ".log";
+}
+
+static void offerDebugLogSave()
+{
+    if (!debugEnabled() || debugLogSize() == 0)
+        return;
+
+    printf("\n--- Debug log ---\n");
+    printf("%d KB captured", (int)((debugLogSize() + 1023) / 1024));
+    if (debugLogDropped() > 0)
+        printf(", middle of the run trimmed");
+    printf(".\n");
+    printf("Tokens and passwords are masked, but save\n");
+    printf("paths are not — read it before sharing it.\n");
+    printf("\n      A: Save to the SD card\n");
+    printf("      B: Discard\n\n");
+
+    while (aptMainLoop())
+    {
+        hidScanInput();
+        u32 k = hidKeysDown();
+        if (k & KEY_B)
+        {
+            printf("Debug log discarded.\n");
+            return;
+        }
+        if (k & KEY_A)
+        {
+            std::string path = debugLogPath();
+            // The write itself prints, and the tee would fold that into the
+            // very text being written; it is already snapshotted by then, so
+            // the file just ends a line or two before the screen does.
+            if (debugLogSave(path))
+                printf(CONSOLE_GREEN "Saved to\n  %s\n" CONSOLE_RESET, path.c_str());
+            else
+                printf(CONSOLE_RED "Could not write\n  %s\n" CONSOLE_RESET, path.c_str());
+            return;
+        }
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // printExperimentalNotice  — shown once per experimental backend, per run
 // ---------------------------------------------------------------------------
 // Kept to the console's 50 columns.  The URL is the issue tracker rather than
@@ -377,6 +443,41 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
 }
 
 // ---------------------------------------------------------------------------
+// installConsoleTee  — copy everything the console prints into the debug log
+// ---------------------------------------------------------------------------
+// A debug run is read off a 30-line screen that scrolls, so the part worth
+// reporting has usually gone by the time anyone reaches for a camera.  Rather
+// than route every printf in the app through debugf(), stdout itself is teed:
+// libctru's console is a newlib devoptab, so a copy of it with write_r wrapped
+// captures the run exactly as it appeared, debugf() output included.
+//
+// Must run after consoleInit(), which installs its own devoptab over whatever
+// was there — a tee put in first would simply be dropped.
+// ---------------------------------------------------------------------------
+static devoptab_t g_teeStdout;
+static const devoptab_t *g_realStdout = NULL;
+
+static ssize_t teeWrite(struct _reent *r, void *fd, const char *ptr, size_t len)
+{
+    debugLogAppend(ptr, len);
+    if (g_realStdout == NULL || g_realStdout->write_r == NULL)
+        return (ssize_t)len;
+    return g_realStdout->write_r(r, fd, ptr, len);
+}
+
+static void installConsoleTee()
+{
+    const devoptab_t *current = devoptab_list[STD_OUT];
+    if (current == NULL || current == &g_teeStdout || current->write_r == NULL)
+        return;
+
+    g_realStdout = current;
+    g_teeStdout = *current;
+    g_teeStdout.write_r = teeWrite;
+    devoptab_list[STD_OUT] = &g_teeStdout;
+}
+
+// ---------------------------------------------------------------------------
 // componentsInit / componentsExit
 // ---------------------------------------------------------------------------
 // The startup services all return a Result that the app used to discard.  Most
@@ -415,6 +516,7 @@ bool componentsInit()
     printf("\n\n\n\n\n\n Version: " CONSOLE_BLUE "v" APP_VERSION CONSOLE_RESET);
 
     consoleInit(GFX_TOP, NULL);
+    installConsoleTee();
     printf("Initializing components...\n\n");
 
     initStep("APT_SetAppCpuTimeLimit", APT_SetAppCpuTimeLimit(30));
@@ -660,6 +762,8 @@ static void runSync(const INIReader &reader)
         printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
     else
         printf("\nSync complete.\n");
+
+    offerDebugLogSave();
 }
 
 // ---------------------------------------------------------------------------
@@ -686,6 +790,9 @@ int main(int argc, char **argv)
         // Set before anything else runs: the providers read it when they build
         // their libcurl handle, and the engine when it logs a decision.
         setDebugEnabled(choice == MENU_SYNC_DEBUG);
+        // Per run, not per session: syncing twice should not offer the first
+        // run's transcript along with the second's.
+        debugLogReset();
 
         if (reader.ParseError() >= 0)
             runSync(reader);
@@ -693,6 +800,7 @@ int main(int argc, char **argv)
         {
             printf("Can't load configuration\n");
             debugConfigSummary(reader);
+            offerDebugLogSave();
         }
 
         // after sync: fall back to the menu (sync again or exit)

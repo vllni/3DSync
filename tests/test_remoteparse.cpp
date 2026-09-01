@@ -286,3 +286,85 @@ TEST(remote_tags, size_and_time_format)
     // An unknown size is recorded as -1 rather than silently as 0.
     CHECK_STR_EQ(sizeTimeTag(-1, 1716905520), "-1:1716905520");
 }
+
+// ---------------------------------------------------------------------------
+// dropboxPathState
+// ---------------------------------------------------------------------------
+// Dropbox says "the folder is already there" with a 409, the same status it
+// uses for a mistyped path and for a file blocking the way.  Reading that
+// wrong either fills the console with an error for the most ordinary thing a
+// sync does, or syncs into a path that is not what was configured — so the
+// real response bodies are pinned here.
+
+TEST(remoteparse, dropbox_get_metadata_recognises_a_folder)
+{
+    std::string body = "{\".tag\": \"folder\", \"name\": \"test\", "
+                       "\"path_lower\": \"/test\", \"id\": \"id:abc\"}";
+    CHECK_EQ(dropboxPathState(0, body), DROPBOX_PATH_FOLDER);
+}
+
+TEST(remoteparse, dropbox_get_metadata_recognises_a_file_in_the_way)
+{
+    std::string body = "{\".tag\": \"file\", \"name\": \"test\", "
+                       "\"path_lower\": \"/test\", \"size\": 12}";
+    CHECK_EQ(dropboxPathState(0, body), DROPBOX_PATH_NOT_FOLDER);
+}
+
+TEST(remoteparse, dropbox_create_folder_success_is_a_folder)
+{
+    // create_folder_v2 wraps the entry in "metadata".
+    std::string body = "{\"metadata\": {\".tag\": \"folder\", \"name\": \"test\", "
+                       "\"path_lower\": \"/test\"}}";
+    CHECK_EQ(dropboxPathState(0, body), DROPBOX_PATH_FOLDER);
+}
+
+TEST(remoteparse, dropbox_409_conflict_folder_means_it_is_already_there)
+{
+    // The exact body create_folder_v2 returns for an existing folder.
+    std::string body = "{\"error\": {\".tag\": \"path\", \"path\": "
+                       "{\".tag\": \"conflict\", \"conflict\": {\".tag\": \"folder\"}}}, "
+                       "\"error_summary\": \"path/conflict/folder/\"}";
+    CHECK_EQ(dropboxPathState(409, body), DROPBOX_PATH_FOLDER);
+}
+
+TEST(remoteparse, dropbox_409_not_found_means_it_has_to_be_created)
+{
+    std::string body = "{\"error\": {\".tag\": \"path\", \"path\": "
+                       "{\".tag\": \"not_found\"}}, "
+                       "\"error_summary\": \"path/not_found/\"}";
+    CHECK_EQ(dropboxPathState(409, body), DROPBOX_PATH_MISSING);
+}
+
+TEST(remoteparse, dropbox_409_conflict_file_is_not_a_folder)
+{
+    std::string body = "{\"error_summary\": \"path/conflict/file/\"}";
+    CHECK_EQ(dropboxPathState(409, body), DROPBOX_PATH_NOT_FOLDER);
+}
+
+TEST(remoteparse, dropbox_409_config_errors_are_not_success)
+{
+    // A mistyped Path= must not be swallowed as "already there".
+    CHECK_EQ(dropboxPathState(409, "{\"error_summary\": \"path/malformed_path/\"}"),
+             DROPBOX_PATH_ERROR);
+    CHECK_EQ(dropboxPathState(409, "{\"error_summary\": \"path/no_write_permission/\"}"),
+             DROPBOX_PATH_ERROR);
+    CHECK_EQ(dropboxPathState(409, "{\"error_summary\": \"path/insufficient_space/\"}"),
+             DROPBOX_PATH_ERROR);
+}
+
+TEST(remoteparse, dropbox_other_statuses_say_nothing_about_the_path)
+{
+    CHECK_EQ(dropboxPathState(429, "{\"error_summary\": \"too_many_requests/\"}"),
+             DROPBOX_PATH_ERROR);
+    CHECK_EQ(dropboxPathState(503, ""), DROPBOX_PATH_ERROR);
+    // A network failure arrives as a negative curl code.
+    CHECK_EQ(dropboxPathState(-1, ""), DROPBOX_PATH_ERROR);
+}
+
+TEST(remoteparse, dropbox_an_unreadable_success_is_not_a_verdict)
+{
+    // Better to skip the entry than to declare a path is not a folder on the
+    // strength of a body that parsed to nothing.
+    CHECK_EQ(dropboxPathState(0, ""), DROPBOX_PATH_ERROR);
+    CHECK_EQ(dropboxPathState(0, "<html>proxy error</html>"), DROPBOX_PATH_ERROR);
+}

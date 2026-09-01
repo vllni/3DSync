@@ -5,10 +5,10 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 | Remote | Direction | Status |
 |---|---|---|
 | Google Drive | bidirectional | stable |
+| Dropbox | bidirectional | stable |
 | SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
 | FTP / FTPS | bidirectional | 🧪 experimental |
 | WebDAV | bidirectional | 🧪 experimental |
-| Dropbox | bidirectional | 🧪 experimental |
 
 > 🧪 **Experimental** backends work but have had far less testing against real
 > servers than Google Drive. Keep a backup of your saves, and please report
@@ -36,8 +36,6 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 The INI file lives at `/3ds/3DSync/3DSync.ini`.
 
 ### Dropbox
-
-🧪 Experimental.
 
 ```ini
 [Dropbox]
@@ -246,8 +244,20 @@ Debug mode prints:
 
 Passwords, tokens and OAuth secrets are replaced with `<redacted>`, so the
 output is safe to attach to a [bug report](https://github.com/vllni/3DSync/issues).
-The rest is not filtered — a debug run prints one line per file examined, so for
-a large sync photograph the screen rather than trying to read it live.
+The rest is not filtered — a debug run prints one line per file examined, and by
+the time it reaches whatever went wrong, the start of the run has scrolled off
+the top of the screen.
+
+So a debug run does not ask you to read it live: when the sync ends, 3DSync
+offers to write everything it printed to the SD card as
+`/3ds/3DSync/logs/debug-<date>-<time>.log`. Press **A** to save it or **B** to
+discard it. That file is the whole run, colour codes removed and secrets masked
+— attach it to the issue instead of photographing the screen. A very long run
+keeps its beginning and its end and notes in the middle how much was dropped.
+
+The log holds the same text the screen did, which includes the local paths you
+sync. Worth a look before sharing it, and it stays on your SD card until you
+delete it.
 
 The version the app is running is on the lower screen, and belongs in any
 report.

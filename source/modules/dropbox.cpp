@@ -125,7 +125,8 @@ bool Dropbox::validateToken()
 // Transport
 // ---------------------------------------------------------------------------
 
-int Dropbox::_rpc(const std::string &endpoint, const std::string &jsonBody)
+int Dropbox::_rpc(const std::string &endpoint, const std::string &jsonBody,
+                  long expectedStatus)
 {
     std::string auth("Authorization: Bearer " + _token);
     struct curl_slist *headers = NULL;
@@ -136,12 +137,12 @@ int Dropbox::_rpc(const std::string &endpoint, const std::string &jsonBody)
     _curl.setURL(endpoint);
     _curl.setHeaders(headers);
     _curl.setPostData(jsonBody);
-    int res = _performWithRetry();
+    int res = _performWithRetry(NULL, expectedStatus);
     curl_slist_free_all(headers);
     return res;
 }
 
-int Dropbox::_performWithRetry(FILE *uploadFile)
+int Dropbox::_performWithRetry(FILE *uploadFile, long expectedStatus)
 {
     if (_fatalError)
         return -1;
@@ -175,8 +176,14 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
         if (status >= 200 && status < 300)
             return 0;
 
-        printf(CONSOLE_RED "  Dropbox API error: HTTP %ld" CONSOLE_RESET "\n", status);
-        debugf("  %s (attempt %d/3)\n", _curl.getURL().c_str(), attempt + 1);
+        // A status the caller asked about is its business to report, not an
+        // error to announce here — see expectedStatus in the header.
+        bool expected = (expectedStatus != 0 && status == expectedStatus);
+        if (!expected)
+            printf(CONSOLE_RED "  Dropbox API error: HTTP %ld" CONSOLE_RESET "\n", status);
+        debugf("  HTTP %ld%s for %s (attempt %d/3)\n", status,
+               expected ? " (expected by the caller)" : "",
+               _curl.getURL().c_str(), attempt + 1);
 
         // Rate limited — Dropbox states the wait in Retry-After.
         if (status == 429 && attempt < 2)
@@ -223,7 +230,7 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
         std::string body = _curl.getResponse();
         // Cut at 200 characters so one error cannot fill the screen; debug
         // mode has already printed the whole body from perform().
-        if (!body.empty())
+        if (!expected && !body.empty())
             printf(CONSOLE_RED "  %s" CONSOLE_RESET "\n", body.substr(0, 200).c_str());
 
         return (int)status;
@@ -236,27 +243,82 @@ int Dropbox::_performWithRetry(FILE *uploadFile)
 // Sync operations
 // ---------------------------------------------------------------------------
 
+// The reason behind a 409 that _rpc() was told to expect, and so kept off the
+// console.  Called only where the expectation turned out to be wrong.
+void Dropbox::_report409Reason()
+{
+    printf(CONSOLE_RED "  Dropbox API error: HTTP 409" CONSOLE_RESET "\n");
+    std::string reason = jsonString(_curl.getResponse(), "error_summary");
+    if (!reason.empty())
+        printf(CONSOLE_RED "  %s" CONSOLE_RESET "\n", reason.c_str());
+}
+
 std::string Dropbox::ensureRoot(const std::string &remoteName)
 {
     std::string root = _pathFor(remoteName);
     if (root.empty())
         return root; // the Dropbox root always exists
 
-    // create_folder_v2 reports 409 path/conflict when it is already there,
-    // which is the outcome we wanted anyway.
-    std::string body = "{\"path\":\"" + jsonEscape(root) + "\",\"autorename\":false}";
-    int res = _rpc("https://api.dropboxapi.com/2/files/create_folder_v2", body);
-    if (res == 409)
-        debugf("%s already exists (409), which is what was wanted\n", root.c_str());
-    if (res != 0 && res != 409)
+    // Ask before creating.  The folder is already there on every run but the
+    // first, so this is a read where create_folder_v2 was a write that came
+    // back 409 — and it reports what is at the path as a field rather than as
+    // the wording of an error.  The cost is one extra round trip, first run
+    // only.  409 is expected here: it is how "not there yet" arrives.
+    std::string body = "{\"path\":\"" + jsonEscape(root) + "\"}";
+    int res = _rpc("https://api.dropboxapi.com/2/files/get_metadata", body, 409);
+
+    switch (dropboxPathState(res, _curl.getResponse()))
     {
-        if (_fatalError)
-            return "";
-        printf("Dropbox: cannot create %s\n", root.c_str());
-        debugf("create_folder_v2 returned %d for %s\n", res, root.c_str());
+    case DROPBOX_PATH_FOLDER:
+        return root;
+
+    case DROPBOX_PATH_MISSING:
+        debugf("%s does not exist yet\n", root.c_str());
+        return _createFolder(root);
+
+    case DROPBOX_PATH_NOT_FOLDER:
+        // A file sits where the sync folder belongs.  It cannot be created
+        // over and every later call would fail on it, so stop on this entry.
+        printf(CONSOLE_RED "Dropbox: %s is not a folder\n" CONSOLE_RESET, root.c_str());
+        debugf("get_metadata described %s as something other than a folder\n",
+               root.c_str());
         return "";
+
+    case DROPBOX_PATH_ERROR:
+        break;
     }
-    return root;
+
+    if (_fatalError)
+        return "";
+    if (res == 409)
+        _report409Reason(); // suppressed on the assumption it was not_found
+    printf("Dropbox: cannot use %s\n", root.c_str());
+    debugf("get_metadata returned %d for %s\n", res, root.c_str());
+    return "";
+}
+
+// A root that ensureRoot's probe found missing.  409 path/conflict/folder is
+// still success: a second console syncing the same account can create it
+// between the probe and this call, and that is the outcome we wanted anyway.
+std::string Dropbox::_createFolder(const std::string &root)
+{
+    std::string body = "{\"path\":\"" + jsonEscape(root) + "\",\"autorename\":false}";
+    int res = _rpc("https://api.dropboxapi.com/2/files/create_folder_v2", body, 409);
+
+    if (dropboxPathState(res, _curl.getResponse()) == DROPBOX_PATH_FOLDER)
+    {
+        if (res == 409)
+            debugf("%s appeared between the probe and the create\n", root.c_str());
+        return root;
+    }
+
+    if (_fatalError)
+        return "";
+    if (res == 409)
+        _report409Reason(); // suppressed on the assumption it was a conflict
+    printf("Dropbox: cannot create %s\n", root.c_str());
+    debugf("create_folder_v2 returned %d for %s\n", res, root.c_str());
+    return "";
 }
 
 bool Dropbox::list(const std::string &root,
