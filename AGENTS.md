@@ -44,7 +44,8 @@ source/             C++ application source
     timeutil.cpp/h  Server clock parsing (RFC 3339 and RFC 7231)
     fsutil.cpp/h    mkdirs, temp-file + atomic-replace helpers
     hash.cpp/h      MD5 and the Dropbox content hash
-    debug.cpp/h     Runtime debug flag, debugf(), body dumps, secret redaction
+    debug.cpp/h     Runtime debug flag, debugf(), body dumps, secret redaction,
+                    the captured session log
     console.h       CONSOLE_* colours, from <3ds.h> or defined for the host
   libs/inih/        INI parser (inih + INIReader)
 tests/              Host unit tests (see "Tests")
@@ -115,7 +116,7 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
 - Change detection compares the local mtime **and** size against the manifest, plus the remote's `tag`. `SyncProvider::localTag()` is the content-based fallback for stale mtimes and is only meaningful where the remote's tag is derivable from file contents (Drive's MD5); it returns "" elsewhere.
 - Manifest keys are `SyncProvider::manifestPrefix() + "|" + localPath`. Changing a provider's prefix orphans every existing entry for that remote, which makes the next sync treat every file as unseen — so keep them stable.
 - Conflict resolution in `performSync()` calls `waitForConflictKey()` which returns a `ConflictChoice` enum: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START).
-- The main menu (`waitForMainMenuKey()`) returns a `MainMenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` from that choice *before* `runSync()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
+- The main menu (`waitForMainMenuKey()`) returns a `MainMenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` and `debugLogReset()` from that choice *before* `runSync()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
 - The manifest (`/3ds/3DSync/manifest.json`) is a hand-parsed JSON file. Use `Manifest::set/get/has/remove` — never write JSON by hand elsewhere.
 - `svcSleepThread(nanoseconds)` is the 3DS sleep call (from `<3ds.h>`). Use it for rate-limit back-offs.
 - `printf` output goes to the 3DS top-screen console. Use `CONSOLE_RED` / `CONSOLE_RESET` (from `<3ds.h>`) for error messages.
@@ -126,6 +127,7 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
   - A body streamed to a temp file is not in `getResponse()` — a failed download writes the API error into the temp file, so call `debugFileBody()` before removing it.
   - `debugRedact()` masks bearer headers and the OAuth token/secret fields, and every dump goes through it. Debug output is what ends up in a bug report, and credentials are in `3DSync.ini` in plaintext: when adding a dump of anything new that could carry a secret, extend `debugRedact()` and its tests rather than filtering at the call site.
   - `debug.cpp` is free of `<3ds.h>`, libcurl and libsmb2, so the sync engine and the host tests can both log.
+  - **The session log.** While debug mode is on, every byte written to stdout is also kept in `debug.cpp` (`debugLogAppend()`), and the end of `runSync()` offers to write it to `/3ds/3DSync/logs/debug-<stamp>.log`. The capture is fed by `installConsoleTee()` in `main.cpp`, which wraps libctru's console devoptab — so a plain `printf` lands in the log with no extra call, and nothing has to be routed through `debugf()` to be reportable. The tee must be installed *after* the last `consoleInit()`, which replaces `devoptab_list[STD_OUT]` with its own. Only the first 96 KB and the last 48 KB are kept, and what fell out in between is counted and stated in the file. `debugLogSave()` strips ANSI sequences and runs `debugRedact()` over the whole text — a token can straddle two console writes, so redacting per write would miss it.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
 
 ---
@@ -142,7 +144,7 @@ They build for the **host**, not the 3DS, and run in the `Unit Tests` job of `pr
 - `sync/syncengine.cpp` talks to `SyncProvider` and `SyncUi` and nothing else. Cancellation and the conflict prompt arrive through `SyncUi` precisely so the decision table can be driven by a scripted stand-in; do not reach for `hidKeysDown()` or `aptMainLoop()` in there.
 - Response parsing lives in `modules/remoteparse.cpp`, so a provider's `list()` is a request plus a call into a testable function. New protocol parsing belongs there, not inline in the provider.
 - `utils/console.h` supplies the `CONSOLE_*` macros off-console, so host-portable code must include it instead of `<3ds.h>`.
-- `utils/debug.cpp` is in the host `UNITS` because the engine, the manifest and `fsutil` all log through it. `test_debug.cpp` covers `debugRedact()`, which is the one part of debug output that has to be right: everything else is only printed, but a redaction that misses puts a token on screen.
+- `utils/debug.cpp` is in the host `UNITS` because the engine, the manifest and `fsutil` all log through it. `test_debug.cpp` covers `debugRedact()`, which is the one part of debug output that has to be right: everything else is only printed, but a redaction that misses puts a token on screen. The `debuglog` suite covers the same risk one step further out — the capture must stay empty outside debug mode, stay bounded on a long run, and reach the SD card with the colour codes gone and the tokens masked.
 - The hash tests need mbedtls on the host (`libmbedtls-dev`). Without it the suite still builds and runs, and the runner prints what was left out — deliberately loud rather than a silent pass.
 
 The framework is `tests/framework.h`, about eighty lines: the build image has no gtest and vendoring one for this is more dependency than it is worth. `TEST(suite, name)` registers a case; `CHECK`/`CHECK_EQ`/`CHECK_STR_EQ` record a failure and keep going, so one broken case reports every mismatch rather than only the first.

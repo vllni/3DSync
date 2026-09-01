@@ -1,6 +1,7 @@
 #include "debug.h"
 
 #include "console.h"
+#include "fsutil.h"
 
 #include <cctype>
 #include <cstdarg>
@@ -250,4 +251,125 @@ void debugErrno(const char *what, const std::string &path)
     else
         debugf("%s failed for %s: %s (errno %d)\n", what, path.c_str(),
                strerror(errno), errno);
+}
+
+// ---------------------------------------------------------------------------
+// Session log
+// ---------------------------------------------------------------------------
+// A long sync can print far more than is worth holding in memory on a console
+// with a few megabytes to spare, and the two parts that matter are opposite
+// ends of the run: the head has the version, the init log and the config
+// summary, the tail has whatever went wrong last.  So the head is kept up to
+// LOG_HEAD_MAX and everything after that goes into a tail window of at most
+// LOG_TAIL_MAX, with the bytes squeezed out in between counted rather than
+// quietly lost.
+static const size_t LOG_HEAD_MAX = 96 * 1024;
+static const size_t LOG_TAIL_MAX = 48 * 1024;
+
+static std::string g_logHead;
+static std::string g_logTail;
+static size_t g_logDropped = 0;
+
+void debugLogReset()
+{
+    g_logHead.clear();
+    g_logTail.clear();
+    g_logDropped = 0;
+}
+
+void debugLogAppend(const char *data, size_t length)
+{
+    if (!g_debugEnabled || data == NULL || length == 0)
+        return;
+
+    if (g_logHead.size() < LOG_HEAD_MAX)
+    {
+        size_t take = LOG_HEAD_MAX - g_logHead.size();
+        if (take > length)
+            take = length;
+        g_logHead.append(data, take);
+        data += take;
+        length -= take;
+        if (length == 0)
+            return;
+    }
+
+    g_logTail.append(data, length);
+    // Trimming one write's worth off the front on every append would memmove
+    // the whole window each time, so the tail is allowed to run to twice its
+    // size and then halved in one go.
+    if (g_logTail.size() > LOG_TAIL_MAX * 2)
+    {
+        size_t drop = g_logTail.size() - LOG_TAIL_MAX;
+        g_logTail.erase(0, drop);
+        g_logDropped += drop;
+    }
+}
+
+size_t debugLogSize() { return g_logHead.size() + g_logTail.size(); }
+size_t debugLogDropped() { return g_logDropped; }
+
+// Console colours are written as CSI sequences, which are noise in a text file
+// and hide the text they wrap from debugRedact().  Both are stripped here:
+// ESC [ ... final-byte, and a bare ESC that got cut off at a buffer edge.
+static std::string stripAnsi(const std::string &text)
+{
+    std::string out;
+    out.reserve(text.size());
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        if (text[i] != '\x1b')
+        {
+            out += text[i];
+            continue;
+        }
+        if (i + 1 >= text.size() || text[i + 1] != '[')
+            continue; // lone ESC, drop it
+        size_t j = i + 2;
+        while (j < text.size() && (unsigned char)text[j] >= 0x20 &&
+               (unsigned char)text[j] <= 0x3f)
+            j++;
+        if (j < text.size())
+            j++; // the final byte of the sequence
+        i = j - 1;
+    }
+    return out;
+}
+
+bool debugLogSave(const std::string &path)
+{
+    // Redaction runs over the finished text rather than per write: a token can
+    // straddle two console writes, and by here the sequences that would have
+    // split a match are gone.
+    std::string text = debugRedact(stripAnsi(g_logHead));
+    if (g_logDropped > 0)
+    {
+        char note[96];
+        snprintf(note, sizeof(note),
+                 "\n... %u bytes dropped from the middle of the run ...\n\n",
+                 (unsigned)g_logDropped);
+        text += note;
+    }
+    text += debugRedact(stripAnsi(g_logTail));
+
+    mkparents(path);
+
+    FILE *fp = fopen(path.c_str(), "wb");
+    if (!fp)
+    {
+        debugErrno("fopen", path);
+        return false;
+    }
+
+    size_t written = text.empty() ? 0 : fwrite(text.data(), 1, text.size(), fp);
+    bool ok = (written == text.size());
+    if (!ok)
+        debugErrno("fwrite", path);
+    if (fclose(fp) != 0)
+    {
+        debugErrno("fclose", path);
+        ok = false;
+    }
+    return ok;
 }

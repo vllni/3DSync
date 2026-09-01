@@ -44,4 +44,37 @@ void debugErrno(const char *what, const std::string &path);
 // fields are replaced with "<redacted>".  Exposed for the tests.
 std::string debugRedact(const std::string &text);
 
+// ---------------------------------------------------------------------------
+// Session log
+// ---------------------------------------------------------------------------
+// The console is 30 lines and scrolls, so by the time a debug run reaches the
+// failure worth reporting, the connect, the config summary and the first
+// listing have long gone off the top.  Everything written to the console is
+// therefore also kept here while debug mode is on, and the end of the run
+// offers to write it to the SD card.
+//
+// The capture is fed by whoever owns stdout — on the console that is a tee
+// installed over the libctru console devoptab in main.cpp, so nothing else has
+// to be routed through debugf() to end up in the log.  The host tests install
+// nothing, and the log simply stays empty there.
+// ---------------------------------------------------------------------------
+
+// Drop whatever was captured and start a fresh session.  Called when a run
+// begins, so a second sync does not save the first one's log with it.
+void debugLogReset();
+
+// Append raw console bytes.  A no-op unless debug mode is on.  Only the head
+// and the tail of a long run are kept; see debugLogDropped().
+void debugLogAppend(const char *data, size_t length);
+
+// Bytes currently held, and how many were dropped from the middle of a run
+// that outgrew the buffer.
+size_t debugLogSize();
+size_t debugLogDropped();
+
+// Write the captured session to path: ANSI colour codes stripped, the whole
+// text passed through debugRedact(), parent directories created.  Returns
+// false if the file could not be written.
+bool debugLogSave(const std::string &path);
+
 #endif
