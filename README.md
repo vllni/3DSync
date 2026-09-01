@@ -5,10 +5,10 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 | Remote | Direction | Status |
 |---|---|---|
 | Google Drive | bidirectional | stable |
+| Dropbox | bidirectional | stable |
 | SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
 | FTP / FTPS | bidirectional | 🧪 experimental |
 | WebDAV | bidirectional | 🧪 experimental |
-| Dropbox | bidirectional | 🧪 experimental |
 
 > 🧪 **Experimental** backends work but have had far less testing against real
 > servers than Google Drive. Keep a backup of your saves, and please report
@@ -36,8 +36,6 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 The INI file lives at `/3ds/3DSync/3DSync.ini`.
 
 ### Dropbox
-
-🧪 Experimental.
 
 ```ini
 [Dropbox]

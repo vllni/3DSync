@@ -29,6 +29,7 @@ public:
     ~Dropbox() {}
 
     const char *name() const override { return "Dropbox"; }
+    bool isExperimental() const override { return false; }
     std::string manifestPrefix() const override { return "dropbox"; }
     bool connect() override;
     bool hasFatalError() const override;
