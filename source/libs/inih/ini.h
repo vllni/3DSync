@@ -2,7 +2,7 @@
 
 SPDX-License-Identifier: BSD-3-Clause
 
-Copyright (C) 2009-2019, Ben Hoyt
+Copyright (C) 2009-2025, Ben Hoyt
 
 inih is released under the New BSD license (see LICENSE.txt). Go to the project
 home page for more info:
@@ -11,13 +11,12 @@ https://github.com/benhoyt/inih
 
 */
 
-#ifndef __INI_H__
-#define __INI_H__
+#ifndef INI_H
+#define INI_H
 
 /* Make this header file easier to include in C++ code */
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 #include <stdio.h>
@@ -27,48 +26,80 @@ extern "C"
 #define INI_HANDLER_LINENO 0
 #endif
 
-/* Typedef for prototype of handler function. */
-#if INI_HANDLER_LINENO
-   typedef int (*ini_handler)(void *user, const char *section,
-                              const char *name, const char *value,
-                              int lineno);
+/* Visibility symbols, required for Windows DLLs */
+#ifndef INI_API
+#if defined _WIN32 || defined __CYGWIN__
+#	ifdef INI_SHARED_LIB
+#		ifdef INI_SHARED_LIB_BUILDING
+#			define INI_API __declspec(dllexport)
+#		else
+#			define INI_API __declspec(dllimport)
+#		endif
+#	else
+#		define INI_API
+#	endif
 #else
-typedef int (*ini_handler)(void *user, const char *section,
-                           const char *name, const char *value);
+#	if defined(__GNUC__) && __GNUC__ >= 4
+#		define INI_API __attribute__ ((visibility ("default")))
+#	else
+#		define INI_API
+#	endif
+#endif
 #endif
 
-   /* Typedef for prototype of fgets-style reader function. */
-   typedef char *(*ini_reader)(char *str, int num, void *stream);
+/* Typedef for prototype of handler function.
 
-   /* Parse given INI-style file. May have [section]s, name=value pairs
-      (whitespace stripped), and comments starting with ';' (semicolon). Section
-      is "" if name=value pair parsed before any section heading. name:value
-      pairs are also supported as a concession to Python's configparser.
+   Note that even though the value parameter has type "const char*", the user
+   may cast to "char*" and modify its content, as the value is not used again
+   after the call to ini_handler. This is not true of section and name --
+   those must not be modified.
+*/
+#if INI_HANDLER_LINENO
+typedef int (*ini_handler)(void* user, const char* section,
+                           const char* name, const char* value,
+                           int lineno);
+#else
+typedef int (*ini_handler)(void* user, const char* section,
+                           const char* name, const char* value);
+#endif
 
-      For each name=value pair parsed, call handler function with given user
-      pointer as well as section, name, and value (data only valid for duration
-      of handler call). Handler should return nonzero on success, zero on error.
+/* Typedef for prototype of fgets-style reader function. */
+typedef char* (*ini_reader)(char* str, int num, void* stream);
 
-      Returns 0 on success, line number of first error on parse error (doesn't
-      stop on first error), -1 on file open error, or -2 on memory allocation
-      error (only when INI_USE_STACK is zero).
-   */
-   int ini_parse(const char *filename, ini_handler handler, void *user);
+/* Parse given INI-style file. May have [section]s, name=value pairs
+   (whitespace stripped), and comments starting with ';' (semicolon). Section
+   is "" if name=value pair parsed before any section heading. name:value
+   pairs are also supported as a concession to Python's configparser.
 
-   /* Same as ini_parse(), but takes a FILE* instead of filename. This doesn't
-      close the file when it's finished -- the caller must do that. */
-   int ini_parse_file(FILE *file, ini_handler handler, void *user);
+   For each name=value pair parsed, call handler function with given user
+   pointer as well as section, name, and value (data only valid for duration
+   of handler call). Handler should return nonzero on success, zero on error.
 
-   /* Same as ini_parse(), but takes an ini_reader function pointer instead of
-      filename. Used for implementing custom or string-based I/O (see also
-      ini_parse_string). */
-   int ini_parse_stream(ini_reader reader, void *stream, ini_handler handler,
-                        void *user);
+   Returns 0 on success, line number of first error on parse error (doesn't
+   stop on first error), -1 on file open error, or -2 on memory allocation
+   error (only when INI_USE_STACK is zero).
+*/
+INI_API int ini_parse(const char* filename, ini_handler handler, void* user);
 
-   /* Same as ini_parse(), but takes a zero-terminated string with the INI data
+/* Same as ini_parse(), but takes a FILE* instead of filename. This doesn't
+   close the file when it's finished -- the caller must do that. */
+INI_API int ini_parse_file(FILE* file, ini_handler handler, void* user);
+
+/* Same as ini_parse(), but takes an ini_reader function pointer instead of
+   filename. Used for implementing custom or string-based I/O (see also
+   ini_parse_string). */
+INI_API int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
+                     void* user);
+
+/* Same as ini_parse(), but takes a zero-terminated string with the INI data
    instead of a file. Useful for parsing INI data from a network socket or
-   already in memory. */
-   int ini_parse_string(const char *string, ini_handler handler, void *user);
+   which is already in memory. */
+INI_API int ini_parse_string(const char* string, ini_handler handler, void* user);
+
+/* Same as ini_parse_string(), but takes a string and its length, avoiding
+   strlen(). Useful for parsing INI data from a network socket or which is
+   already in memory, or interfacing with C++ std::string_view. */
+INI_API int ini_parse_string_length(const char* string, size_t length, ini_handler handler, void* user);
 
 /* Nonzero to allow multi-line value parsing, in the style of Python's
    configparser. If allowed, ini_parse() will call the handler with the same
@@ -142,8 +173,17 @@ typedef int (*ini_handler)(void *user, const char *section,
 #define INI_ALLOW_NO_VALUE 0
 #endif
 
+/* Nonzero to use custom ini_malloc, ini_free, and ini_realloc memory
+   allocation functions (INI_USE_STACK must also be 0). These functions must
+   have the same signatures as malloc/free/realloc and behave in a similar
+   way. ini_realloc is only needed if INI_ALLOW_REALLOC is set. */
+#ifndef INI_CUSTOM_ALLOCATOR
+#define INI_CUSTOM_ALLOCATOR 0
+#endif
+
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __INI_H__ */
+#endif /* INI_H */

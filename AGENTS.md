@@ -84,12 +84,16 @@ The Makefile auto-discovers all `.cpp` files under `source/`. Adding a new `.cpp
 ```bash
 arm-none-eabi-g++ -fsyntax-only -std=gnu++11 -Wall \
   -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -DARM11 \
-  -DINI_MAX_LINE=1024 \
+  -DINI_MAX_LINE=2048 \
   -I$DEVKITPRO/libctru/include -I$DEVKITPRO/portlibs/3ds/include \
   -I$DEVKITPRO/portlibs/armv6k/include source/main.cpp
 ```
 
-Compile-time configuration of vendored libraries belongs in `BUILD_FLAGS` in the Makefile, not in the library sources. `INI_MAX_LINE=1024` is set there (inih defaults to 200, which truncates long `Paths=` lines); leave `source/libs/inih/` pristine.
+`source/libs/inih/ini.c` and `ini.h` are byte-identical to [benhoyt/inih](https://github.com/benhoyt/inih) `577ae2d` (2026-01-30) and must stay that way, so the next resync is a two-file copy with no patch to re-apply. Compile-time configuration of them therefore belongs in `BUILD_FLAGS` in the Makefile: `INI_MAX_LINE=2048` is set there because upstream's 200 truncates a pasted `Token=`, which is an OAuth access token and can exceed a kilobyte. When bumping, re-check that `ini_parse()` and `ini_parse_string()` keep their signatures and that `INI_HANDLER_LINENO` still defaults to 0 — `INIReader::ValueHandler` is a 4-argument handler.
+
+`source/libs/inih/INIReader/` is *not* upstream and cannot be resynced blindly: `GetValues()` is a local addition that `getConfiguredSyncPaths()` depends on, and upstream's `INIReader` exposes no equivalent.
+
+inih is deliberately vendored rather than a submodule. Upstream's tree carries `examples/`, `tests/`, `fuzzing/` and `cpp/`, all of which the Makefile's `rwildcard` over `source/` would sweep into the build (several define `main`), and the forked `INIReader` could not be patched inside a pinned checkout.
 
 ### Version
 
