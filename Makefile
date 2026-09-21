@@ -13,7 +13,13 @@ LIBRARIES += smb2 curl mbedtls mbedx509 mbedcrypto z ctru m
 
 EXTRA_OUTPUT_FILES := 
 
-BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=1024
+# source/libs/inih/ini.{c,h} are upstream-verbatim, so inih's compile-time
+# options are set here rather than by editing them.  Upstream's INI_MAX_LINE
+# default of 200 is far too small: a pasted "Token=" is an OAuth access token
+# and Google's run past a kilobyte, and an over-long line is cut at the buffer
+# with its tail parsed as the next line -- the credential reaches the handler
+# truncated, and the only complaint is a syntax error blamed on the fragment.
+BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=2048
 
 # The version comes from source/version.h, not from `git describe`: the number
 # on screen has to be a property of the source, so a shallow clone or a tarball
