@@ -25,7 +25,10 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 
 1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
-3. Install `output/3ds-arm/3DSync.cia` **or** run `3DSync.3dsx` from the Homebrew Launcher.
+3. Install 3DSync: add the store `https://3dsync.villani-ulm.de/unistore/3dsync.unistore`
+   in [Universal-Updater](https://github.com/Universal-Team/Universal-Updater)
+   (or scan [its QR code](https://3dsync.villani-ulm.de/unistore/3dsync-unistore-QR.png)),
+   or install the `.cia` / run the `.3dsx` from the [latest release](https://github.com/vllni/3DSync/releases/latest).
 4. Launch 3DSync and press **A** to sync all configured paths, or **Y** to sync
    with [debug output](#debug-mode). **START** exits.
 
