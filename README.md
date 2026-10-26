@@ -25,12 +25,50 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 
 1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
-3. Install 3DSync: add the store `https://3dsync.villani-ulm.de/unistore/3dsync.unistore`
-   in [Universal-Updater](https://github.com/Universal-Team/Universal-Updater)
-   (or scan [its QR code](https://3dsync.villani-ulm.de/unistore/3dsync-unistore-QR.png)),
-   or install the `.cia` / run the `.3dsx` from the [latest release](https://github.com/vllni/3DSync/releases/latest).
+3. [Install 3DSync](#installation), most easily through Universal-Updater.
 4. Launch 3DSync and press **A** to sync all configured paths, or **Y** to sync
    with [debug output](#debug-mode). **START** exits.
+
+---
+
+## Installation
+
+All three ways need a 3DS running custom firmware with the Homebrew Launcher
+or FBI; see [3ds.hacks.guide](https://3ds.hacks.guide/) if yours does not.
+
+### Universal-Updater (recommended)
+
+<img src="https://3dsync.villani-ulm.de/unistore/3dsync-unistore-QR.png" alt="QR code of the 3DSync UniStore" width="200" align="right">
+
+1. In [Universal-Updater](https://github.com/Universal-Team/Universal-Updater),
+   open **Settings → Select UniStore...** and press **Y**.
+2. Scan the QR code, or type the store URL:
+   `https://3dsync.villani-ulm.de/unistore/3dsync.unistore`
+3. Select the 3DSync store, open the 3DSync entry and pick a download:
+   - **3DSync.cia** installs it to the HOME Menu.
+   - **3DSync.3dsx** puts it in the Homebrew Launcher.
+
+New releases show up in the store by themselves, and the entry is flagged
+when an update is available. Earlier versions stay listed as
+`[v0.6.0] 3DSync.cia` and so on, should you need to go back.
+
+### FBI
+
+Every [release](https://github.com/vllni/3DSync/releases) carries a QR code
+for its `.cia`. In FBI, choose **Remote Install → Scan QR Code** and scan it.
+
+### By hand
+
+Download from the [latest release](https://github.com/vllni/3DSync/releases/latest):
+
+- `3DSync-<version>.cia` — copy it to the SD card and install it with FBI.
+- `3DSync-<version>.3dsx` — copy it to `/3ds/3DSync/3DSync.3dsx` and launch it
+  from the Homebrew Launcher.
+
+The `.zip` holds both, plus a `.3ds` for flashcarts.
+
+Updating or reinstalling keeps your settings: `3DSync.ini`, the sync manifest
+and the debug logs live in `/3ds/3DSync/` on the SD card, not inside the app.
 
 ---
 

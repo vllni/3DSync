@@ -106,6 +106,21 @@
     ul.readme-bullets li {
       margin-bottom: 0.35rem;
       line-height: 1.7;
+      /* Materialize resets list-style-type on every ul li. */
+      list-style-type: disc;
+    }
+
+    .store-qr {
+      display: block;
+      width: 100%;
+      max-width: 200px;
+      margin: 0.5rem auto 0;
+      border-radius: 4px;
+      image-rendering: pixelated;
+    }
+
+    .store-url {
+      word-break: break-all;
     }
   </style>
 </head>
@@ -137,6 +152,9 @@
         <a href="configurator.html" class="btn teal darken-1 waves-effect waves-light">
           <i class="material-icons left">settings</i>Open Configurator
         </a>
+        <a href="#installation" class="btn teal darken-1 waves-effect waves-light">
+          <i class="material-icons left">file_download</i>Install
+        </a>
         <a href="https://github.com/vllni/3DSync" target="_blank" rel="noopener noreferrer"
           class="btn blue darken-4 waves-effect waves-light">
           <i class="fa fa-github left" style="line-height:inherit"></i>Source Code
@@ -153,15 +171,60 @@
           <li>Open the <a href="configurator.html" class="white-text" style="text-decoration:underline">configurator</a>
             and follow the three steps.</li>
           <li>Place the downloaded <code>3DSync.ini</code> on the SD card at <code>/3ds/3DSync/3DSync.ini</code>.</li>
-          <li>Install 3DSync: in <a href="https://github.com/Universal-Team/Universal-Updater" target="_blank"
-              rel="noopener noreferrer" class="white-text" style="text-decoration:underline">Universal-Updater</a>,
-            add the store <code>https://3dsync.villani-ulm.de/unistore/3dsync.unistore</code> or scan
-            <a href="unistore/3dsync-unistore-QR.png" class="white-text" style="text-decoration:underline">its QR
-              code</a> — or install the <code>.cia</code> / run the <code>.3dsx</code> from the
-            <a href="https://github.com/vllni/3DSync/releases/latest" target="_blank" rel="noopener noreferrer"
-              class="white-text" style="text-decoration:underline">latest release</a>.</li>
-          <li>Launch 3DSync. It will sync all configured paths — press <strong>START</strong> to exit.</li>
+          <li><a href="#installation" class="white-text" style="text-decoration:underline">Install 3DSync</a>, most easily
+            through Universal-Updater.</li>
+          <li>Launch 3DSync and press <strong>A</strong> to sync all configured paths, or <strong>Y</strong> to
+            sync with debug output. <strong>START</strong> exits.</li>
         </ol>
+      </div>
+
+      <hr class="divider-line">
+
+      <!-- Installation -->
+      <div id="installation" class="card-panel blue darken-2 white-text section-card">
+        <h4>Installation</h4>
+        <p>All three ways need a 3DS running custom firmware with the Homebrew Launcher or FBI; see
+          <a href="https://3ds.hacks.guide/" target="_blank" rel="noopener noreferrer" class="white-text" style="text-decoration:underline">3ds.hacks.guide</a>
+          if yours does not.</p>
+
+        <h5 class="white-text" style="margin-top:1.25rem">Universal-Updater (recommended)</h5>
+        <div class="row" style="margin-bottom:0">
+          <div class="col s12 m8" style="padding-left:0">
+            <ol class="readme-list">
+              <li>In <a href="https://github.com/Universal-Team/Universal-Updater" target="_blank"
+                  rel="noopener noreferrer" class="white-text" style="text-decoration:underline">Universal-Updater</a>, open
+                <strong>Settings → Select UniStore...</strong> and press <strong>Y</strong>.</li>
+              <li>Scan the QR code, or type the store URL:<br>
+                <code class="store-url">https://3dsync.villani-ulm.de/unistore/3dsync.unistore</code></li>
+              <li>Select the 3DSync store, open the 3DSync entry and pick a download:
+                <strong>3DSync.cia</strong> installs it to the HOME Menu, <strong>3DSync.3dsx</strong> puts it in
+                the Homebrew Launcher.</li>
+            </ol>
+            <p>New releases show up in the store by themselves, and the entry is flagged when an update is
+              available. Earlier versions stay listed as <code>[v0.6.0] 3DSync.cia</code> and so on, should you
+              need to go back.</p>
+          </div>
+          <div class="col s12 m4">
+            <img class="store-qr" src="unistore/3dsync-unistore-QR.png" alt="QR code of the 3DSync UniStore">
+          </div>
+        </div>
+
+        <h5 class="white-text" style="margin-top:1.25rem">FBI</h5>
+        <p>Every <a href="https://github.com/vllni/3DSync/releases" target="_blank" rel="noopener noreferrer"
+            class="white-text" style="text-decoration:underline">release</a> carries a QR code for its <code>.cia</code>. In FBI, choose
+          <strong>Remote Install → Scan QR Code</strong> and scan it.</p>
+
+        <h5 class="white-text" style="margin-top:1.25rem">By hand</h5>
+        <p>Download from the <a href="https://github.com/vllni/3DSync/releases/latest" target="_blank"
+            rel="noopener noreferrer" class="white-text" style="text-decoration:underline">latest release</a>:</p>
+        <ul class="readme-bullets">
+          <li><code>3DSync-&lt;version&gt;.cia</code> — copy it to the SD card and install it with FBI.</li>
+          <li><code>3DSync-&lt;version&gt;.3dsx</code> — copy it to <code>/3ds/3DSync/3DSync.3dsx</code> and
+            launch it from the Homebrew Launcher.</li>
+        </ul>
+        <p>The <code>.zip</code> holds both, plus a <code>.3ds</code> for flashcarts.</p>
+        <p class="note">Updating or reinstalling keeps your settings: <code>3DSync.ini</code>, the sync manifest
+          and the debug logs live in <code>/3ds/3DSync/</code> on the SD card, not inside the app.</p>
       </div>
 
       <hr class="divider-line">
