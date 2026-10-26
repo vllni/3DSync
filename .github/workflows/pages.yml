@@ -1,0 +1,161 @@
+name: Pages
+
+# Builds the GitHub Pages site from docs/ plus a Universal-Updater feed
+# (UniStore v3) generated from ALL published GitHub releases. Nothing generated
+# is committed, so master stays exactly as tagged. The feed's content is a pure
+# function of the release list (.github/unistore.jq); only its revision is
+# carried over from the deployed feed, and it moves only when the content does.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: [master]
+    paths:
+      - docs/**
+      - meta/icon_3ds.png
+      - .github/unistore.jq
+      - .github/workflows/pages.yml
+  release:
+    # Edits (notes, prerelease <-> release) and deletions don't run Release,
+    # but they change the feed.
+    types: [edited, deleted, unpublished]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  BUILD_IMAGE: ghcr.io/vllni/3dsync-devcontainer:latest
+
+jobs:
+  # A release event runs with GITHUB_REF set to the tag, and the github-pages
+  # environment only accepts deployments from master — so the deploy would be
+  # refused. Re-dispatch on master instead; workflow_dispatch is the one event
+  # GITHUB_TOKEN is allowed to start.
+  redispatch:
+    name: Re-run on master
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch
+        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref master
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build site and UniStore
+    # Only after a successful Release run, so the feed never lists a version
+    # whose assets aren't uploaded yet.
+    if: >-
+      github.event_name != 'release' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Copy site
+        run: |
+          mkdir -p _site/unistore
+          cp -r docs/. _site/
+          echo "BASE_URL=https://$(tr -d '[:space:]' < docs/CNAME)" >> "$GITHUB_ENV"
+
+      - name: Fetch all releases
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" --jq '.[]' \
+            | jq -s '[ .[] | {tag_name, draft, prerelease, published_at, body,
+                             assets: [ .assets[] | {name, size, browser_download_url} ] } ]' \
+            > releases.json
+          echo "Releases: $(jq length releases.json)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch deployed feed
+        run: |
+          # Its revision is the floor for ours. The query string gets past the
+          # Pages CDN cache, which would otherwise hand back a feed up to ten
+          # minutes old. 404 means nothing has been deployed yet; anything else
+          # stops the run, because guessing could move the revision backwards.
+          code="$(curl -sS -o deployed.json -w '%{http_code}' \
+            "$BASE_URL/unistore/3dsync.unistore?t=$(date +%s)")"
+          case "$code" in
+            200) jq -e '.storeInfo.revision | type == "number"' deployed.json >/dev/null ;;
+            404) echo 'null' > deployed.json ;;
+            *)   echo "::error::Deployed feed returned HTTP $code"; exit 1 ;;
+          esac
+          echo "Deployed revision: $(jq '.storeInfo.revision? // "none"' deployed.json)"
+
+      - name: Generate UniStore
+        run: |
+          jq -S --arg base "$BASE_URL" -f .github/unistore.jq releases.json > feed.json
+
+          # Universal-Updater only re-downloads a store whose revision is
+          # strictly greater than the one it has. Keep the deployed revision
+          # while nothing else changed, so docs-only pushes don't make every
+          # console refetch; otherwise move past both it and the clock, which
+          # keeps it rising across release deletions and edits too.
+          jq -S --slurpfile d deployed.json '
+            ($d[0].storeInfo.revision? // 0) as $old
+            | if $d[0] != null and ($d[0] | .storeInfo.revision = 0) == .
+              then .storeInfo.revision = $old
+              else .storeInfo.revision = ([$old + 1, (now | floor)] | max)
+              end' feed.json > _site/unistore/3dsync.unistore
+          jq -S '{storeInfo}' _site/unistore/3dsync.unistore > _site/unistore/3dsync-info.json
+
+          jq -r '"Feed revision \(.storeInfo.revision), latest \(.storeContent[0].info.version), \(.storeContent[0] | keys | length - 1) downloads"' \
+            _site/unistore/3dsync.unistore
+
+      - name: Check download URLs
+        run: |
+          jq -r '.storeContent[][] | .script[]? | select(.type == "downloadFile") | .file' \
+            _site/unistore/3dsync.unistore | sort -u | while read -r url; do
+              curl -fsSIL -o /dev/null "$url" || { echo "::error::Unreachable: $url"; exit 1; }
+            done
+
+      - name: Build icon sheet
+        run: |
+          printf -- '--atlas -f rgba8888 -z auto\nmeta/icon_3ds.png\n' > icon.t3s
+          docker pull "$BUILD_IMAGE" || docker build -f docker/3dsync-devcontainer.Dockerfile -t "$BUILD_IMAGE" .
+          docker run --rm -v "$PWD:/workspace" -w /workspace "$BUILD_IMAGE" \
+            sh -lc 'tex3ds -i icon.t3s -o _site/unistore/3dsync.t3x'
+          sudo chown -R "$USER" _site/
+
+      - name: Store QR code
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qrencode
+          qrencode -o _site/unistore/3dsync-unistore-QR.png -s 8 -m 3 -l M \
+            "$BASE_URL/unistore/3dsync.unistore"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -55,7 +55,7 @@ docs/               Configurator static site
 output/             Build artefacts (.cia, .3dsx, .zip) — do not edit
 build/              Intermediate object files — do not edit
 buildtools/         devkitPro build scaffolding (git submodule) — do not edit
-.github/            CI workflows, CODEOWNERS
+.github/            CI workflows, CODEOWNERS, unistore.jq (Universal-Updater feed)
 ```
 
 ---
@@ -254,6 +254,16 @@ RemoteName=/LocalPath
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
 - INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
+
+## Pages and the Universal-Updater store
+
+`.github/workflows/pages.yml` deploys the site (Pages source: **GitHub Actions**, not a branch) as `docs/` plus `unistore/`: a UniStore v3 feed, its `storeInfo`-only `3dsync-info.json`, a `tex3ds` icon sheet from `meta/icon_3ds.png` and a QR code of the store URL. Nothing generated is committed. It runs after every successful `Release`, on pushes touching `docs/`, the icon or the generator, and on release edits/deletions.
+
+- The feed is `.github/unistore.jq` applied to the full release list, so it can be run locally against `gh api repos/vllni/3DSync/releases`. Only releases with both `3DSync-<tag>.cia` and `.3dsx` assets are listed — the asset names `release.yml` uploads are part of the feed's contract. The newest non-prerelease is the unprefixed entry; older ones appear as `[<tag>] …`.
+- **`revision` must strictly increase** or Universal-Updater never refetches the store. It cannot be derived from the releases (deleting or editing one would leave it flat or move it back), so the workflow reads it from the deployed feed: kept when nothing else changed, otherwise `max(old + 1, now)`. A failed fetch of the deployed feed other than 404 stops the run rather than guess.
+- `.3dsx` paths are `%3DSX%/3DSync.3dsx` with no subfolder: Universal-Updater's "3DSX in folder" option inserts `3DSync/` itself, and a path written with one would be doubled.
+- `title_ids` is `UNIQUE_ID` from the Makefile in decimal; change both together.
+- A `release` event runs on the tag ref, which the `github-pages` environment refuses to deploy, so that trigger only re-dispatches the workflow on master.
 
 ---
 
