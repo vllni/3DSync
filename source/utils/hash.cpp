@@ -6,6 +6,16 @@
 
 #include <mbedtls/md5.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/version.h>
+
+// devkitPro ships mbedtls 2.28, where the int-returning SHA-256 calls carry a
+// _ret suffix; 3.x dropped the suffix.  The host tests may build against
+// either.
+#if MBEDTLS_VERSION_MAJOR >= 3
+#define mbedtls_sha256_starts_ret mbedtls_sha256_starts
+#define mbedtls_sha256_update_ret mbedtls_sha256_update
+#define mbedtls_sha256_finish_ret mbedtls_sha256_finish
+#endif
 
 std::string computeMd5Hex(const std::string &path)
 {

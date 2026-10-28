@@ -142,7 +142,7 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
 - **Every swallowed error gets a `debugf()`.** `utils/debug.h` is a runtime flag (Y on the main menu, not a build define) plus `debugf()`, `debugBody()`, `debugFileBody()` and `debugErrno()`. The rule when writing code that absorbs a failure — a 404 read as "empty folder", a per-file error that is skipped, an ignored return value, a `stat()` that is not checked — is to say so through `debugf()` in the same place. A normal run must print exactly what it printed before; a debug run must leave nothing unexplained.
   - `Curl::perform()` already dumps the status, URL, timing and the body of every failed or non-2xx request. Providers add only what it cannot know: which file, which remote path, what the status *meant* there. Do not dump the same body twice.
   - A body streamed to a temp file is not in `getResponse()` — a failed download writes the API error into the temp file, so call `debugFileBody()` before removing it.
-  - `debugRedact()` masks bearer headers and the OAuth token/secret fields, and every dump goes through it. Debug output is what ends up in a bug report, and credentials are in `3DSync.ini` in plaintext: when adding a dump of anything new that could carry a secret, extend `debugRedact()` and its tests rather than filtering at the call site.
+  - `debugRedact()` masks bearer headers and the OAuth token/secret fields, and every dump goes through it. Debug output is what ends up in a bug report, and once opened the credentials are plaintext in memory: when adding a dump of anything new that could carry a secret, extend `debugRedact()` and its tests rather than filtering at the call site.
   - `debug.cpp` is free of `<3ds.h>`, libcurl and libsmb2, so the sync engine and the host tests can both log.
   - **The session log.** While debug mode is on, every byte written to stdout is also kept in `debug.cpp` (`debugLogAppend()`), and the end of `runSync()` offers to write it to `/3ds/3DSync/logs/debug-<stamp>.log`. The capture is fed by the stdout devoptab `frontend::init()` installs (`logWrite()` in `ui/frontend.cpp`), the same one that feeds the on-screen log — so a plain `printf` lands in both with no extra call, and nothing has to be routed through `debugf()` to be reportable. Nothing may call `consoleInit()` any more: it would put libctru's console devoptab back over it. Only the first 96 KB and the last 48 KB are kept, and what fell out in between is counted and stated in the file. `debugLogSave()` strips ANSI sequences and runs `debugRedact()` over the whole text — a token can straddle two console writes, so redacting per write would miss it.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
@@ -205,7 +205,22 @@ Constraints that shaped the current set — worth knowing before proposing a fou
 - **libsmb2's sync API blocks on `poll()`**, which libctru provides (`libctru/include/poll.h`). Include `smb2/smb2.h` *before* `smb2/libsmb2.h` — the latter uses macros the former defines.
 - **`curl_fileinfo::time` is documented "always zero"**, so FTP timestamps come from a per-file `MDTM`/`SIZE` request after the wildcard listing. That is one extra round trip per file; do not "optimise" it away by trusting the listing's time.
 - **Only Drive and Dropbox offer a content hash** (MD5 and `content_hash`), so only they can implement `localTag()`. SMB, FTP and WebDAV tag with size + mtime (or an ETag), which makes a modification preserving both invisible to them.
-- Credentials for SMB/FTP/WebDAV sit in plaintext in `3DSync.ini`, as the INI is the only configuration channel. Do not log them.
+- Credentials for SMB/FTP/WebDAV arrive in plaintext in `3DSync.ini`, as the INI is the only configuration channel, and are sealed on first start (see "Sealed credentials"). Do not log them.
+
+---
+
+## Sealed credentials (`utils/secrets`, `utils/configseal`)
+
+`loadConfig()` in `main.cpp` runs before anything reads the INI: it finishes an interrupted seal, replaces each plain credential with `enc:v1:<base64 nonce|ciphertext|tag>`, then opens the sealed values back into the `INIReader` with `Set()` (a local addition, like `GetValues()`), so every other `reader.Get()` sees plaintext exactly as before.
+
+- The key is HKDF-SHA256 over `CFGU_GenHashConsoleUnique(SEAL_SALT)` — derived by the system from the console's LocalFriendCodeSeed, which is not on the SD card. **`SEAL_SALT` must never change**: every sealed file in the wild would stop opening. Random nonces come from `sslcGenerateRandomData()`.
+- AES-256-GCM with the field's `section=name` (lowercased, as `INIReader` keys it) as associated data, so a sealed value pasted into another field fails instead of being used there.
+- Which fields are secret is an explicit list in `isSealableSecret()`. A new credential field is sealed only once it is added there, and its test.
+- `sealIniText()` mirrors `ini_parse_stream()` (BOM, `;`/`#` comments, `=` or `:`, inline ` ;` comments, indented continuation lines) and replaces only the value span, leaving every other byte as it was. A secret inih would join from several lines (continued or repeated) is left plain; so is one whose sealed line would pass `INI_MAX_LINE`. If inih's parsing rules change on a resync, this must follow.
+- Writing (`configseal.cpp`): sealed text to `.3dstmp`, rename to `.sealed` once complete, **overwrite the original in place** (so the plaintext's FAT clusters are reused rather than freed and left readable), then remove `.sealed`. `recoverConfigSeal()` applies a leftover `.sealed` and drops a leftover `.3dstmp`.
+- A value that will not open (another console, a system transfer, tampering) is set to `""` with an explanation on screen — the remote then reads as unconfigured. Never pass the sealed string through as if it were the credential.
+- `[Security] SealCredentials=false` turns sealing off for people who share one INI between consoles; sealed values are still opened.
+- The threat model is the SD card, not the console: anything running on this 3DS can derive the key. Do not describe it as more than that.
 
 ---
 

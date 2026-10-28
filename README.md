@@ -177,6 +177,46 @@ Configure as many remotes as you like — each configured section is synced in
 turn against the same set of paths, and each keeps its own state in the
 manifest.
 
+### Sealed credentials
+
+`3DSync.ini` is the only way to give 3DSync your passwords and tokens, and it
+lives on an SD card that gets pulled, copied to PCs and passed around. So the
+first time 3DSync starts with a new file, it **seals** every credential in it
+to that console:
+
+```ini
+[SMB]
+Server=192.168.1.10
+Password=enc:v1:Wm9vbGFuZCBpcyBub3QgYSByZWFsIHBhc3N3b3Jk…
+```
+
+The value is encrypted (AES-256-GCM) with a key derived from a secret unique
+to the console, which is not on the SD card. On that 3DS, nothing changes. On
+its own — a copy of the card, a file attached to a bug report — the value is
+useless. The rest of the file stays readable and editable.
+
+- **Changing a password:** type the new one over the sealed value in plain
+  text. It is sealed on the next start.
+- **Another console, an emulator, or after a system transfer:** the sealed
+  values cannot be opened there. 3DSync says so and skips that remote rather
+  than log in with garbage; paste the plain values back in, or make a new file
+  with the configurator.
+- **Going back to a version before 0.7.0** after sealing: older versions do not
+  understand sealed values and fail to log in. Make a new file with the
+  configurator.
+- **Sharing one file between several consoles:** turn sealing off.
+
+  ```ini
+  [Security]
+  SealCredentials=false
+  ```
+
+What sealing does not do: anyone who can run homebrew on *your* console can
+derive the same key. It protects the card, not the console. What limits the
+damage either way is giving 3DSync as little as possible — a NAS or FTP user
+of its own that reaches only the save folder, a WebDAV app password, a Dropbox
+app with *App folder* access — and the configurator suggests how for each.
+
 ---
 
 ## Sync Paths

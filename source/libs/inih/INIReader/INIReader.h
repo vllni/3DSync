@@ -64,6 +64,11 @@ public:
 
     std::map<std::string, std::string> GetValues() const;
 
+    // Replace a value after parsing.  Local addition, like GetValues(): the
+    // app unseals credentials (utils/secrets.h) into the reader so the rest
+    // of the code reads plaintext through Get() as before.
+    void Set(const std::string &section, const std::string &name, const std::string &value);
+
 private:
     int _error;
     std::map<std::string, std::string> _values;

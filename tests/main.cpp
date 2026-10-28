@@ -54,7 +54,7 @@ int main(int argc, char **argv)
     printf("\n");
 
 #ifndef HAVE_MBEDTLS
-    printf("\nNOTE: hash tests were left out of this build (no mbedtls headers).\n"
+    printf("\nNOTE: hash and sealing tests were left out of this build (no mbedtls).\n"
            "      Install libmbedtls-dev to include them.\n");
 #endif
 
