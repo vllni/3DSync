@@ -178,6 +178,50 @@ TEST(engine, remote_only_file_downloads)
     CHECK_EQ(f.local.read(SAVE), std::string("from the server"));
 }
 
+TEST(engine, extension_filter_leaves_out_local_files)
+{
+    Fixture f;
+    f.local.write(SAVE, "save", 1700000000);
+    f.local.write("/Game/notes.txt", "notes", 1700000000);
+    f.localFiles({SAVE, "/Game/notes.txt"});
+    f.entry.filter = ExtensionFilter::parse("sav");
+
+    CHECK(f.run());
+    CHECK_EQ(f.remote.uploaded.size(), (size_t)1);
+    CHECK_STR_EQ(f.remote.uploaded[0], SAVE);
+}
+
+TEST(engine, extension_filter_leaves_out_remote_files)
+{
+    Fixture f;
+    f.remote.setRemote(SAVE, "save");
+    f.remote.setRemote("/Game/cover.png", "png");
+    f.localFiles({});
+    f.entry.filter = ExtensionFilter::parse(".SAV");
+
+    CHECK(f.run());
+    CHECK_EQ(f.remote.downloaded.size(), (size_t)1);
+    CHECK(f.local.exists(SAVE));
+    CHECK(!f.local.exists("/Game/cover.png"));
+    CHECK_EQ(f.summary.changes.size(), (size_t)1);
+}
+
+TEST(engine, extension_filter_keeps_the_manifest_of_files_it_hides)
+{
+    // Narrowing the filter must not make a later widening look like a first
+    // sync, which would raise a conflict for every file both sides hold.
+    Fixture f;
+    f.local.write("/Game/notes.txt", "notes", 1700000000);
+    f.remote.setRemote("/Game/notes.txt", "notes");
+    f.localFiles({"/Game/notes.txt"});
+    f.seedManifest("/Game/notes.txt", f.remote.tagOf("/Game/notes.txt"));
+    f.entry.filter = ExtensionFilter::parse("sav");
+
+    CHECK(f.run());
+    CHECK(f.manifest.has(f.key("/Game/notes.txt")));
+    CHECK_EQ(f.summary.checkedPaths.size(), (size_t)0);
+}
+
 TEST(engine, both_sides_gone_clears_the_manifest_entry)
 {
     Fixture f;

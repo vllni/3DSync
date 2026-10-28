@@ -461,7 +461,16 @@
                     <a href="#" class="btn-floating waves-effect waves-light green" id="add-custom-path"><i
                         class="material-icons">add</i></a>
                   </div>
-                  <br><br>
+                  <h4 class="white-text">File Types</h4>
+                  <div class="row">
+                    <div class="input-field col s12">
+                      <input id="file-filter" class="white-text" type="text" autocomplete="off" spellcheck="false">
+                      <label for="file-filter" class="white-text">Extensions to sync (optional)</label>
+                      <span class="helper-text white-text" data-error="">e.g. <strong>sav, bin</strong>; blank to
+                        sync all files. Applies to every path above, in both directions.</span>
+                    </div>
+                  </div>
+                  <br>
                   <div class="step-actions">
                     <a href="#" class="waves-effect waves-dark btn-flat previous-step white-text">Back</a>
                     <a href="#" class="waves-effect waves-dark btn" id="folders-confirm">Confirm</a>

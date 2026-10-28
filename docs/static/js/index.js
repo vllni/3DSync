@@ -808,6 +808,9 @@ $(function () {
         if (strShallowPaths) pathSections += '\n[ShallowPaths]\n' + strShallowPaths;
         if (strUploadPaths) pathSections += '\n[UploadPaths]\n' + strUploadPaths;
         if (strUploadShallowPaths) pathSections += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
+        // Written only when filled: no [Filter] section means all files.
+        let fileFilter = $('#file-filter').val().trim();
+        if (fileFilter) pathSections += '\n[Filter]\nExtensions=' + fileFilter + '\n';
 
         // The selected tile decides; a typed-in remote is only used while
         // its own tile is the selected one.
@@ -946,6 +949,14 @@ $(function () {
                 paths.push([$this.next().text(), $this.data('path'), true, 'both']);
             }
         });
+        // The 3DS splits the list on commas and spaces only, so "sav;bin"
+        // would be read as one extension that never matches.
+        let $filter = $('#file-filter');
+        $filter.val($filter.val().trim());
+        let filterProblem = $filter.val().indexOf(';') >= 0
+            ? 'Separate extensions with commas or spaces' : iniValueProblem($filter.val());
+        setFieldError($filter, filterProblem);
+        if (filterProblem) error = true;
         if (error === false) {
             $('#config-preview').text(getConfigString(true));
             stepperInstace.nextStep();

@@ -117,7 +117,7 @@ static std::string signature(const BottomModel &m)
              (unsigned long)m.heldKeys, (unsigned)m.logFirst, (unsigned)m.logEnd,
              (unsigned)m.logTop, m.lastResultOk, m.logVisible);
     return std::string(buf) + m.remotes + "|" + m.lastResult + "|" + m.provider + "|" +
-           m.entry + "|" + m.conflictPath;
+           m.entry + "|" + m.conflictPath + "|" + m.fileFilter;
 }
 
 static void redraw(const BottomModel &m, const std::vector<Button> &buttons)
@@ -264,13 +264,15 @@ void exit()
     gfxExit();
 }
 
-void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount)
+void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
+                 const std::string &fileFilter)
 {
     LightLock_Lock(&g_stateLock);
     g_shared.starting = false;
     g_shared.configLoaded = configLoaded;
     g_shared.remotes = remotes;
     g_shared.pathCount = pathCount;
+    g_shared.fileFilter = fileFilter;
     LightLock_Unlock(&g_stateLock);
 }
 

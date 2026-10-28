@@ -23,6 +23,7 @@ source/             C++ application source
   sync/
     syncengine.cpp/h  The decision table: what to upload, download, prompt
                     about or skip.  Free of 3DS APIs — see "Tests".
+    extfilter.cpp/h   [Filter] Extensions=: which file names a sync considers
   modules/
     syncprovider.h  SyncProvider interface + RemoteFileInfo — the sync engine's
                     only view of a remote.  Add a backend by implementing it.
@@ -133,6 +134,7 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
 - Uploads are equally guarded: write to `<remote>.3dstmp`, then swap it into place (WebDAV `MOVE` with `Overwrite: T`, FTP `RNFR`/`RNTO` post-quote, SMB unlink-then-rename because libsmb2 sends `ReplaceIfExists=0`). Listings skip `.3dstmp` leftovers.
 - `performSync()` in `main.cpp` is provider-neutral: it talks only to `SyncProvider`. It returns `bool` — `false` means cancellation was requested or a fatal error occurred, and the sync loop must stop. Its `uploadOnly` argument mirrors local → remote: never download, never prompt, leave remote-only files alone.
 - Change detection compares the local mtime **and** size against the manifest, plus the remote's `tag`. `SyncProvider::localTag()` is the content-based fallback for stale mtimes and is only meaningful where the remote's tag is derivable from file contents (Drive's MD5); it returns "" elsewhere.
+- **The extension filter** (`[Filter] Extensions=`, `ExtensionFilter` in `sync/extfilter.h`) is global and defaults to all files. It is applied twice on purpose: `getConfiguredSyncPaths()` drops non-matching local files, because a provider's `legacyUpload()` only ever sees `localFiles`; and `performSync()` filters both `localFiles` and the remote listing, so a remote-only file it excludes is never downloaded. Filtered files are skipped *before* the decision table, so their manifest entries are neither updated nor removed — widening the filter again must not look like a first sync and raise a conflict for every file. The menu card shows `describe()` under FILES (it is in `signature()`), and a run with a filter prints it once before the first entry. List separators are commas and whitespace, never `;` (inih's inline comment); the configurator refuses a `;` for that reason.
 - Manifest keys are `SyncProvider::manifestPrefix() + "|" + localPath`. Changing a provider's prefix orphans every existing entry for that remote, which makes the next sync treat every file as unseen — so keep them stable.
 - Conflict resolution in `performSync()` calls `SyncUi::resolveConflict()`, which on the 3DS is `frontend::WorkerSyncUi` and returns a `ConflictChoice`: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START). L toggles "for all" on the prompt, and the next answer is then reused for every later conflict of the run.
 - The main menu (`frontend::waitForMenu()`) returns a `frontend::MenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` and `debugLogReset()` from that choice *before* `frontend::runWorker()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
@@ -293,6 +295,9 @@ RemoteName=/LocalPath
 [ShallowPaths]        ; bidirectional, non-recursive
 [UploadPaths]         ; upload-only, recursive
 [UploadShallowPaths]  ; upload-only, non-recursive
+
+[Filter]              ; optional, applies to every path above
+Extensions=sav, bin   ; commas/spaces; empty, missing or * = all files
 ```
 
 ---

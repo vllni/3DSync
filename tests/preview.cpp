@@ -186,6 +186,13 @@ int main()
     save("1b-menu-a-held", top, bottom);
     m.heldKeys = 0;
 
+    m.fileFilter = ".sav .bin .dat";
+    m.lastResult = "2 up, 1 down";
+    drawBottom(bottom, m, bottomButtons(m));
+    save("1d-menu-filter", top, bottom);
+    m.fileFilter = "";
+    m.lastResult = "";
+
     BottomModel none;
     none.starting = false;
     drawBottom(bottom, none, bottomButtons(none));
