@@ -22,11 +22,21 @@ UNITS := \
 	../source/utils/fsutil.cpp \
 	../source/modules/manifest.cpp \
 	../source/modules/remoteparse.cpp \
-	../source/sync/syncengine.cpp
+	../source/sync/syncengine.cpp \
+	../source/ui/canvas.cpp \
+	../source/ui/fontdata.cpp \
+	../source/ui/logbuffer.cpp \
+	../source/ui/screens.cpp \
+	../source/ui/touchinput.cpp
+
+# The screens drawn to PNG, for looking at a layout without a console.
+UI_UNITS := ../source/ui/canvas.cpp ../source/ui/fontdata.cpp \
+	../source/ui/logbuffer.cpp ../source/ui/screens.cpp
 
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
 	test_debug.cpp test_engine.cpp test_json.cpp test_manifest.cpp test_path.cpp \
-	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp
+	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
+	test_ui.cpp
 
 # The hash tests need mbedtls, which is how the app hashes on the console too.
 # Without it the rest still runs, and the runner says what was left out.
@@ -41,7 +51,7 @@ endif
 
 SRC := $(UNITS) $(TEST_SRC)
 
-.PHONY: all run clean
+.PHONY: all run clean preview
 all: run
 
 run: $(BIN)
@@ -49,6 +59,13 @@ run: $(BIN)
 
 $(BIN): $(SRC) framework.h mocks.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRC) $(LDLIBS)
+
+preview: $(BUILD)/preview-ui
+	@mkdir -p $(BUILD)/preview
+	@$(BUILD)/preview-ui
+
+$(BUILD)/preview-ui: preview.cpp $(UI_UNITS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ preview.cpp $(UI_UNITS)
 
 $(BUILD):
 	@mkdir -p $(BUILD)

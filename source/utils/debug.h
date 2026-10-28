@@ -47,15 +47,13 @@ std::string debugRedact(const std::string &text);
 // ---------------------------------------------------------------------------
 // Session log
 // ---------------------------------------------------------------------------
-// The console is 30 lines and scrolls, so by the time a debug run reaches the
-// failure worth reporting, the connect, the config summary and the first
-// listing have long gone off the top.  Everything written to the console is
-// therefore also kept here while debug mode is on, and the end of the run
-// offers to write it to the SD card.
+// The on-screen log can be scrolled back, but it is a screen, and a bug report
+// wants a file.  Everything written to stdout is therefore also kept here while
+// debug mode is on, and the end of the run offers to write it to the SD card.
 //
-// The capture is fed by whoever owns stdout — on the console that is a tee
-// installed over the libctru console devoptab in main.cpp, so nothing else has
-// to be routed through debugf() to end up in the log.  The host tests install
+// The capture is fed by whoever owns stdout — on the console that is the
+// devoptab ui/frontend.cpp installs, which also feeds the on-screen log, so
+// nothing else has to be routed through debugf() to end up in the log.  The host tests install
 // nothing, and the log simply stays empty there.
 // ---------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/hash.h"
+#include "../sync/syncengine.h"
 #include <3ds.h>
 #include <errno.h>
 #include <stdio.h>
@@ -27,7 +28,8 @@ bool GoogleDrive::ensureToken()
     return !_token.empty();
 }
 
-bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths)
+bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths,
+                         SyncUi &ui)
 {
     if (!ensureToken())
     {
@@ -64,8 +66,9 @@ bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 
         for (auto path : item.second)
         {
-            hidScanInput();
-            if (hidKeysDown() & KEY_START)
+            // Asked of the UI rather than read from the buttons here: the sync
+            // runs on a worker thread, and only the UI thread may scan input.
+            if (ui.cancelRequested())
             {
                 printf("Upload cancelled by user\n");
                 return false;
@@ -923,14 +926,14 @@ std::string GoogleDrive::localTag(const std::string &localPath)
 
 bool GoogleDrive::legacyUpload(const std::string &localBase,
                                const std::string &remoteName,
-                               const std::vector<std::string> &files)
+                               const std::vector<std::string> &files, SyncUi &ui)
 {
     std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
     paths[std::make_pair(localBase, remoteName)] = files;
     // The return value says only whether the run was cancelled or hit a fatal
     // error, both of which the caller re-checks through hasFatalError(); a
     // per-file failure never reaches it at all.
-    if (!upload(paths))
+    if (!upload(paths, ui))
         debugf("legacy upload of %s stopped early\n", remoteName.c_str());
     return true;
 }
