@@ -24,6 +24,7 @@ static bool recordUpload(SyncProvider &provider, Manifest &manifest,
         // provider reported quietly, so it is named here.
         debugf("upload failed: %s -> %s%s\n", localPath.c_str(), root.c_str(),
                relPath.c_str());
+        summary.failures.push_back({localPath, "upload"});
         return false;
     }
 
@@ -51,6 +52,7 @@ static bool recordDownload(SyncProvider &provider, Manifest &manifest,
     if (!provider.download(file, localPath))
     {
         debugf("download failed: %s -> %s\n", file.relPath.c_str(), localPath.c_str());
+        summary.failures.push_back({localPath, "download"});
         return false;
     }
 
@@ -81,6 +83,8 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
         printf("Cannot resolve %s folder for %s — skipping\n",
                provider.name(), entry.remoteName.c_str());
         debugf("ensureRoot(\"%s\") returned nothing\n", entry.remoteName.c_str());
+        summary.problems.push_back(std::string(provider.name()) + ":" + entry.remoteName +
+                                   " (folder not found)");
         return true;
     }
 
@@ -94,6 +98,8 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
                provider.name(), entry.remoteName.c_str());
         debugf("list(\"%s\") failed; %d entries had been collected\n", root.c_str(),
                (int)remoteFiles.size());
+        summary.problems.push_back(std::string(provider.name()) + ":" + entry.remoteName +
+                                   " (not listed)");
         return true;
     }
 
@@ -263,4 +269,75 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
     }
 
     return !provider.hasFatalError() && !ui.cancelRequested();
+}
+
+// ---------------------------------------------------------------------------
+// The end-of-run report
+// ---------------------------------------------------------------------------
+std::vector<std::string> summaryLines(const SyncSummary &summary)
+{
+    std::vector<std::string> out;
+    char buf[64];
+    int unchanged = (int)summary.checkedPaths.size();
+
+    if (summary.changes.empty() && !summary.hasErrors())
+    {
+        if (unchanged == 0)
+            out.push_back("No files to sync.");
+        else
+        {
+            snprintf(buf, sizeof(buf), "All %d files up to date.", unchanged);
+            out.push_back(buf);
+        }
+        return out;
+    }
+
+    snprintf(buf, sizeof(buf), "Uploaded: %d  Downloaded: %d  Unchanged: %d", summary.uploaded,
+             summary.downloaded, unchanged);
+    out.push_back(buf);
+    if (!summary.failures.empty())
+    {
+        snprintf(buf, sizeof(buf), CONSOLE_RED "Failed: %d" CONSOLE_RESET,
+                 (int)summary.failures.size());
+        out.push_back(buf);
+    }
+
+    if (!summary.changes.empty())
+    {
+        out.push_back("");
+        out.push_back("Changed files:");
+        for (auto &c : summary.changes)
+            out.push_back("  " + c.action + ": " + c.path);
+    }
+    if (!summary.failures.empty())
+    {
+        out.push_back("");
+        out.push_back(CONSOLE_RED "Failed, retried next sync:" CONSOLE_RESET);
+        for (auto &f : summary.failures)
+            out.push_back("  " + f.action + ": " + f.path);
+    }
+    if (!summary.problems.empty())
+    {
+        out.push_back("");
+        out.push_back(CONSOLE_RED "Not synced:" CONSOLE_RESET);
+        for (auto &p : summary.problems)
+            out.push_back("  " + p);
+    }
+    return out;
+}
+
+std::string summaryResult(const SyncSummary &summary)
+{
+    char buf[64];
+    if (!summary.failures.empty())
+        snprintf(buf, sizeof(buf), "%d failed, %d up, %d down", (int)summary.failures.size(),
+                 summary.uploaded, summary.downloaded);
+    else if (!summary.problems.empty())
+        snprintf(buf, sizeof(buf), "%d up, %d down, not all synced", summary.uploaded,
+                 summary.downloaded);
+    else if (summary.changes.empty())
+        return "everything up to date";
+    else
+        snprintf(buf, sizeof(buf), "%d up, %d down", summary.uploaded, summary.downloaded);
+    return buf;
 }
