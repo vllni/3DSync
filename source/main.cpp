@@ -24,7 +24,9 @@
 #include "sync/syncengine.h"
 #include "ui/frontend.h"
 #include "utils/debug.h"
+#include "utils/configseal.h"
 #include "utils/fsutil.h"
+#include "utils/secrets.h"
 #include "utils/timeutil.h"
 #include "version.h"
 
@@ -318,6 +320,8 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
 // startup happens before the menu, so a debug run replays this afterwards
 // instead of printing to a screen nobody has chosen debug mode on yet.
 static std::vector<std::string> g_initLog;
+// Credentials loadConfig() opened from their sealed form, as "section=name".
+static std::set<std::string> g_unsealedFields;
 
 static void initStep(const char *what, Result res)
 {
@@ -448,7 +452,8 @@ static void debugConfigSummary(const INIReader &reader)
     for (auto &kv : reader.GetValues())
     {
         if (looksSecret(kv.first))
-            debugf("ini %s = set, %d chars\n", kv.first.c_str(), (int)kv.second.size());
+            debugf("ini %s = set, %d chars%s\n", kv.first.c_str(), (int)kv.second.size(),
+                   g_unsealedFields.count(kv.first) ? ", sealed" : "");
         else
             debugf("ini %s = %s\n", kv.first.c_str(), kv.second.c_str());
     }
@@ -644,6 +649,90 @@ static void runSync(const INIReader &reader)
 }
 
 // ---------------------------------------------------------------------------
+// loadConfig  — read 3DSync.ini, sealing its credentials to this console
+// ---------------------------------------------------------------------------
+// See utils/secrets.h for what sealing protects and what it does not.  The
+// configurator cannot know this console's key, so the file arrives in plain
+// text and is sealed the first time it is read here; a credential edited in
+// by hand later is sealed the same way on the next start.  The rest of the app
+// never sees a sealed value: they are opened into the reader below.
+// ---------------------------------------------------------------------------
+static const char *CONFIG_PATH = "/3ds/3DSync/3DSync.ini";
+
+// Mixed into the console-unique hash.  Never change it: every 3DSync.ini that
+// is already sealed would stop opening.  (It is the app's UNIQUE_ID.)
+static const u32 SEAL_SALT = 0xF5555;
+
+
+static bool consoleRandom(unsigned char *buf, size_t len)
+{
+    return R_SUCCEEDED(sslcGenerateRandomData(buf, (u32)len));
+}
+
+static bool consoleSealKey(SealKey &key)
+{
+    u64 hash = 0;
+    Result res = CFGU_GenHashConsoleUnique(SEAL_SALT, &hash);
+    initStep("CFGU_GenHashConsoleUnique", res);
+    if (R_FAILED(res))
+        return false;
+    key = deriveSealKey(hash);
+    return true;
+}
+
+static INIReader loadConfig()
+{
+    recoverConfigSeal(CONFIG_PATH);
+    SealKey key;
+    bool haveKey = consoleSealKey(key);
+
+    {
+        INIReader plain(CONFIG_PATH);
+        bool wanted = plain.GetBoolean("Security", "SealCredentials", true);
+        if (plain.ParseError() >= 0 && wanted && haveKey)
+        {
+            int sealed = sealConfigFile(CONFIG_PATH, key, consoleRandom);
+            if (sealed > 0)
+                printf(CONSOLE_GREEN "Sealed %d credential%s in 3DSync.ini to this\n"
+                       "console." CONSOLE_RESET " The file no longer works on its own.\n\n",
+                       sealed, sealed == 1 ? "" : "s");
+            else if (sealed < 0)
+                printf(CONSOLE_RED "Could not seal the credentials in 3DSync.ini;\n"
+                       "they stay readable on the SD card.\n\n" CONSOLE_RESET);
+        }
+        else if (plain.ParseError() >= 0 && wanted)
+            g_initLog.push_back("no console key: credentials left unsealed");
+        else if (plain.ParseError() >= 0)
+            g_initLog.push_back("SealCredentials=false: credentials left unsealed");
+    }
+
+    INIReader reader(CONFIG_PATH);
+    for (auto &kv : reader.GetValues())
+    {
+        if (!isSealedValue(kv.second))
+            continue;
+        size_t eq = kv.first.find('=');
+        std::string section = kv.first.substr(0, eq), name = kv.first.substr(eq + 1);
+        std::string plain;
+        if (haveKey && openSealedValue(key, section, name, kv.second, plain))
+        {
+            reader.Set(section, name, plain);
+            g_unsealedFields.insert(kv.first);
+            continue;
+        }
+        // Never hand the provider the sealed text as if it were the secret:
+        // clear it, so the remote reads as unconfigured, and say why.
+        reader.Set(section, name, "");
+        printf(CONSOLE_RED "3DSync.ini: [%s] %s cannot be opened\n" CONSOLE_RESET
+               "here. It was sealed on another console (or this\n"
+               "one was reset). Paste the plain value back into\n"
+               "the file, or make a new one with the configurator.\n\n",
+               section.c_str(), name.c_str());
+    }
+    return reader;
+}
+
+// ---------------------------------------------------------------------------
 // syncWorker  — what a menu choice runs, on the worker thread
 // ---------------------------------------------------------------------------
 static void syncWorker(void *arg)
@@ -671,7 +760,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    INIReader reader("/3ds/3DSync/3DSync.ini");
+    INIReader reader = loadConfig();
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
     frontend::setMenuInfo(reader.ParseError() >= 0, configuredRemotes(reader).names(),

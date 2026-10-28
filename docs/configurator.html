@@ -92,6 +92,10 @@
                           href="https://github.com/vllni/3DSync/issues" target="_blank"
                           rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>.
                       </p>
+                      <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>To keep 3DSync away from the rest of your Dropbox, use expert mode with your own
+                          app of the <strong>App folder</strong> type: it then sees only its own folder. You can cut it
+                          off any time under <a href="https://www.dropbox.com/account/connected_apps" target="_blank"
+                            rel="noopener noreferrer">Connected apps</a>.</span></p>
                       <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login
                         with Dropbox</a>
                       <div class="test-row">
@@ -164,6 +168,10 @@
                       </div>
                       <a href="#" id="gdrive-login" class="btn blue darken-3"><i
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
+                      <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>3DSync is given access to your whole Drive. If the 3DS or its SD card goes missing,
+                          remove that access under <a href="https://myaccount.google.com/connections" target="_blank"
+                            rel="noopener noreferrer">Third-party apps &amp; services</a> &mdash; the token stops
+                          working at once, and nothing else changes.</span></p>
                       <div class="test-row">
                         <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="googledrive"><i
                             class="material-icons left">network_check</i>Test connection</a>
@@ -205,6 +213,8 @@
                     </div>
                     <p class="white-text panel-intro">A NAS or a shared folder on a Windows PC, over SMB2/SMB3 &mdash;
                       what modern NAS boxes and Windows accept by default. SMB1 does not need to be re-enabled.</p>
+                    <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>Best is a user of its own for 3DSync that can reach only this share, rather than your
+                      own or the admin account &mdash; then this password opens nothing else.</span></p>
                     <div class="row">
                       <div class="input-field col s12 m7">
                         <input id="smb-server" class="white-text remote-field" type="text" autocomplete="off"
@@ -273,6 +283,8 @@
                     <p class="white-text panel-intro">Any FTP server, with TLS where the server offers it. SFTP (over
                       SSH) is a different protocol and is <strong>not</strong> supported: the 3DS build of libcurl
                       cannot speak it.</p>
+                    <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>Best is an FTP user of its own for 3DSync, locked to the save folder, rather than an
+                      account that can log in to the server itself.</span></p>
                     <div class="row">
                       <div class="input-field col s12 m8">
                         <input id="ftp-host" class="white-text remote-field" type="text" autocomplete="off"
@@ -350,6 +362,9 @@
                           target="_blank" rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>.</div>
                     </div>
                     <p class="white-text panel-intro">Nextcloud, ownCloud, or any NAS with WebDAV switched on.</p>
+                    <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>Use an app password, not your account password: in Nextcloud, <strong>Settings &rarr;
+                      Security &rarr; Devices &amp; sessions</strong>. It can be revoked on its own, and it does not
+                      unlock your account's settings.</span></p>
                     <div class="row">
                       <div class="input-field col s12">
                         <input id="webdav-url" class="white-text remote-field" type="url" autocomplete="off"
@@ -385,11 +400,14 @@
 
                   <div class="card-panel blue darken-4 white-text remote-security-note">
                     <i class="material-icons left">lock_outline</i>
-                    Everything here stays in this browser tab. Nothing is sent anywhere except, when you press
-                    <strong>Test connection</strong>, straight to the service being tested &mdash; and for SMB, FTP
-                    and WebDAV the password is not even kept between visits. It does end up in <strong>3DSync.ini</strong> in
-                    plain text, because that is the only place the 3DS can read it from &mdash; so treat the file
-                    like the password, and prefer a separate account or app password for 3DSync.
+                    Everything here stays in this browser tab, and is forgotten when you close it. Nothing is sent
+                    anywhere except, when you press <strong>Test connection</strong>, straight to the service being
+                    tested.
+                    <br><br>
+                    The downloaded <strong>3DSync.ini</strong> holds your password or token in plain text. The first
+                    time 3DSync starts with it, it <strong>seals</strong> them to that console: the file then only
+                    works on that 3DS, and is useless to anyone who copies the SD card. Until then, treat the file
+                    like the password itself &mdash; copy it straight to the SD card and delete the download.
                   </div>
                   <div class="step-actions">
                     <a href="#" class="btn blue darken-3" id="auth-continue">Continue</a>

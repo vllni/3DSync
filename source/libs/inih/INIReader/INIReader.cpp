@@ -94,6 +94,11 @@ bool INIReader::HasValue(const string &section, const string &name) const
     return _values.count(key);
 }
 
+void INIReader::Set(const string &section, const string &name, const string &value)
+{
+    _values[MakeKey(section, name)] = value;
+}
+
 string INIReader::MakeKey(const string &section, const string &name)
 {
     string key = section + "=" + name;

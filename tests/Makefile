@@ -8,6 +8,8 @@
 
 CXX ?= g++
 CXXFLAGS ?= -std=gnu++11 -Wall -Wextra -O1 -g
+# As in the app's Makefile: the INI reader is compiled into the sealing tests.
+CXXFLAGS += -DINI_MAX_LINE=2048
 BUILD := build
 BIN := $(BUILD)/run-tests
 
@@ -38,13 +40,15 @@ TEST_SRC := framework.cpp mocks.cpp main.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
 	test_ui.cpp
 
-# The hash tests need mbedtls, which is how the app hashes on the console too.
+# The hash and sealing tests need mbedtls, which is what the app uses on the
+# console too.
 # Without it the rest still runs, and the runner says what was left out.
 MBEDTLS_PROBE := $(shell printf '#include <mbedtls/sha256.h>\nint main(){return 0;}\n' > /tmp/3dsync-mbedtls-probe.cpp 2>/dev/null && $(CXX) /tmp/3dsync-mbedtls-probe.cpp -lmbedcrypto -o /tmp/3dsync-mbedtls-probe 2>/dev/null && echo yes)
 
 ifeq ($(MBEDTLS_PROBE),yes)
-UNITS += ../source/utils/hash.cpp
-TEST_SRC += test_hash.cpp
+UNITS += ../source/utils/hash.cpp ../source/utils/secrets.cpp ../source/utils/configseal.cpp \
+	../source/libs/inih/INIReader/INIReader.cpp ../source/libs/inih/ini.c
+TEST_SRC += test_hash.cpp test_secrets.cpp
 CXXFLAGS += -DHAVE_MBEDTLS
 LDLIBS += -lmbedcrypto
 endif
