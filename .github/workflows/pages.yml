@@ -73,6 +73,13 @@ jobs:
           cp -r docs/. _site/
           echo "BASE_URL=https://$(tr -d '[:space:]' < docs/CNAME)" >> "$GITHUB_ENV"
 
+          # The CDN in front of the site tells browsers to keep scripts and
+          # styles for hours, while the HTML expires after minutes — so a
+          # visitor gets the new page with the old index.js. A per-commit
+          # query string makes every deploy a new URL for each asset.
+          sed -i -E "s#((src|href)=\"static/[^\"?]+)\"#\1?v=${GITHUB_SHA::12}\"#g" _site/*.html
+          grep -q "static/js/index.js?v=" _site/configurator.html
+
       - name: Fetch all releases
         run: |
           gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" --jq '.[]' \
