@@ -89,6 +89,16 @@ and 2124, where the root is read-only.
 
 The configurator warns about `http://` URLs; for these rows that is expected.
 
+On first start the 3DS seals every password in the file (`enc:v1:…`), and
+sealed values open only on that console. Moving a section between files on
+the same 3DS is fine. To use one file on several consoles or in an emulator,
+add this, which is harmless here since the test passwords are not secret:
+
+```ini
+[Security]
+SealCredentials=false
+```
+
 ## 3DSync.ini
 
 The same servers written by hand. Replace `192.168.1.10` with `HOST_IP`.
