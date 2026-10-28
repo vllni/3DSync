@@ -373,13 +373,18 @@ static void drawMenuCard(Canvas &c, const BottomModel &m)
            m.remotes.empty() ? C_WARN : C_TEXT, CARD_TEXT_W - 62);
     c.text(kFontSmall, CARD_IN, CARD_Y + 60, "PATHS", C_FAINT);
     c.text(kFontBody, CARD_IN + 62, CARD_Y + 58, paths, m.pathCount ? C_TEXT : C_WARN);
-    c.text(kFontSmall, CARD_IN, CARD_Y + 80, "LAST RUN", C_FAINT);
+    // Dim while it is the default, so a filter that is on stands out.
+    bool allFiles = m.fileFilter.empty() || m.fileFilter == "all files";
+    c.text(kFontSmall, CARD_IN, CARD_Y + 80, "FILES", C_FAINT);
+    c.text(kFontBody, CARD_IN + 62, CARD_Y + 78, allFiles ? std::string("all files") : m.fileFilter,
+           allFiles ? C_DIM : C_TEXT, CARD_TEXT_W - 62);
+    c.text(kFontSmall, CARD_IN, CARD_Y + 100, "LAST RUN", C_FAINT);
     if (m.lastResult.empty())
-        c.text(kFontBody, CARD_IN + 62, CARD_Y + 78, "not yet", C_DIM);
+        c.text(kFontBody, CARD_IN + 62, CARD_Y + 98, "not yet", C_DIM);
     else
     {
-        c.circle(CARD_IN + 66, CARD_Y + 86, 3, m.lastResultOk ? C_GOOD : C_BAD);
-        c.text(kFontBody, CARD_IN + 74, CARD_Y + 78, m.lastResult, C_TEXT, CARD_TEXT_W - 74);
+        c.circle(CARD_IN + 66, CARD_Y + 106, 3, m.lastResultOk ? C_GOOD : C_BAD);
+        c.text(kFontBody, CARD_IN + 74, CARD_Y + 98, m.lastResult, C_TEXT, CARD_TEXT_W - 74);
     }
 }
 

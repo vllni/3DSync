@@ -385,6 +385,22 @@ Backup=/3ds/MyGame</code></pre>
             which side changed.</li>
           <li>Upload-only entries always push the local file to Drive and never download.</li>
         </ul>
+        <h5>File type filter</h5>
+        <p>By default every file under a sync path is synced. To sync only certain file types, list their
+          extensions under <code>[Filter]</code>:</p>
+        <pre><code>[Filter]
+Extensions=sav, bin, dat</code></pre>
+        <ul class="readme-bullets" style="margin-top:0.75rem">
+          <li>Separate extensions with commas, spaces or both &mdash; <code>sav,bin</code>,
+            <code>sav, bin</code> and <code>sav, bin,srm</code> all work (not <code>;</code>, which starts a
+            comment).
+            <code>sav</code>, <code>.sav</code> and <code>*.sav</code> all mean the same, and case does not
+            matter.</li>
+          <li>Leave <code>Extensions=</code> empty, leave it out, or write <code>*</code> to sync all files.</li>
+          <li>The filter applies to every sync path and to both directions: a filtered-out file is neither
+            uploaded nor downloaded.</li>
+          <li>The main menu on the 3DS shows the active filter next to <strong>FILES</strong>.</li>
+        </ul>
       </div>
 
       <hr class="divider-line">

@@ -108,12 +108,18 @@ bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &en
 
     // Build the full set of relative paths to consider: everything local, plus
     // everything on the remote unless we are only pushing.
+    // The extension filter applies to both sides, so a remote-only file it
+    // excludes is not downloaded either.
     std::set<std::string> allRelPaths;
+    std::set<std::string> filtered;
     for (auto &f : entry.localFiles)
-        allRelPaths.insert(f);
+        (entry.filter.matches(f) ? allRelPaths : filtered).insert(f);
     if (!uploadOnly)
         for (auto &rf : remoteFiles)
-            allRelPaths.insert(rf.first);
+            (entry.filter.matches(rf.first) ? allRelPaths : filtered).insert(rf.first);
+    if (!filtered.empty())
+        debugf("%d file(s) left out by the extension filter (%s)\n", (int)filtered.size(),
+               entry.filter.describe().c_str());
 
     // Manifest keys are scoped per remote so two providers syncing the same
     // local folder keep separate state.

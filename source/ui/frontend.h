@@ -26,8 +26,10 @@ namespace frontend
 bool init();
 void exit();
 
-// What the idle screen says about the configuration.
-void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount);
+// What the idle screen says about the configuration.  fileFilter is
+// ExtensionFilter::describe(): "all files" or ".sav .bin".
+void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
+                 const std::string &fileFilter);
 
 enum MenuChoice
 {

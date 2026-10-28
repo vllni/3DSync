@@ -118,10 +118,17 @@ static int countSyncPaths(const INIReader &reader)
     return n;
 }
 
+// [Filter] Extensions=, shared by every entry.  Missing or empty: all files.
+static ExtensionFilter configuredFilter(const INIReader &reader)
+{
+    return ExtensionFilter::parse(reader.Get("Filter", "extensions", ""));
+}
+
 static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
 {
     std::vector<SyncEntry> entries;
     std::map<std::string, std::string> values = reader.GetValues();
+    ExtensionFilter filter = configuredFilter(reader);
 
     for (auto &kv : values)
     {
@@ -134,12 +141,20 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         SyncEntry entry;
         entry.localBase = kv.second;
         entry.remoteName = kv.first.substr(prefix.size());
-        entry.localFiles = recurse_dir(kv.second, "", recursive);
         entry.direction = dir;
+        entry.filter = filter;
+        // Filtered here as well as in performSync(): a provider's
+        // legacyUpload() is handed this list and nothing else.
+        std::vector<std::string> found = recurse_dir(kv.second, "", recursive);
+        for (auto &f : found)
+            if (filter.matches(f))
+                entry.localFiles.push_back(f);
         // An entry that found nothing locally is silently normal — the remote
-        // may hold everything — but it is also what a mistyped path looks like.
-        debugf("entry %s -> %s: %d local file(s), %s%s\n", entry.localBase.c_str(),
-               entry.remoteName.c_str(), (int)entry.localFiles.size(),
+        // may hold everything — but it is also what a mistyped path looks like,
+        // or a filter that matches none of the files there.
+        debugf("entry %s -> %s: %d local file(s), %d left out by the filter, %s%s\n",
+               entry.localBase.c_str(), entry.remoteName.c_str(),
+               (int)entry.localFiles.size(), (int)(found.size() - entry.localFiles.size()),
                recursive ? "recursive" : "shallow",
                dir == SYNC_UPLOAD_ONLY ? ", upload only" : "");
         entries.push_back(entry);
@@ -560,6 +575,12 @@ static void runSync(const INIReader &reader)
         return;
     }
 
+    // Said once, up front: a filter leaves files out without a word, and the
+    // summary would otherwise not explain why a file never moved.
+    ExtensionFilter filter = configuredFilter(reader);
+    if (!filter.allowsAll())
+        printf("Only syncing files ending in\n  %s\n", filter.describe().c_str());
+
     Manifest manifest("/3ds/3DSync/manifest.json");
     manifest.load();
     SyncSummary summary;
@@ -760,7 +781,7 @@ int main(int argc, char **argv)
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
     frontend::setMenuInfo(reader.ParseError() >= 0, configuredRemotes(reader).names(),
-                          countSyncPaths(reader));
+                          countSyncPaths(reader), configuredFilter(reader).describe());
 
     while (true)
     {

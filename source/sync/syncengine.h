@@ -7,6 +7,7 @@
 
 #include "../modules/manifest.h"
 #include "../modules/syncprovider.h"
+#include "extfilter.h"
 
 // ---------------------------------------------------------------------------
 // Sync direction per configured path
@@ -23,6 +24,8 @@ struct SyncEntry
     std::string remoteName;              // Drive folder path, e.g. Checkpoint/saves
     std::vector<std::string> localFiles; // relative paths discovered locally
     SyncDirection direction;
+    // Files on either side that do not match are left out of the sync.
+    ExtensionFilter filter;
 };
 
 // ---------------------------------------------------------------------------
