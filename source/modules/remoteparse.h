@@ -146,19 +146,21 @@ FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal);
 std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
                                             const std::string &tempPath);
 
-// vsftpd 3.x (strict_ssl_read_eof, on by default) refuses an upload whose TLS
-// data connection ends without a close_notify, with 426 after the data has
-// been stored — and devkitPro's libcurl 8.4 never sends one (its mbedTLS
-// backend has no call to mbedtls_ssl_close_notify).  Whether a failed upload
-// is that case: TLS in effect, libcurl's "partial file" (CURLE_PARTIAL_FILE),
-// and the final reply 426.  It fails the same way on every attempt, so it is
-// not retried; the provider checks what arrived instead.
-bool ftpUploadEndedUnclean(FtpTlsMode mode, bool partialTransfer, long replyCode);
+// vsftpd answers an upload from the 3DS with "426 Failure reading network
+// stream" after the whole file has been sent and stored — over TLS and in
+// plaintext alike, on every attempt.  Over TLS, devkitPro's libcurl 8.4 never
+// sends a close_notify (its mbedTLS backend has no call to
+// mbedtls_ssl_close_notify), which vsftpd's strict_ssl_read_eof rejects; that
+// it happens in plaintext too points at how the console closes the data
+// socket.  Whether a failed upload is that case: libcurl's "partial file"
+// (CURLE_PARTIAL_FILE) with the final reply 426.  It is not retried — it
+// would fail the same way — and the provider checks what arrived instead.
+bool ftpUploadEndedUnclean(bool partialTransfer, long replyCode);
 
-// Whether the temp file the server kept is the whole upload.  TLS
-// authenticates every record, so what arrived is what was sent; close_notify
-// only guards against the stream being cut short, and the length is that
-// check made by hand.  -1 (unknown) on either side is never intact.
+// Whether the temp file the server kept is the whole upload.  A connection
+// whose end was refused can only have lost bytes off the end, so the length
+// is the check; over TLS every record that arrived is also authenticated.
+// -1 (unknown) on either side is never intact.
 bool ftpUploadArrivedIntact(long long remoteSize, long long localSize);
 
 // Build an FTP URL for a path relative to the login directory.

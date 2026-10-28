@@ -176,9 +176,9 @@ std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
     return out;
 }
 
-bool ftpUploadEndedUnclean(FtpTlsMode mode, bool partialTransfer, long replyCode)
+bool ftpUploadEndedUnclean(bool partialTransfer, long replyCode)
 {
-    return mode != FTP_TLS_NONE && partialTransfer && replyCode == 426;
+    return partialTransfer && replyCode == 426;
 }
 
 bool ftpUploadArrivedIntact(long long remoteSize, long long localSize)

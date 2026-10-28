@@ -199,13 +199,12 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
         // Transient: retry.
         default:
             if (request == FTP_REQUEST_UPLOAD &&
-                ftpUploadEndedUnclean(_effectiveTls(), res == CURLE_PARTIAL_FILE,
-                                      _curl.getStatusCode()))
+                ftpUploadEndedUnclean(res == CURLE_PARTIAL_FILE, _curl.getStatusCode()))
             {
                 // Would fail identically every time; upload() checks what
                 // the server kept instead.
-                debugf("FTP: 426 after a TLS upload; the server wants a TLS "
-                       "close this libcurl does not send\n");
+                debugf("FTP: 426 after the upload was sent; checking what the "
+                       "server kept\n");
                 return res;
             }
             printf("  FTP error: %s (attempt %d/3)\n", curl_easy_strerror((CURLcode)res),
@@ -486,8 +485,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     curl_slist_free_all(quote);
     fclose(fp);
 
-    bool unclean = res != 0 && ftpUploadEndedUnclean(_effectiveTls(), res == CURLE_PARTIAL_FILE,
-                                                     reply);
+    bool unclean = res != 0 && ftpUploadEndedUnclean(res == CURLE_PARTIAL_FILE, reply);
     if (unclean && _finishUncleanUpload(remotePath, tmpRemote, (long long)size))
         res = 0;
 
@@ -520,8 +518,8 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
         }
         if (unclean)
         {
-            printf("  The server refused the end of the\n");
-            printf("  encrypted transfer (FTP 426).\n");
+            printf("  The server rejected the end of the\n");
+            printf("  transfer (FTP 426).\n");
         }
         debugf("  curl %d; the DELE/RNFR/RNTO quote may also have failed\n", res);
         return false;
