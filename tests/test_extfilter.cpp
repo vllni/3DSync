@@ -40,6 +40,18 @@ TEST(extfilter, commas_and_whitespace_separate_and_repeats_collapse)
     CHECK_STR_EQ(f.describe(), ".sav .bin");
 }
 
+TEST(extfilter, space_after_a_comma_is_optional)
+{
+    const char *specs[] = {"sav,bin,srm", "sav, bin, srm", "sav, bin,srm", "sav ,bin , srm",
+                           "sav bin srm", "sav,,bin,srm,"};
+    for (const char *spec : specs)
+    {
+        ExtensionFilter f = ExtensionFilter::parse(spec);
+        CHECK_STR_EQ(f.describe(), ".sav .bin .srm");
+        CHECK(f.matches("/Game/main.srm"));
+    }
+}
+
 TEST(extfilter, matching_ignores_case)
 {
     ExtensionFilter f = ExtensionFilter::parse("SaV");

@@ -264,7 +264,7 @@ By default every file under a sync path is synced. To sync only certain file typ
 Extensions=sav, bin, dat
 ```
 
-- Separate extensions with commas or spaces (not `;`, which starts a comment). `sav`, `.sav` and `*.sav` all mean the same, and case does not matter.
+- Separate extensions with commas, spaces or both — `sav,bin`, `sav, bin` and `sav, bin,srm` all work (not `;`, which starts a comment). `sav`, `.sav` and `*.sav` all mean the same, and case does not matter.
 - A file is synced only if its name ends in one of them; a longer ending such as `tar.gz` works too. Leave `Extensions=` empty, leave it out, or write `*` to sync all files.
 - The filter applies to every sync path and to both directions: a filtered-out file is neither uploaded nor downloaded, and its manifest entry is kept, so loosening the filter later picks up where it left off.
 - The main menu shows the active filter next to **FILES**, and a sync prints it once before the first transfer.

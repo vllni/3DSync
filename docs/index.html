@@ -392,7 +392,9 @@ Backup=/3ds/MyGame</code></pre>
         <pre><code>[Filter]
 Extensions=sav, bin, dat</code></pre>
         <ul class="readme-bullets" style="margin-top:0.75rem">
-          <li>Separate extensions with commas or spaces (not <code>;</code>, which starts a comment).
+          <li>Separate extensions with commas, spaces or both &mdash; <code>sav,bin</code>,
+            <code>sav, bin</code> and <code>sav, bin,srm</code> all work (not <code>;</code>, which starts a
+            comment).
             <code>sav</code>, <code>.sav</code> and <code>*.sav</code> all mean the same, and case does not
             matter.</li>
           <li>Leave <code>Extensions=</code> empty, leave it out, or write <code>*</code> to sync all files.</li>
