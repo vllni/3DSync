@@ -21,6 +21,7 @@ public:
     ~SmbRemote();
 
     const char *name() const override { return "SMB"; }
+    bool isExperimental() const override { return false; }
     std::string manifestPrefix() const override;
     bool connect() override;
     bool hasFatalError() const override;

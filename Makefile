@@ -26,7 +26,10 @@ BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=2048
 # upload; see source/utils/tlsclose.cpp.  The build passes CXX_FLAGS to the
 # link step as well, which is the only way buildtools/make_base offers to add
 # a linker option; the compiler ignores -Wl, when it only compiles.
-BUILD_FLAGS_CXX := -Wl,--wrap=mbedtls_ssl_setup -Wl,--wrap=mbedtls_ssl_config_free
+# getsockopt is wrapped for SO_ERROR, which libctru passes through in the
+# console's own numbering; see source/utils/sockopt.cpp.
+BUILD_FLAGS_CXX := -Wl,--wrap=mbedtls_ssl_setup -Wl,--wrap=mbedtls_ssl_config_free \
+                   -Wl,--wrap=getsockopt
 
 # The version comes from source/version.h, not from `git describe`: the number
 # on screen has to be a property of the source, so a shallow clone or a tarball

@@ -6,16 +6,13 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 |---|---|---|
 | Google Drive | bidirectional | stable |
 | Dropbox | bidirectional | stable |
-| SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
+| SMB2/3 file server (NAS, Windows share) | bidirectional | stable |
 | FTP / FTPS | bidirectional | stable |
 | WebDAV | bidirectional | stable |
 
-> 🧪 **Experimental** backends work but have had far less testing against real
-> servers than the stable ones. Keep a backup of your saves, and please report
-> anything that goes wrong at
-> [github.com/vllni/3DSync/issues](https://github.com/vllni/3DSync/issues) —
-> bug reports and feedback are what move a backend off this list. 3DSync also
-> prints this notice on the 3DS before syncing with an experimental remote.
+Every backend has synced from a real 3DS against real servers. Keep a backup
+of your saves all the same, and please report anything that goes wrong at
+[github.com/vllni/3DSync/issues](https://github.com/vllni/3DSync/issues).
 
 Full credit to [Kyraminol](https://github.com/Kyraminol) for the original project. Extended by michvllni with Google Drive support, refresh-token auth, and full bidirectional sync.
 
@@ -122,8 +119,6 @@ FolderId=<optional root folder ID>
 `FolderId` restricts all Drive operations to one folder. Leave it out to use Drive root.
 
 ### SMB file server (NAS, Windows share)
-
-🧪 Experimental.
 
 ```ini
 [SMB]
