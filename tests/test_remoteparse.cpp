@@ -529,3 +529,38 @@ TEST(ftpreplace, a_file_in_the_login_directory)
     CHECK_STR_EQ(c[1], "RNFR a.sav.3dstmp");
     CHECK_STR_EQ(c[2], "RNTO a.sav");
 }
+
+// ---------------------------------------------------------------------------
+// FTP: an upload refused for how its TLS connection ended
+// ---------------------------------------------------------------------------
+// From a 3DS against vsftpd 3.0.5: "150 Ok to send data", the whole file
+// sent, then "426 Failure reading network stream" (curl 18) on every
+// attempt, with the complete .3dstmp left on the server.
+
+TEST(ftpunclean, tls_upload_answered_426_is_the_unclean_close)
+{
+    CHECK(ftpUploadEndedUnclean(FTP_TLS_TRY, true, 426));
+    CHECK(ftpUploadEndedUnclean(FTP_TLS_REQUIRE, true, 426));
+    CHECK(ftpUploadEndedUnclean(FTP_TLS_IMPLICIT, true, 426));
+}
+
+TEST(ftpunclean, plaintext_426_is_an_ordinary_failure)
+{
+    // No TLS to close: a 426 there is a dropped connection, and retried.
+    CHECK(!ftpUploadEndedUnclean(FTP_TLS_NONE, true, 426));
+}
+
+TEST(ftpunclean, other_replies_and_errors_are_not_it)
+{
+    CHECK(!ftpUploadEndedUnclean(FTP_TLS_TRY, true, 451));
+    CHECK(!ftpUploadEndedUnclean(FTP_TLS_TRY, false, 426));
+}
+
+TEST(ftpunclean, only_a_complete_temp_file_is_moved_into_place)
+{
+    CHECK(ftpUploadArrivedIntact(8192, 8192));
+    CHECK(ftpUploadArrivedIntact(0, 0));
+    CHECK(!ftpUploadArrivedIntact(4096, 8192)); // cut short
+    CHECK(!ftpUploadArrivedIntact(-1, 8192));   // gone (delete_failed_uploads) or no SIZE
+    CHECK(!ftpUploadArrivedIntact(-1, -1));     // local size unknown
+}

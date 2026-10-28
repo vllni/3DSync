@@ -198,6 +198,16 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
 
         // Transient: retry.
         default:
+            if (request == FTP_REQUEST_UPLOAD &&
+                ftpUploadEndedUnclean(_effectiveTls(), res == CURLE_PARTIAL_FILE,
+                                      _curl.getStatusCode()))
+            {
+                // Would fail identically every time; upload() checks what
+                // the server kept instead.
+                debugf("FTP: 426 after a TLS upload; the server wants a TLS "
+                       "close this libcurl does not send\n");
+                return res;
+            }
             printf("  FTP error: %s (attempt %d/3)\n", curl_easy_strerror((CURLcode)res),
                    attempt + 1);
             debugf("  curl %d on %s\n", res, _curl.getURL().c_str());
@@ -383,6 +393,49 @@ bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPat
     return replaceLocalFile(tmpPath, localPath);
 }
 
+long long FtpRemote::_remoteSize(const std::string &path)
+{
+    _prepare();
+    _curl.setURL(_urlFor(path));
+    _curl.setNoBody(true);
+
+    int res = _performWithRetry(FTP_REQUEST_FILE);
+    curl_off_t size = (res == 0) ? _curl.getContentLength() : -1;
+    if (res != 0)
+        debugf("SIZE failed for %s (%d)\n", path.c_str(), res);
+    return (long long)(size < 0 ? -1 : size);
+}
+
+bool FtpRemote::_finishUncleanUpload(const std::string &remotePath,
+                                     const std::string &tmpRemote, long long localSize)
+{
+    long long arrived = _remoteSize(tmpRemote);
+    if (!ftpUploadArrivedIntact(arrived, localSize))
+    {
+        debugf("%s: %lld of %lld bytes on the server, not moving it into place\n",
+               tmpRemote.c_str(), arrived, localSize);
+        return false;
+    }
+
+    // The post-quote never ran, so send the same DELE/RNFR/RNTO on their own:
+    // a QUOTE on the login directory, before any CWD, so full paths.
+    struct curl_slist *quote = NULL;
+    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote, false))
+        quote = curl_slist_append(quote, command.c_str());
+
+    _prepare();
+    _curl.setURL(_urlFor(""));
+    _curl.setNoBody(true);
+    _curl.setQuote(quote);
+    int res = _performWithRetry(FTP_REQUEST_FILE);
+    _curl.setQuote(NULL);
+    curl_slist_free_all(quote);
+
+    debugf("%s: all %lld bytes arrived despite the 426; rename %s\n", tmpRemote.c_str(),
+           arrived, res == 0 ? "done" : "failed");
+    return res == 0;
+}
+
 bool FtpRemote::upload(const std::string &root, const std::string &relPath,
                        const std::string &localPath, const RemoteFileInfo *existing,
                        std::string &outTag, std::string &outId)
@@ -422,10 +475,16 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     _curl.setPostQuote(quote);
 
     int res = _performWithRetry(FTP_REQUEST_UPLOAD, fp);
+    long reply = _curl.getStatusCode();
 
     _curl.setPostQuote(NULL);
     curl_slist_free_all(quote);
     fclose(fp);
+
+    bool unclean = res != 0 && ftpUploadEndedUnclean(_effectiveTls(), res == CURLE_PARTIAL_FILE,
+                                                     reply);
+    if (unclean && _finishUncleanUpload(remotePath, tmpRemote, (long long)size))
+        res = 0;
 
     if (res != 0)
     {
@@ -445,6 +504,11 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
                 printf("    %s\n", dir.c_str());
                 printf("  Check the FTP account may write there.\n");
             }
+        }
+        if (unclean)
+        {
+            printf("  The server refused the end of the\n");
+            printf("  encrypted transfer (FTP 426).\n");
         }
         debugf("  curl %d; the DELE/RNFR/RNTO quote may also have failed\n", res);
         return false;

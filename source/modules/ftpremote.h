@@ -71,6 +71,13 @@ private:
     // request says what the call was for, which decides whether a refused
     // directory is fatal — see ftpRefusalOutcome().
     int _performWithRetry(FtpRequest request, FILE *uploadFile = NULL);
+    // SIZE of a remote file, -1 when it cannot be read.
+    long long _remoteSize(const std::string &path);
+    // An upload the server refused only for how its TLS connection ended (see
+    // ftpUploadEndedUnclean()): move the temp file into place if all of it
+    // arrived.
+    bool _finishUncleanUpload(const std::string &remotePath, const std::string &tmpRemote,
+                              long long localSize);
     bool _listDir(const std::string &dirPath, const std::string &prefix,
                   std::map<std::string, RemoteFileInfo> &out);
     // MDTM + SIZE for one file, as "<size>:<mtime>".  "" when unavailable.

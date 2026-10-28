@@ -50,6 +50,8 @@ public:
     // FTP: commands to run after a successful transfer (RNFR/RNTO, DELE, …).
     // Prefix a command with '*' to ignore its failure.  Pass NULL to clear.
     void setPostQuote(curl_slist *commands);
+    // FTP: commands to run right after login, before any CWD.
+    void setQuote(curl_slist *commands);
 
     // Wildcard listing (FTP): the callback runs once per matched entry with a
     // struct curl_fileinfo *, and returns CURL_CHUNK_BGN_FUNC_SKIP to list

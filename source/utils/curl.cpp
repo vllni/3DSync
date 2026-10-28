@@ -271,6 +271,11 @@ void Curl::setPostQuote(curl_slist *commands)
     curl_easy_setopt(_curl, CURLOPT_POSTQUOTE, commands);
 }
 
+void Curl::setQuote(curl_slist *commands)
+{
+    curl_easy_setopt(_curl, CURLOPT_QUOTE, commands);
+}
+
 void Curl::setWildcardMatch(ChunkBeginFn fn, void *userdata)
 {
     curl_easy_setopt(_curl, CURLOPT_WILDCARDMATCH, fn ? 1L : 0L);
