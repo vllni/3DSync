@@ -93,6 +93,9 @@ private:
     FILE *_downloadFile;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
+    // Lets libcurl rewind a request body read from a file, which it must do to
+    // resend it after an auth challenge (see setUploadFile()).
+    static int _seek_callback(void *userdata, curl_off_t offset, int origin);
     static size_t _write_callback(void *data, size_t size, size_t nmemb, void *userdata);
     static size_t _header_callback(void *data, size_t size, size_t nmemb, void *userdata);
     // libcurl's own protocol trace, wired up only in debug mode.

@@ -521,3 +521,55 @@ TEST(ftpreplace, a_file_in_the_login_directory)
     CHECK_STR_EQ(c[1], "RNFR a.sav.3dstmp");
     CHECK_STR_EQ(c[2], "RNTO a.sav");
 }
+
+// ---------------------------------------------------------------------------
+// WebDAV: reading back a file's tag after its upload
+// ---------------------------------------------------------------------------
+// Apache mod_dav's answer to PROPFIND Depth: 0 on a file: one <response>
+// for the file itself, which parseDavResponses() skips as the root.  The tag
+// read here must equal what a listing reports for the same file, or the next
+// sync sees every uploaded file as changed on the server.
+
+static const char *APACHE_FILE_DEPTH0 =
+    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+    "<D:multistatus xmlns:D=\"DAV:\" xmlns:ns0=\"DAV:\">\n"
+    "<D:response xmlns:lp1=\"DAV:\" xmlns:lp2=\"http://apache.org/dav/props/\">\n"
+    "<D:href>/dav/saves/Pokemon%20Ceruleum.sav</D:href>\n"
+    "<D:propstat>\n<D:prop>\n<lp1:resourcetype/>\n"
+    "<lp1:getcontentlength>131072</lp1:getcontentlength>\n"
+    "<lp1:getlastmodified>Wed, 28 Oct 2026 17:04:25 GMT</lp1:getlastmodified>\n"
+    "<lp1:getetag>\"20000-6427f0e5e0a8c\"</lp1:getetag>\n"
+    "</D:prop>\n<D:status>HTTP/1.1 200 OK</D:status>\n</D:propstat>\n"
+    "</D:response>\n</D:multistatus>\n";
+
+TEST(webdav_selftag, reads_the_file_a_depth0_propfind_describes)
+{
+    CHECK_STR_EQ(davSelfTag(APACHE_FILE_DEPTH0), "20000-6427f0e5e0a8c");
+}
+
+TEST(webdav_selftag, matches_what_a_listing_reports)
+{
+    // The same response as part of a listing of /dav/saves/.
+    std::vector<DavEntry> listed;
+    parseDavResponses(APACHE_FILE_DEPTH0, "/dav/saves/", listed);
+    CHECK_EQ(listed.size(), (size_t)1);
+    if (!listed.empty())
+        CHECK_STR_EQ(listed[0].tag, davSelfTag(APACHE_FILE_DEPTH0));
+}
+
+TEST(webdav_selftag, falls_back_like_a_listing_without_an_etag)
+{
+    const char *noEtag =
+        "<multistatus><response><href>/dav/a.sav</href><propstat><prop>"
+        "<getcontentlength>5</getcontentlength>"
+        "<getlastmodified>Wed, 28 Oct 2026 17:04:25 GMT</getlastmodified>"
+        "</prop></propstat></response></multistatus>";
+    CHECK_STR_EQ(davSelfTag(noEtag), "5:Wed, 28 Oct 2026 17:04:25 GMT");
+}
+
+TEST(webdav_selftag, nothing_to_read_is_empty)
+{
+    CHECK_STR_EQ(davSelfTag(""), "");
+    CHECK_STR_EQ(davSelfTag("<multistatus/>"), "");
+    CHECK_STR_EQ(davSelfTag("<multistatus><response><href>/x</href></response></multistatus>"), "");
+}

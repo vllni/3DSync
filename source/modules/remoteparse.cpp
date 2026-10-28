@@ -16,6 +16,31 @@ std::string sizeTimeTag(long long size, long long mtime)
     return buf;
 }
 
+// A response's change tag: its ETag, or its size and modification time when
+// the server sends none.  list() and the read-back after an upload must agree
+// on it, or every uploaded file would look changed on the next sync.
+static std::string davTag(const std::string &clean, size_t start, size_t end)
+{
+    std::string tag = normalizeEtag(xmlTagText(clean, "getetag", start, end));
+    if (tag.empty())
+        tag = xmlTagText(clean, "getcontentlength", start, end) + ":" +
+              xmlTagText(clean, "getlastmodified", start, end);
+    return tag;
+}
+
+std::string davSelfTag(const std::string &xml)
+{
+    std::string clean = stripXmlNamespaces(xml);
+    size_t start = clean.find("<response");
+    if (start == std::string::npos)
+        return "";
+    size_t end = clean.find("</response", start);
+    if (end == std::string::npos)
+        return "";
+    std::string tag = davTag(clean, start, end);
+    return tag == ":" ? "" : tag;
+}
+
 void parseDavResponses(const std::string &xml, const std::string &rootHref,
                        std::vector<DavEntry> &out)
 {
@@ -59,10 +84,7 @@ void parseDavResponses(const std::string &xml, const std::string &rootHref,
         size_t collection = clean.find("<collection", start);
         entry.isCollection = (collection != std::string::npos && collection < end);
 
-        entry.tag = normalizeEtag(xmlTagText(clean, "getetag", start, end));
-        if (entry.tag.empty())
-            entry.tag = xmlTagText(clean, "getcontentlength", start, end) + ":" +
-                        xmlTagText(clean, "getlastmodified", start, end);
+        entry.tag = davTag(clean, start, end);
         out.push_back(entry);
     }
 }

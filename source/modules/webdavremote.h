@@ -22,6 +22,7 @@ public:
                  const std::string &password);
 
     const char *name() const override { return "WebDAV"; }
+    bool isExperimental() const override { return false; }
     std::string manifestPrefix() const override { return _baseUrl; }
     bool connect() override;
     bool hasFatalError() const override;
@@ -54,8 +55,9 @@ private:
     // folder is already there" with 405, on every sync after the first.
     int _performWithRetry(FILE *uploadFile = NULL, long expectedStatus = 0);
     // One PROPFIND at the given depth ("0", "1" or "infinity").
+    // rawBody, when given, receives the response as sent.
     bool _propfind(const std::string &path, const char *depth,
-                   std::vector<DavEntry> &out);
+                   std::vector<DavEntry> &out, std::string *rawBody = NULL);
     bool _listDepthOne(const std::string &root, const std::string &prefix,
                        std::map<std::string, RemoteFileInfo> &out);
     bool _mkcol(const std::string &path);
