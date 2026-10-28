@@ -7,11 +7,11 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 | Google Drive | bidirectional | stable |
 | Dropbox | bidirectional | stable |
 | SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
-| FTP / FTPS | bidirectional | 🧪 experimental |
+| FTP / FTPS | bidirectional | stable |
 | WebDAV | bidirectional | 🧪 experimental |
 
 > 🧪 **Experimental** backends work but have had far less testing against real
-> servers than Google Drive. Keep a backup of your saves, and please report
+> servers than the stable ones. Keep a backup of your saves, and please report
 > anything that goes wrong at
 > [github.com/vllni/3DSync/issues](https://github.com/vllni/3DSync/issues) —
 > bug reports and feedback are what move a backend off this list. 3DSync also
@@ -140,8 +140,6 @@ SMB1 is not supported and does not need to be re-enabled.
 
 ### FTP / FTPS
 
-🧪 Experimental.
-
 ```ini
 [FTP]
 Host=192.168.1.10
@@ -165,6 +163,11 @@ without TLS and stays that way for the rest of the run; a [debug
 run](#debug-mode) says so. A **named user** never falls back, since that would
 send the password unencrypted right after the server refused it over TLS: the
 login fails, and if the server needs plaintext logins, set `TLS=none`.
+
+An anonymous server usually accepts uploads in one folder only — `pub` on a
+stock vsftpd — so point `Path=` there (e.g. `Path=pub/3ds`). Without it the
+first sync fails when the server refuses to create its folder, and the 3DS
+says so.
 
 SFTP is **not** supported: the 3DS build of libcurl has no libssh2.
 
