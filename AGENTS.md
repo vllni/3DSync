@@ -303,6 +303,7 @@ RemoteName=/LocalPath
 - Step 3 previews the file with `getConfigString(true)`, which masks passwords, secrets and tokens; the download uses `getConfigString(false)`.
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
+- The favicon is `docs/favicon.svg` (the two sync arrows from `meta/icon_3ds.png`, without the lettering, which is unreadable at 16 px). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) are rendered from it; regenerate both when it changes. Every page's `<head>` links all three.
 - INI generation is in `getConfigString()` in `index.js`. It reads `remoteSection` first, then the in-memory OAuth tokens and `localStorage` for the provider, client ID and folder ID.
 
 ## Pages and the Universal-Updater store

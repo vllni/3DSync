@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 3DSync's two chasing arrows (see meta/icon_3ds.png), without the
+       lettering, which cannot be read at favicon sizes. -->
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M52 26V18a6 6 0 0 0-6-6H18a6 6 0 0 0-6 6v2" stroke="#2B5CF5"/>
+    <path d="M12 38v8a6 6 0 0 0 6 6h28a6 6 0 0 0 6-6v-2" stroke="#E5262C"/>
+  </g>
+  <path d="M2 19h20L12 31z" fill="#2B5CF5"/>
+  <path d="M62 45H42l10-12z" fill="#E5262C"/>
+</svg>
