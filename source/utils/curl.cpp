@@ -1,12 +1,77 @@
 #include "curl.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
+
+#include <3ds.h>
 
 #include "../version.h"
 #include "debug.h"
+
+// ---------------------------------------------------------------------------
+// Closing a socket gracefully
+// ---------------------------------------------------------------------------
+// A plain close on the 3DS ends a TCP connection with a RST rather than a FIN,
+// discarding whatever is still in the send buffer.  An FTP upload in stream
+// mode has no end-of-file marker but the client's close, so vsftpd read the
+// RST as a failed transfer: "426 Failure reading network stream", with the
+// file short by whatever had not left the console yet.  So: send the FIN
+// after the buffered data (shutdown), wait briefly for the peer to close its
+// side, then close.  The wait is bounded, so a peer that never answers costs
+// at most CLOSE_DRAIN_MS.
+//
+// libcurl calls this for every socket it opened — the control connection,
+// the passive-mode data connection, every HTTP connection — but not for one
+// it accepted, so the data connection of Mode=active still closes the old
+// way.  For HTTP, whose responses carry their own length, it only makes the
+// close polite.  SMB goes through libsmb2, not libcurl.
+static const int CLOSE_DRAIN_MS = 1000;
+
+static int _closeGracefully(void *clientp, curl_socket_t fd)
+{
+    (void)clientp;
+    if (shutdown(fd, SHUT_WR) != 0)
+        debugf("socket %d: shutdown failed (errno %d), closing anyway\n", (int)fd, errno);
+    else
+    {
+        // Drain until the peer's FIN (recv() == 0), an error, or the deadline.
+        // Unread data at close is the other thing that makes a stack send RST.
+        char buf[512];
+        int left = CLOSE_DRAIN_MS;
+        while (left > 0)
+        {
+            struct pollfd p;
+            p.fd = fd;
+            p.events = POLLIN;
+            p.revents = 0;
+            u64 start = osGetTime();
+            int ready = poll(&p, 1, left);
+            left -= (int)(osGetTime() - start);
+            if (ready < 0)
+            {
+                debugf("socket %d: poll failed (errno %d) while draining\n", (int)fd, errno);
+                break;
+            }
+            if (ready == 0)
+                continue; // timed out; the loop condition ends it
+            ssize_t n = recv(fd, buf, sizeof(buf), 0);
+            if (n <= 0)
+            {
+                if (n < 0)
+                    debugf("socket %d: recv failed (errno %d) while draining\n", (int)fd,
+                           errno);
+                break;
+            }
+        }
+        if (left <= 0)
+            debugf("socket %d: peer did not close within %d ms\n", (int)fd, CLOSE_DRAIN_MS);
+    }
+    return closesocket(fd);
+}
 
 Curl::Curl() : _downloadFile(nullptr)
 {
@@ -32,6 +97,8 @@ void Curl::_applyDefaults()
     curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
     curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, _header_callback);
     curl_easy_setopt(_curl, CURLOPT_HEADERDATA, this);
+    // Re-applied after every reset(), so no connection is opened without it.
+    curl_easy_setopt(_curl, CURLOPT_CLOSESOCKETFUNCTION, _closeGracefully);
 
     // Options are re-applied after every reset(), so a run started in debug
     // mode traces every request without the handle having to be rebuilt.

@@ -24,6 +24,7 @@ public:
               FtpTlsMode tls, bool activeMode);
 
     const char *name() const override { return "FTP"; }
+    bool isExperimental() const override { return false; }
     std::string manifestPrefix() const override;
     bool connect() override;
     bool hasFatalError() const override;

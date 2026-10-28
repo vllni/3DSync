@@ -173,6 +173,24 @@ FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal)
     }
 }
 
+std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
+                                            const std::string &tempPath)
+{
+    std::string target = remotePath, temp = tempPath;
+    size_t slash = target.rfind('/');
+    if (slash != std::string::npos)
+        target.erase(0, slash + 1);
+    slash = temp.rfind('/');
+    if (slash != std::string::npos)
+        temp.erase(0, slash + 1);
+
+    std::vector<std::string> out;
+    out.push_back("*DELE " + target);
+    out.push_back("RNFR " + temp);
+    out.push_back("RNTO " + target);
+    return out;
+}
+
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path)
 {
