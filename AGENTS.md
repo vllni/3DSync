@@ -279,7 +279,12 @@ RemoteName=/LocalPath
 ## Configurator (docs/)
 
 - Pure static site — no server. Credentials are entered by the user (their own Google Cloud project). The client secret lives in `localStorage` only long enough to survive the OAuth redirect, and must be cleared from `localStorage` after `exchangeGoogleCode` succeeds.
-- INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
+- Step 1 is a picker over all five backends. Dropbox and Drive log in through OAuth and come back on a redirect, so their choice is kept in `localStorage` (`provider`). SMB, FTP and WebDAV are plain forms whose values live only in memory (`remoteSection` in `index.js`) — **never put their passwords in `localStorage`**; there is no redirect to survive. A typed-in remote chosen in the current visit wins over an OAuth login left in storage.
+- Every typed value goes through `iniValueProblem()`: inih ends a value at a `;` that follows whitespace and trims both ends, so such a value is refused with a reason rather than silently cut on the 3DS. Optional keys are written only when filled — an empty `User=` overrides the FTP default of `anonymous`, which the app applies only when the key is missing. Pasted forms (`\\nas\share\dir`, `ftps://user@host:port/dir`, a URL without a scheme) are split into the fields on blur.
+- Step 3 previews the file with `getConfigString(true)`, which masks passwords, secrets and tokens; the download uses `getConfigString(false)`.
+- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
+- All `target="_blank"` links must include `rel="noopener noreferrer"`.
+- INI generation is in `getConfigString()` in `index.js`. It reads `remoteSection` first, then `localStorage` for the OAuth provider, tokens and folder ID.
 
 ## Pages and the Universal-Updater store
 
