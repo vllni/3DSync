@@ -135,6 +135,8 @@ void Curl::setReadData(void *pointer, curl_off_t size)
 {
     curl_easy_setopt(_curl, CURLOPT_READFUNCTION, _read_callback);
     curl_easy_setopt(_curl, CURLOPT_READDATA, pointer);
+    curl_easy_setopt(_curl, CURLOPT_SEEKFUNCTION, _seek_callback);
+    curl_easy_setopt(_curl, CURLOPT_SEEKDATA, pointer);
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, NULL);
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE_LARGE, size);
@@ -303,6 +305,13 @@ void Curl::setUploadFile(FILE *fp, curl_off_t size)
     curl_easy_setopt(_curl, CURLOPT_UPLOAD, 1L);
     curl_easy_setopt(_curl, CURLOPT_READFUNCTION, _read_callback);
     curl_easy_setopt(_curl, CURLOPT_READDATA, fp);
+    // CURLAUTH_ANY sends the first request without credentials to learn the
+    // scheme, so the body goes out once, gets a 401, and has to be sent
+    // again.  Without a way to rewind it libcurl gives up with "Send failed
+    // since rewinding of the data stream failed" (curl 65) — on every WebDAV
+    // PUT, until a retry with the scheme already known got through.
+    curl_easy_setopt(_curl, CURLOPT_SEEKFUNCTION, _seek_callback);
+    curl_easy_setopt(_curl, CURLOPT_SEEKDATA, fp);
     curl_easy_setopt(_curl, CURLOPT_INFILESIZE_LARGE, size);
 }
 
@@ -368,6 +377,17 @@ size_t Curl::_read_callback(void *ptr, size_t size, size_t nmemb, void *userdata
     if (read < nmemb && ferror(readhere))
         debugf("upload: reading the local file failed: %s\n", strerror(errno));
     return read;
+}
+
+int Curl::_seek_callback(void *userdata, curl_off_t offset, int origin)
+{
+    FILE *fp = (FILE *)userdata;
+    if (fseek(fp, (long)offset, origin) != 0)
+    {
+        debugf("upload: cannot rewind the local file: %s\n", strerror(errno));
+        return CURL_SEEKFUNC_CANTSEEK;
+    }
+    return CURL_SEEKFUNC_OK;
 }
 
 size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userdata)
