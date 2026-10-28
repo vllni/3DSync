@@ -508,6 +508,14 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
                 printf(CONSOLE_RED "  the folder:" CONSOLE_RESET "\n");
                 printf("    %s\n", dir.c_str());
                 printf("  Check the FTP account may write there.\n");
+                if (isAnonymousFtpUser(_user))
+                {
+                    // The usual anonymous setup: read-only except for one
+                    // upload folder, which Path= has to point into.
+                    printf("  Anonymous FTP often allows uploads\n");
+                    printf("  only in one folder, such as pub —\n");
+                    printf("  set Path= in 3DSync.ini.\n");
+                }
             }
         }
         if (unclean)
