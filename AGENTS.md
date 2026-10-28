@@ -59,6 +59,8 @@ source/             C++ application source
   libs/inih/        INI parser (inih + INIReader)
 tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
 tests/              Host unit tests (see "Tests"), and preview.cpp
+testinfra/          Compose stack of SMB, FTP and WebDAV servers to sync a
+                    real 3DS against; its README has the settings per case
 docs/               Configurator static site
   index.html        Three-step stepper UI (auth → paths → download)
   static/js/index.js  All UI logic (PKCE OAuth, path config, INI generation)
