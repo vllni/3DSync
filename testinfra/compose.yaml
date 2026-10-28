@@ -1,0 +1,129 @@
+# Local servers for testing 3DSync's SMB, FTP and WebDAV remotes.
+# See README.md here for the matching 3DSync.ini sections.
+#
+# Every service runs on the host network, so a 3DS on the LAN reaches the
+# servers directly at HOST_IP, with no NAT in the way of passive or active
+# FTP. Each service is told its port through the environment instead.
+
+x-test-env: &test-env
+  HOST_IP: ${HOST_IP:?set HOST_IP in .env to this machine's LAN address}
+  TEST_USER: ${TEST_USER:-3dsync}
+  TEST_PASSWORD: ${TEST_PASSWORD:-3dsync}
+
+services:
+  # Explicit FTPS: AUTH TLS offered but not forced (TLS=none|try|require).
+  ftp:
+    build: ./ftp
+    image: localhost/3dsync-test-ftp
+    network_mode: host
+    environment:
+      <<: *test-env
+      FTP_MODE: explicit
+      FTP_LISTEN_PORT: ${FTP_PORT:-2121}
+      PASV_MIN: 30000
+      PASV_MAX: 30009
+    volumes:
+      - ftp-data:/srv/ftp
+    restart: unless-stopped
+
+  # Implicit FTPS (TLS=implicit).
+  ftps-implicit:
+    image: localhost/3dsync-test-ftp
+    network_mode: host
+    depends_on: [ftp]
+    environment:
+      <<: *test-env
+      FTP_MODE: implicit
+      FTP_LISTEN_PORT: ${FTPS_IMPLICIT_PORT:-2990}
+      PASV_MIN: 30010
+      PASV_MAX: 30019
+    volumes:
+      - ftps-implicit-data:/srv/ftp
+    restart: unless-stopped
+
+  # Plain FTP that never offers AUTH TLS: checks TLS=try falls back
+  # and TLS=require refuses.
+  ftp-plain:
+    image: localhost/3dsync-test-ftp
+    network_mode: host
+    depends_on: [ftp]
+    environment:
+      <<: *test-env
+      FTP_MODE: plain
+      FTP_LISTEN_PORT: ${FTP_PLAIN_PORT:-2122}
+      PASV_MIN: 30020
+      PASV_MAX: 30029
+    volumes:
+      - ftp-plain-data:/srv/ftp
+    restart: unless-stopped
+
+  # Anonymous-only FTP (explicit TLS offered): 3DSync.ini without User=.
+  ftp-anon:
+    image: localhost/3dsync-test-ftp
+    network_mode: host
+    depends_on: [ftp]
+    environment:
+      <<: *test-env
+      FTP_MODE: explicit
+      FTP_ANONYMOUS: "yes"
+      FTP_LISTEN_PORT: ${FTP_ANON_PORT:-2123}
+      PASV_MIN: 30030
+      PASV_MAX: 30039
+    volumes:
+      - ftp-anon-data:/srv/ftp
+    restart: unless-stopped
+
+  # Anonymous-only like ftp-anon, but with vsftpd's stock refusal of TLS for
+  # anonymous logins: AUTH TLS succeeds, then USER gets 530, and 3DSync's
+  # TLS=try has to fall back to plaintext.
+  ftp-anon-stock:
+    image: localhost/3dsync-test-ftp
+    network_mode: host
+    depends_on: [ftp]
+    environment:
+      <<: *test-env
+      FTP_MODE: explicit
+      FTP_ANONYMOUS: "yes"
+      FTP_ANON_SSL: "no"
+      FTP_LISTEN_PORT: ${FTP_ANON_STOCK_PORT:-2124}
+      PASV_MIN: 30040
+      PASV_MAX: 30049
+    volumes:
+      - ftp-anon-stock-data:/srv/ftp
+    restart: unless-stopped
+
+  # Shares "3ds", "3ds-encrypted" (SMB3 encryption required) and
+  # "3ds-public" (guest, no login).
+  smb:
+    build: ./smb
+    image: localhost/3dsync-test-smb
+    network_mode: host
+    environment:
+      <<: *test-env
+      SMB_PORT: ${SMB_PORT:-1445}
+    volumes:
+      - smb-data:/srv/smb
+    restart: unless-stopped
+
+  # /dav/ (Depth: infinity allowed), /dav-nodepth/ (refused) and
+  # /dav-anon/ (no login) over HTTP and HTTPS.
+  webdav:
+    build: ./webdav
+    image: localhost/3dsync-test-webdav
+    network_mode: host
+    environment:
+      <<: *test-env
+      WEBDAV_HTTP_PORT: ${WEBDAV_HTTP_PORT:-8080}
+      WEBDAV_HTTPS_PORT: ${WEBDAV_HTTPS_PORT:-8443}
+    volumes:
+      - webdav-data:/srv/webdav
+    restart: unless-stopped
+
+volumes:
+  ftp-data:
+  ftps-implicit-data:
+  ftp-plain-data:
+  ftp-anon-data:
+  ftp-anon-stock-data:
+  smb-data:
+  webdav-data:
