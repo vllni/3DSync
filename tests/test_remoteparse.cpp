@@ -419,3 +419,49 @@ TEST(ftptls, only_a_denied_login_falls_back)
 {
     CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_TRY, "anonymous", false));
 }
+
+// ---------------------------------------------------------------------------
+// FTP: what a refused path means
+// ---------------------------------------------------------------------------
+// libcurl CWDs into a directory before listing it and reports a 550 as
+// CURLE_REMOTE_ACCESS_DENIED, never as "not found" — every server in
+// testinfra/ does this for a folder that does not exist yet:
+//
+//   curl -u u:p "ftp://host/missing/*"   -> rc 9 (CWD refused)
+//   curl -u u:p "ftp://host/missing.txt" -> rc 78 (file not found)
+
+TEST(ftprefusal, refused_cwd_while_listing_is_an_empty_folder)
+{
+    // The sync folder on a first sync: FTP creates it only at upload.
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_DIRECTORY), FTP_OUTCOME_EMPTY);
+}
+
+TEST(ftprefusal, refused_cwd_into_the_base_path_is_an_empty_folder)
+{
+    // connect() lists Path= the same way, so Path=does/not/exist/yet goes on.
+    CHECK(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_DIRECTORY) != FTP_OUTCOME_FATAL);
+}
+
+TEST(ftprefusal, file_not_found_while_listing_is_an_empty_folder)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_FILE), FTP_OUTCOME_EMPTY);
+}
+
+TEST(ftprefusal, refused_folder_at_upload_fails_that_file_only)
+{
+    // Where a forbidden folder surfaces, since listing cannot tell it from a
+    // missing one.  Never "empty": that would read as a successful upload.
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_UPLOAD, FTP_REFUSED_DIRECTORY),
+             FTP_OUTCOME_THIS_FILE);
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_UPLOAD, FTP_REFUSED_FILE), FTP_OUTCOME_THIS_FILE);
+}
+
+TEST(ftprefusal, missing_file_at_download_fails_that_file_only)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_FILE, FTP_REFUSED_FILE), FTP_OUTCOME_THIS_FILE);
+}
+
+TEST(ftprefusal, refused_folder_of_a_listed_file_stops_the_run)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_FILE, FTP_REFUSED_DIRECTORY), FTP_OUTCOME_FATAL);
+}

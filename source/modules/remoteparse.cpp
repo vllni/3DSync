@@ -150,6 +150,20 @@ bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool log
     return loginDenied && mode == FTP_TLS_TRY && isAnonymousFtpUser(user);
 }
 
+FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal)
+{
+    switch (request)
+    {
+    case FTP_REQUEST_LIST:
+        return FTP_OUTCOME_EMPTY;
+    case FTP_REQUEST_UPLOAD:
+        return FTP_OUTCOME_THIS_FILE;
+    case FTP_REQUEST_FILE:
+    default:
+        return refusal == FTP_REFUSED_FILE ? FTP_OUTCOME_THIS_FILE : FTP_OUTCOME_FATAL;
+    }
+}
+
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path)
 {

@@ -78,6 +78,43 @@ bool isAnonymousFtpUser(const std::string &user);
 // currently in effect, so once TLS has been dropped this says no again.
 bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied);
 
+// What an FTP request was for, as far as a refusal is concerned.
+enum FtpRequest
+{
+    FTP_REQUEST_LIST,   // listing a directory, including the Path= check in connect()
+    FTP_REQUEST_UPLOAD, // STOR, which creates missing directories on the way
+    FTP_REQUEST_FILE    // RETR of a listed file, or its MDTM/SIZE
+};
+
+// The two refusals that are about one path rather than the whole session.
+enum FtpPathRefusal
+{
+    // A directory could not be entered or created.  libcurl CWDs into every
+    // directory on the way and reports a 550 to any of them, or to the MKD it
+    // sends for CURLOPT_FTP_CREATE_MISSING_DIRS, as CURLE_REMOTE_ACCESS_DENIED
+    // — never as "not found".  FTP gives a missing directory and a forbidden
+    // one the same 550, so this cannot tell them apart.
+    FTP_REFUSED_DIRECTORY,
+    // The directory is there but the file is not: CURLE_REMOTE_FILE_NOT_FOUND
+    // or CURLE_FTP_COULDNT_RETR_FILE.
+    FTP_REFUSED_FILE
+};
+
+enum FtpRefusalOutcome
+{
+    FTP_OUTCOME_EMPTY,     // nothing there yet: an empty listing, said only through debugf()
+    FTP_OUTCOME_THIS_FILE, // this file fails and the run goes on; the caller reports it
+    FTP_OUTCOME_FATAL      // stop the run
+};
+
+// A listing reads a refused directory as "nothing there yet": the sync folder
+// is missing on every first sync, since FTP creates directories only when it
+// uploads into them.  A forbidden folder then surfaces at upload, where the MKD
+// or the STOR fails, and costs that one file — the other files and the other
+// [Paths] entries may well be writable.  Reading a file that was just listed
+// from a directory the server refuses is not a first-sync case, so it stops.
+FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal);
+
 // Build an FTP URL for a path relative to the login directory.
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);
