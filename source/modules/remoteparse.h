@@ -132,6 +132,18 @@ enum FtpRefusalOutcome
 // from a directory the server refuses is not a first-sync case, so it stops.
 FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal);
 
+// The commands that move an uploaded temp file over the real one: DELE (marked
+// '*' so its failure is ignored — the file is absent on a first upload), RNFR,
+// RNTO.  remotePath and tempPath are relative to the login directory.
+//
+// libcurl sends CURLOPT_POSTQUOTE *after* it has CWD'd into the file's
+// directory, so those commands must name the file alone; a path from the login
+// directory would be looked up below the directory it is already in, and RNFR
+// fails.  CURLOPT_QUOTE is sent before any CWD and takes the full path.
+// inFileDirectory selects between the two.
+std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
+                                            const std::string &tempPath, bool inFileDirectory);
+
 // Build an FTP URL for a path relative to the login directory.
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);

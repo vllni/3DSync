@@ -159,6 +159,26 @@ bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool log
     return loginDenied && mode == FTP_TLS_TRY && isAnonymousFtpUser(user);
 }
 
+std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
+                                            const std::string &tempPath, bool inFileDirectory)
+{
+    std::string target = remotePath, temp = tempPath;
+    if (inFileDirectory)
+    {
+        size_t slash = target.rfind('/');
+        if (slash != std::string::npos)
+            target.erase(0, slash + 1);
+        slash = temp.rfind('/');
+        if (slash != std::string::npos)
+            temp.erase(0, slash + 1);
+    }
+    std::vector<std::string> out;
+    out.push_back("*DELE " + target);
+    out.push_back("RNFR " + temp);
+    out.push_back("RNTO " + target);
+    return out;
+}
+
 FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal)
 {
     switch (request)

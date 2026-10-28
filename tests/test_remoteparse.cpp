@@ -496,3 +496,36 @@ TEST(webdavmkcol, a_network_error_is_not_a_status)
     CHECK_EQ(webdavMkcolResult(28, 405), WEBDAV_MKCOL_FAILED);
     CHECK_EQ(webdavMkcolResult(-1, 405), WEBDAV_MKCOL_FAILED);
 }
+
+// ---------------------------------------------------------------------------
+// FTP: moving an upload into place
+// ---------------------------------------------------------------------------
+// Checked against a server with the curl CLI: POSTQUOTE runs after
+// "CWD saves", so "RNFR saves/a.sav.3dstmp" is answered 550 and the upload
+// fails; "RNFR a.sav.3dstmp" works.
+
+TEST(ftpreplace, after_the_transfer_names_the_file_alone)
+{
+    std::vector<std::string> c =
+        ftpReplaceCommands("saves/Game/a b.sav", "saves/Game/a b.sav.3dstmp", true);
+    CHECK_EQ(c.size(), (size_t)3);
+    CHECK_STR_EQ(c[0], "*DELE a b.sav");
+    CHECK_STR_EQ(c[1], "RNFR a b.sav.3dstmp");
+    CHECK_STR_EQ(c[2], "RNTO a b.sav");
+}
+
+TEST(ftpreplace, before_any_cwd_names_the_full_path)
+{
+    std::vector<std::string> c =
+        ftpReplaceCommands("saves/Game/a.sav", "saves/Game/a.sav.3dstmp", false);
+    CHECK_STR_EQ(c[0], "*DELE saves/Game/a.sav");
+    CHECK_STR_EQ(c[1], "RNFR saves/Game/a.sav.3dstmp");
+    CHECK_STR_EQ(c[2], "RNTO saves/Game/a.sav");
+}
+
+TEST(ftpreplace, a_file_in_the_login_directory)
+{
+    std::vector<std::string> c = ftpReplaceCommands("a.sav", "a.sav.3dstmp", true);
+    CHECK_STR_EQ(c[1], "RNFR a.sav.3dstmp");
+    CHECK_STR_EQ(c[2], "RNTO a.sav");
+}
