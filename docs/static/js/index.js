@@ -540,6 +540,17 @@ $(function () {
                 setFieldError($('#ftp-host'), 'Just the host name or address');
                 ok = false;
             }
+            // An anonymous login (no User, or the names servers take as one)
+            // can rarely write to the directory it starts in: stock servers
+            // allow uploads in one folder such as pub/, and without Path= the
+            // first sync fails on the 3DS when it cannot create its folder.
+            let anonymous = /^(anonymous|ftp)?$/i.test($('#ftp-user').val());
+            if (anonymous && $('#ftp-path').val().replace(/^\/+|\/+$/g, '') === '' &&
+                !iniValueProblem($('#ftp-path').val())) {
+                setFieldError($('#ftp-path'), 'Required for anonymous FTP: the folder uploads are '
+                    + 'allowed in, e.g. pub');
+                ok = false;
+            }
             if (!ok) return null;
             return {
                 section: 'FTP',
