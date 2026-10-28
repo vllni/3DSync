@@ -134,15 +134,17 @@ FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal);
 
 // The commands that move an uploaded temp file over the real one: DELE (marked
 // '*' so its failure is ignored — the file is absent on a first upload), RNFR,
-// RNTO.  remotePath and tempPath are relative to the login directory.
+// RNTO.  remotePath and tempPath are relative to the login directory; both are
+// in the same directory.
 //
-// libcurl sends CURLOPT_POSTQUOTE *after* it has CWD'd into the file's
-// directory, so those commands must name the file alone; a path from the login
-// directory would be looked up below the directory it is already in, and RNFR
-// fails.  CURLOPT_QUOTE is sent before any CWD and takes the full path.
-// inFileDirectory selects between the two.
+// They are sent as CURLOPT_POSTQUOTE, which libcurl sends *after* it has CWD'd
+// into the directory of the request's URL, so they name the file alone: a path
+// from the login directory would be looked up below the directory the session
+// is already in, and RNFR fails.  Nor can a path from the login directory be
+// sent before a CWD (CURLOPT_QUOTE): a reused connection starts the request
+// wherever the last one left it.
 std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
-                                            const std::string &tempPath, bool inFileDirectory);
+                                            const std::string &tempPath);
 
 // vsftpd 3.x (strict_ssl_read_eof, on by default) refuses an upload whose TLS
 // data connection ends without a close_notify, with 426 after the data has

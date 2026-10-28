@@ -417,18 +417,23 @@ bool FtpRemote::_finishUncleanUpload(const std::string &remotePath,
         return false;
     }
 
-    // The post-quote never ran, so send the same DELE/RNFR/RNTO on their own:
-    // a QUOTE on the login directory, before any CWD, so full paths.
+    // The post-quote never ran, so send the same DELE/RNFR/RNTO on their own,
+    // after a request for the file's directory with no transfer: libcurl CWDs
+    // there first, even on a connection the last request left elsewhere.
     struct curl_slist *quote = NULL;
-    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote, false))
+    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote))
         quote = curl_slist_append(quote, command.c_str());
 
+    size_t slash = remotePath.rfind('/');
+    std::string dirUrl = (slash == std::string::npos)
+                             ? _urlFor("")
+                             : _urlFor(remotePath.substr(0, slash)) + "/";
     _prepare();
-    _curl.setURL(_urlFor(""));
+    _curl.setURL(dirUrl);
     _curl.setNoBody(true);
-    _curl.setQuote(quote);
+    _curl.setPostQuote(quote);
     int res = _performWithRetry(FTP_REQUEST_FILE);
-    _curl.setQuote(NULL);
+    _curl.setPostQuote(NULL);
     curl_slist_free_all(quote);
 
     debugf("%s: all %lld bytes arrived despite the 426; rename %s\n", tmpRemote.c_str(),
@@ -465,7 +470,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     // replace on every server, so the old file is removed first.  These run
     // after the transfer, in the file's directory — see ftpReplaceCommands().
     struct curl_slist *quote = NULL;
-    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote, true))
+    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote))
         quote = curl_slist_append(quote, command.c_str());
 
     _prepare();
