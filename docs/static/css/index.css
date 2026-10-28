@@ -371,3 +371,27 @@ main {
     font-size: 1.3rem;
     opacity: 0.8;
 }
+
+/* --- Configurator: least-privilege tips -------------------------------- */
+.privilege-tip {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 0.85em;
+    line-height: 1.5;
+    margin: 0 0 16px 0;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.15);
+}
+
+.privilege-tip .material-icons {
+    flex: none;
+    font-size: 1.2rem;
+    color: #b9f6ca;
+}
+
+.privilege-tip a {
+    color: #fff;
+    text-decoration: underline;
+}

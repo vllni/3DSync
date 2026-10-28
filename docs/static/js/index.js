@@ -1,6 +1,25 @@
 $(function () {
     const DEFAULT_DROPBOX_CLIENT_ID = 'y88zxdudhuoo41q';
 
+    // --- Secrets live in memory ---
+    // The Google client secret has to cross the redirect to Google and back,
+    // so it is put in localStorage just before leaving; the tokens are fetched
+    // on the page that comes back and never need to be stored at all.  Every
+    // load moves whatever is there into memory and deletes it, so closing the
+    // tab forgets them — including what older versions of this page left
+    // behind for good.
+    const SECRET_KEYS = ['gdriveClientSecret', 'gdriveRefreshToken', 'dropboxRefreshToken', 'dropboxToken'];
+    const secrets = {};
+    SECRET_KEYS.forEach(function (k) {
+        let v = localStorage.getItem(k);
+        if (v !== null) secrets[k] = v;
+        localStorage.removeItem(k);
+    });
+
+    function secret(k) {
+        return secrets[k] || null;
+    }
+
     let queryParams = new URLSearchParams(window.location.search);
     let authCode = queryParams.get('code');
     let authState = queryParams.get('state');
@@ -72,7 +91,7 @@ $(function () {
 
     async function exchangeGoogleCode(code, codeVerifier) {
         let clientId = localStorage.getItem('gdriveClientId');
-        let clientSecret = localStorage.getItem('gdriveClientSecret');
+        let clientSecret = secret('gdriveClientSecret');
         let redirectUri = window.location.origin + window.location.pathname;
         try {
             let response = await fetch('https://oauth2.googleapis.com/token', {
@@ -89,7 +108,7 @@ $(function () {
             });
             let data = await response.json();
             if (data.refresh_token) {
-                localStorage.setItem('gdriveRefreshToken', data.refresh_token);
+                secrets.gdriveRefreshToken = data.refresh_token;
                 return true;
             }
             console.error('No refresh_token in response:', data);
@@ -118,8 +137,8 @@ $(function () {
             // token_access_type=offline is what makes Dropbox return this; a
             // bare access token would expire after about four hours.
             if (data.refresh_token) {
-                localStorage.setItem('dropboxRefreshToken', data.refresh_token);
-                localStorage.removeItem('dropboxToken');
+                secrets.dropboxRefreshToken = data.refresh_token;
+                delete secrets.dropboxToken;
                 return true;
             }
             console.error('No refresh_token in response:', data);
@@ -275,9 +294,9 @@ $(function () {
 
     function oauthLoggedIn(provider) {
         if (provider === 'dropbox')
-            return !!(localStorage.getItem('dropboxRefreshToken') || localStorage.getItem('dropboxToken'));
+            return !!(secret('dropboxRefreshToken') || secret('dropboxToken'));
         if (provider === 'googledrive')
-            return !!localStorage.getItem('gdriveRefreshToken');
+            return !!secret('gdriveRefreshToken');
         return false;
     }
 
@@ -584,8 +603,8 @@ $(function () {
 
     async function testDropbox() {
         if (!oauthLoggedIn('dropbox')) throw testError('fail', 'Log in with Dropbox first.');
-        let token = localStorage.getItem('dropboxToken');
-        let refresh = localStorage.getItem('dropboxRefreshToken');
+        let token = secret('dropboxToken');
+        let refresh = secret('dropboxRefreshToken');
         if (refresh) {
             // What the 3DS does on every run: trade the refresh token for an
             // access token.
@@ -616,9 +635,9 @@ $(function () {
         if (!oauthLoggedIn('googledrive')) throw testError('fail', 'Log in with Google Drive first.');
         let r = await postForm('https://oauth2.googleapis.com/token', {
             grant_type: 'refresh_token',
-            refresh_token: localStorage.getItem('gdriveRefreshToken'),
+            refresh_token: secret('gdriveRefreshToken'),
             client_id: localStorage.getItem('gdriveClientId'),
-            client_secret: localStorage.getItem('gdriveClientSecret')
+            client_secret: secret('gdriveClientSecret')
         });
         if (!r.data.access_token) {
             let reason = {
@@ -763,8 +782,8 @@ $(function () {
         };
         if (provider === 'googledrive') {
             let clientId = localStorage.getItem('gdriveClientId');
-            let clientSecret = localStorage.getItem('gdriveClientSecret');
-            let refreshToken = localStorage.getItem('gdriveRefreshToken');
+            let clientSecret = secret('gdriveClientSecret');
+            let refreshToken = secret('gdriveRefreshToken');
             let folderId = localStorage.getItem('gdriveFolderId');
             let config = '[GoogleDrive]\nClientId=' + clientId
                 + '\nClientSecret=' + hide(clientSecret)
@@ -774,7 +793,7 @@ $(function () {
             }
             return config + '\n' + pathSections;
         } else {
-            let refreshToken = localStorage.getItem('dropboxRefreshToken');
+            let refreshToken = secret('dropboxRefreshToken');
             let config;
             if (refreshToken) {
                 config = '[Dropbox]\nAppKey=' + localStorage.getItem('dropboxClientId')
@@ -782,7 +801,7 @@ $(function () {
             } else {
                 // Only reachable for a session that authenticated before the
                 // refresh-token flow; such a token expires in about 4 hours.
-                config = '[Dropbox]\nToken=' + hide(localStorage.getItem('dropboxToken'));
+                config = '[Dropbox]\nToken=' + hide(secret('dropboxToken'));
             }
             return config + '\n' + pathSections;
         }
