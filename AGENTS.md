@@ -204,7 +204,7 @@ Top screen: the log. Bottom screen: a header, a card saying what is happening, t
 
 Everything the engine needs from a backend is in `SyncProvider` (`source/modules/syncprovider.h`): `connect`, `ensureRoot`, `list`, `download`, `upload`, `hasFatalError`, and the optional `localTag` / `serverTime` / `legacyUpload` / `isExperimental`. A new protocol means one new module and three lines in `runSync()`; `performSync()` should not need to change.
 
-`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. `GoogleDrive`, `Dropbox`, `FtpRemote` and `WebDavRemote` override it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer.
+`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. Every backend so far (`GoogleDrive`, `Dropbox`, `SmbRemote`, `FtpRemote`, `WebDavRemote`) overrides it to false. The notice, the `.experimental-badge` / `.experimental-notice` styles in `index.css` and `printExperimentalNotice()` stay for the next one; mark a new backend experimental again in the same four places. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer.
 
 Flipping a backend to stable is four edits, and all four should move together: the `isExperimental()` override, the status table at the top of `README.md`, the section note under its INI example there, and the badge on `docs/index.html` (plus `docs/configurator.html` for a backend the configurator can write).
 
