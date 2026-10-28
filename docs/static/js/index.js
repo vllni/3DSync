@@ -259,8 +259,252 @@ $(function () {
             + '&code_challenge_method=S256';
     });
 
+    // --- Backend picker ---
+    // One remote per generated file.  Dropbox and Drive go through OAuth and
+    // come back on a redirect, so their choice survives in localStorage
+    // ('provider'); SMB, FTP and WebDAV are typed in and kept only in memory
+    // (remoteSection), so their passwords never touch browser storage.
+    let remoteSection = null; // { provider, section, entries: [[key, value], ...] }
+
+    function showProvider(provider) {
+        $('.provider-tab').removeClass('active').attr('aria-selected', 'false');
+        $('.provider-tab[data-provider="' + provider + '"]').addClass('active').attr('aria-selected', 'true');
+        $('.provider-panel').removeClass('active');
+        $('.provider-panel[data-provider="' + provider + '"]').addClass('active');
+        M.updateTextFields();
+    }
+
+    $('.provider-tab').on('click', function (e) {
+        e.preventDefault();
+        showProvider($(this).data('provider'));
+    });
+
+    showProvider(localStorage.getItem('provider') || 'dropbox');
+
+    // 3DSync reads the file with inih, which ends a value at a ';' that
+    // follows whitespace (an inline comment) and trims spaces at both ends.
+    // A value it would change is refused here rather than mangled on the 3DS,
+    // where the only symptom would be a failed login.
+    function iniValueProblem(value) {
+        if (/[\r\n]/.test(value)) return 'Cannot contain a line break';
+        if (/\s;/.test(value)) return 'A ";" after a space would cut the value short in 3DSync.ini';
+        if (value !== value.trim()) return 'Leading or trailing spaces would be dropped';
+        return null;
+    }
+
+    function setFieldError($input, message) {
+        let $helper = $input.siblings('.helper-text');
+        if (message) {
+            $input.addClass('invalid').removeClass('valid');
+            $helper.attr('data-error', message);
+        } else {
+            $input.removeClass('invalid');
+            $helper.attr('data-error', '');
+        }
+    }
+
+    // Validates every field of a form; returns false and marks the fields
+    // when anything is wrong.  `required` lists ids that must not be empty.
+    function checkFields(ids, required) {
+        let ok = true;
+        ids.forEach(function (id) {
+            let $input = $('#' + id);
+            let value = $input.val();
+            let problem = iniValueProblem(value);
+            if (!problem && required.indexOf(id) >= 0 && value === '') problem = 'Required';
+            setFieldError($input, problem);
+            if (problem) ok = false;
+        });
+        return ok;
+    }
+
+    function setVal(id, value) {
+        $('#' + id).val(value);
+        M.updateTextFields();
+    }
+
+    function trimField(id) {
+        let $input = $('#' + id);
+        // Passwords are left alone: a space in one is significant, and
+        // iniValueProblem() reports it instead of silently changing it.
+        if ($input.attr('type') !== 'password') $input.val($input.val().trim());
+    }
+
+    // "\\nas\saves\3ds", "smb://nas/saves/3ds" or "nas/saves" typed as the
+    // server: split into server, share and folder, filling the fields that are
+    // still empty.
+    function normalizeSmb() {
+        let server = $('#smb-server').val().replace(/^smb:\/\//i, '').replace(/\\/g, '/').replace(/^\/+/, '');
+        let parts = server.split('/').filter(function (p) { return p !== ''; });
+        if (parts.length > 1) {
+            setVal('smb-server', parts[0]);
+            if ($('#smb-share').val() === '') setVal('smb-share', parts[1]);
+            if (parts.length > 2 && $('#smb-path').val() === '') setVal('smb-path', parts.slice(2).join('/'));
+        } else {
+            setVal('smb-server', parts[0] || '');
+        }
+        let share = $('#smb-share').val().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+        let shareParts = share.split('/');
+        setVal('smb-share', shareParts[0]);
+        if (shareParts.length > 1 && $('#smb-path').val() === '') setVal('smb-path', shareParts.slice(1).join('/'));
+        setVal('smb-path', $('#smb-path').val().replace(/\\/g, '/'));
+    }
+
+    // "ftp://user@host:2121/dir" or "host:2121" typed as the host.  ftps://
+    // means implicit TLS, and is taken as such unless TLS was already chosen.
+    function normalizeFtp() {
+        let host = $('#ftp-host').val();
+        let m = host.match(/^(ftps?):\/\/(?:([^@\/]*)@)?([^\/:]+)(?::(\d+))?(\/.*)?$/i);
+        if (m) {
+            if (m[1].toLowerCase() === 'ftps' && $('#ftp-tls').val() === 'try') $('#ftp-tls').val('implicit');
+            if (m[2] && $('#ftp-user').val() === '') setVal('ftp-user', decodeURIComponent(m[2].split(':')[0]));
+            if (m[4] && $('#ftp-port').val() === '') setVal('ftp-port', m[4]);
+            if (m[5] && m[5] !== '/' && $('#ftp-path').val() === '') setVal('ftp-path', decodeURIComponent(m[5]));
+            setVal('ftp-host', m[3]);
+        } else {
+            let hp = host.match(/^([^\/:]+):(\d+)$/);
+            if (hp) {
+                if ($('#ftp-port').val() === '') setVal('ftp-port', hp[2]);
+                setVal('ftp-host', hp[1]);
+            }
+        }
+        updateFtpNote();
+    }
+
+    function updateFtpNote() {
+        let tls = $('#ftp-tls').val();
+        let notes = {
+            try: '',
+            require: '',
+            implicit: 'Implicit TLS is the older ftps:// scheme, normally on port 990. Most servers today use '
+                + 'explicit TLS instead &mdash; pick that unless yours says otherwise.',
+            none: 'Without TLS, the password and every file cross the network unencrypted. Only use this on a '
+                + 'network you trust.'
+        };
+        $('#ftp-tls-note').html(notes[tls]).toggleClass('warn', tls === 'none');
+    }
+
+    $('#ftp-tls').on('change', updateFtpNote);
+
+    // No scheme means https; the 3DS needs the trailing slash to treat the
+    // URL as a folder, and adds one anyway, so it is shown here too.
+    function normalizeWebdav() {
+        let url = $('#webdav-url').val();
+        if (url !== '' && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = 'https://' + url;
+        if (url !== '' && !url.endsWith('/')) url += '/';
+        setVal('webdav-url', url);
+        updateWebdavNote();
+    }
+
+    function updateWebdavNote() {
+        let url = $('#webdav-url').val();
+        let plain = /^http:\/\//i.test(url);
+        $('#webdav-url-note')
+            .html(plain ? 'This is plain http: the password and every file cross the network unencrypted. '
+                + 'Use https if the server offers it.' : '')
+            .toggleClass('warn', plain);
+    }
+
+    $('#smb-server, #smb-share').on('blur', normalizeSmb);
+    $('#ftp-host').on('blur', normalizeFtp);
+    $('#webdav-url').on('blur', normalizeWebdav);
+
+    // Only the keys that have a value are written: an empty "User=" would
+    // override the app's defaults (FTP falls back to anonymous only when the
+    // key is missing altogether).
+    function entriesFrom(pairs) {
+        return pairs.filter(function (p) { return p[1] !== ''; });
+    }
+
+    const remoteForms = {
+        smb: function () {
+            ['smb-server', 'smb-share', 'smb-user', 'smb-domain', 'smb-path'].forEach(trimField);
+            normalizeSmb();
+            if (!checkFields(['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
+                ['smb-server', 'smb-share'])) return null;
+            return {
+                section: 'SMB',
+                entries: entriesFrom([
+                    ['Server', $('#smb-server').val()],
+                    ['Share', $('#smb-share').val()],
+                    ['User', $('#smb-user').val()],
+                    ['Password', $('#smb-password').val()],
+                    ['Domain', $('#smb-domain').val()],
+                    ['Path', $('#smb-path').val()]
+                ])
+            };
+        },
+        ftp: function () {
+            ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-path'].forEach(trimField);
+            normalizeFtp();
+            let ok = checkFields(['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path'], ['ftp-host']);
+            let port = $('#ftp-port').val();
+            if (port !== '' && !(/^\d+$/.test(port) && +port >= 1 && +port <= 65535)) {
+                setFieldError($('#ftp-port'), 'A number from 1 to 65535');
+                ok = false;
+            }
+            if (/:\/\//.test($('#ftp-host').val()) || /[\/\s]/.test($('#ftp-host').val())) {
+                setFieldError($('#ftp-host'), 'Just the host name or address');
+                ok = false;
+            }
+            if (!ok) return null;
+            return {
+                section: 'FTP',
+                entries: entriesFrom([
+                    ['Host', $('#ftp-host').val()],
+                    ['Port', port],
+                    ['User', $('#ftp-user').val()],
+                    ['Password', $('#ftp-password').val()],
+                    ['Path', $('#ftp-path').val()],
+                    ['TLS', $('#ftp-tls').val()],
+                    ['Mode', $('#ftp-mode').val()]
+                ])
+            };
+        },
+        webdav: function () {
+            ['webdav-url', 'webdav-user'].forEach(trimField);
+            normalizeWebdav();
+            let ok = checkFields(['webdav-url', 'webdav-user', 'webdav-password'], ['webdav-url']);
+            if (ok && !/^https?:\/\/[^\/\s]+\//i.test($('#webdav-url').val())) {
+                setFieldError($('#webdav-url'), 'An http:// or https:// address');
+                ok = false;
+            }
+            if (!ok) return null;
+            return {
+                section: 'WebDAV',
+                entries: entriesFrom([
+                    ['Url', $('#webdav-url').val()],
+                    ['User', $('#webdav-user').val()],
+                    ['Password', $('#webdav-password').val()]
+                ])
+            };
+        }
+    };
+
+    $('.remote-continue').on('click', function (e) {
+        e.preventDefault();
+        let provider = $(this).data('provider');
+        let section = remoteForms[provider]();
+        if (section === null) {
+            $('.provider-panel.active .invalid').first().focus();
+            return;
+        }
+        section.provider = provider;
+        remoteSection = section;
+        stepperInstace.nextStep();
+    });
+
     // --- Config generation ---
-    function getConfigString() {
+    function remoteSectionString(masked) {
+        let secret = /^(password|clientsecret|appsecret|refreshtoken|token)$/i;
+        let lines = ['[' + remoteSection.section + ']'];
+        remoteSection.entries.forEach(function (kv) {
+            lines.push(kv[0] + '=' + (masked && secret.test(kv[0]) ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : kv[1]));
+        });
+        return lines.join('\n');
+    }
+
+    function getConfigString(masked) {
         let provider = localStorage.getItem('provider');
         let strPaths = '';
         let strShallowPaths = '';
@@ -279,44 +523,51 @@ $(function () {
                 else strShallowPaths += name + '=' + localPath + '\n';
             }
         });
+        let pathSections = '';
+        if (strPaths) pathSections += '\n[Paths]\n' + strPaths;
+        if (strShallowPaths) pathSections += '\n[ShallowPaths]\n' + strShallowPaths;
+        if (strUploadPaths) pathSections += '\n[UploadPaths]\n' + strUploadPaths;
+        if (strUploadShallowPaths) pathSections += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
+
+        // A typed-in remote chosen in this visit wins over an OAuth login
+        // left in localStorage by an earlier one.
+        if (remoteSection !== null) {
+            return remoteSectionString(masked) + '\n' + pathSections;
+        }
+
+        let hide = function (value) {
+            return masked ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : value;
+        };
         if (provider === 'googledrive') {
             let clientId = localStorage.getItem('gdriveClientId');
             let clientSecret = localStorage.getItem('gdriveClientSecret');
             let refreshToken = localStorage.getItem('gdriveRefreshToken');
             let folderId = localStorage.getItem('gdriveFolderId');
             let config = '[GoogleDrive]\nClientId=' + clientId
-                + '\nClientSecret=' + clientSecret
-                + '\nRefreshToken=' + refreshToken;
+                + '\nClientSecret=' + hide(clientSecret)
+                + '\nRefreshToken=' + hide(refreshToken);
             if (folderId) {
                 config += '\nFolderId=' + folderId;
             }
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
-            if (strUploadPaths) config += '\n[UploadPaths]\n' + strUploadPaths;
-            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
-            return config;
+            return config + '\n' + pathSections;
         } else {
             let refreshToken = localStorage.getItem('dropboxRefreshToken');
             let config;
             if (refreshToken) {
                 config = '[Dropbox]\nAppKey=' + localStorage.getItem('dropboxClientId')
-                    + '\nRefreshToken=' + refreshToken;
+                    + '\nRefreshToken=' + hide(refreshToken);
             } else {
                 // Only reachable for a session that authenticated before the
                 // refresh-token flow; such a token expires in about 4 hours.
-                config = '[Dropbox]\nToken=' + localStorage.getItem('dropboxToken');
+                config = '[Dropbox]\nToken=' + hide(localStorage.getItem('dropboxToken'));
             }
-            if (strPaths) config += '\n[Paths]\n' + strPaths;
-            if (strShallowPaths) config += '\n[ShallowPaths]\n' + strShallowPaths;
-            if (strUploadPaths) config += '\n[UploadPaths]\n' + strUploadPaths;
-            if (strUploadShallowPaths) config += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
-            return config;
+            return config + '\n' + pathSections;
         }
     }
 
     $('#download-config').on('click', function (e) {
         e.preventDefault();
-        let blob = new Blob([getConfigString()], { type: "application/octet-stream;charset=utf-8" });
+        let blob = new Blob([getConfigString(false)], { type: "application/octet-stream;charset=utf-8" });
         const fileStream = streamSaver.createWriteStream('3DSync.ini', {
             size: blob.size
         });
@@ -417,6 +668,7 @@ $(function () {
             }
         });
         if (error === false) {
+            $('#config-preview').text(getConfigString(true));
             stepperInstace.nextStep();
         }
     });

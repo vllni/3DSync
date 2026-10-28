@@ -47,8 +47,18 @@ source/             C++ application source
     debug.cpp/h     Runtime debug flag, debugf(), body dumps, secret redaction,
                     the captured session log
     console.h       CONSOLE_* colours, from <3ds.h> or defined for the host
+  ui/               Both screens — see "On-device UI"
+    frontend.cpp/h  3DS glue: framebuffers, stdout, input loop, sync thread,
+                    prompts, WorkerSyncUi.  The only ui/ file with <3ds.h>.
+    screens.cpp/h   Layouts, touch buttons (each mapped to a KEY_* bit), drawing
+    logbuffer.cpp/h Scrollback: ANSI colours, word wrap, bounded history; and
+                    LogScroll, the view position
+    touchinput.cpp/h  Stylus -> key bits (tap on release, repeat, drag)
+    canvas.cpp/h    Software RGB565 drawing, anti-aliased text, UTF-8
+    font.h, fontdata.cpp  Glyph tables; fontdata.cpp is generated
   libs/inih/        INI parser (inih + INIReader)
-tests/              Host unit tests (see "Tests")
+tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
+tests/              Host unit tests (see "Tests"), and preview.cpp
 docs/               Configurator static site
   index.html        Three-step stepper UI (auth → paths → download)
   static/js/index.js  All UI logic (PKCE OAuth, path config, INI generation)
@@ -122,19 +132,19 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
 - `performSync()` in `main.cpp` is provider-neutral: it talks only to `SyncProvider`. It returns `bool` — `false` means cancellation was requested or a fatal error occurred, and the sync loop must stop. Its `uploadOnly` argument mirrors local → remote: never download, never prompt, leave remote-only files alone.
 - Change detection compares the local mtime **and** size against the manifest, plus the remote's `tag`. `SyncProvider::localTag()` is the content-based fallback for stale mtimes and is only meaningful where the remote's tag is derivable from file contents (Drive's MD5); it returns "" elsewhere.
 - Manifest keys are `SyncProvider::manifestPrefix() + "|" + localPath`. Changing a provider's prefix orphans every existing entry for that remote, which makes the next sync treat every file as unseen — so keep them stable.
-- Conflict resolution in `performSync()` calls `waitForConflictKey()` which returns a `ConflictChoice` enum: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START).
-- The main menu (`waitForMainMenuKey()`) returns a `MainMenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` and `debugLogReset()` from that choice *before* `runSync()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
+- Conflict resolution in `performSync()` calls `SyncUi::resolveConflict()`, which on the 3DS is `frontend::WorkerSyncUi` and returns a `ConflictChoice`: `CONFLICT_KEEP_LOCAL` (A), `CONFLICT_KEEP_REMOTE` (B), `CONFLICT_SKIP` (X), `CONFLICT_CANCEL` (START). L toggles "for all" on the prompt, and the next answer is then reused for every later conflict of the run.
+- The main menu (`frontend::waitForMenu()`) returns a `frontend::MenuChoice`: A runs a sync, Y runs the same sync in debug mode, START exits. `main()` calls `setDebugEnabled()` and `debugLogReset()` from that choice *before* `frontend::runWorker()`, because the providers read the flag when they construct their `Curl` handle. START also cancels a running sync, and the flag stays set only for that run.
 - The manifest (`/3ds/3DSync/manifest.json`) is a hand-parsed JSON file. Use `Manifest::set/get/has/remove` — never write JSON by hand elsewhere.
 - `svcSleepThread(nanoseconds)` is the 3DS sleep call (from `<3ds.h>`). Use it for rate-limit back-offs.
-- `printf` output goes to the 3DS top-screen console. Use `CONSOLE_RED` / `CONSOLE_RESET` (from `<3ds.h>`) for error messages.
-- The console is **50 columns** wide and wraps mid-word. Keep any line of output — key prompts especially — under that.
+- `printf` output goes to the scrollable log on the top screen. Use `CONSOLE_RED` / `CONSOLE_RESET` (from `<3ds.h>`, or `utils/console.h`) for error messages; `LogBuffer` turns the SGR codes into colours.
+- The log is **54 columns** (`LOG_COLUMNS`) and wraps at the last space. Lines written for the old 50-column console still fit; keep new ones under 50 too, so nothing wraps on a path that happens to be long.
 - Keep sync output quiet: print per-entry headers, the experimental notice, errors, interactive prompts and the closing `--- Sync Summary ---`. Do **not** add a line per file examined or per file transferred; the summary already lists every changed file, and per-file chatter scrolls the interesting parts off-screen. Verbose output belongs behind `debugf()` — see below.
 - **Every swallowed error gets a `debugf()`.** `utils/debug.h` is a runtime flag (Y on the main menu, not a build define) plus `debugf()`, `debugBody()`, `debugFileBody()` and `debugErrno()`. The rule when writing code that absorbs a failure — a 404 read as "empty folder", a per-file error that is skipped, an ignored return value, a `stat()` that is not checked — is to say so through `debugf()` in the same place. A normal run must print exactly what it printed before; a debug run must leave nothing unexplained.
   - `Curl::perform()` already dumps the status, URL, timing and the body of every failed or non-2xx request. Providers add only what it cannot know: which file, which remote path, what the status *meant* there. Do not dump the same body twice.
   - A body streamed to a temp file is not in `getResponse()` — a failed download writes the API error into the temp file, so call `debugFileBody()` before removing it.
   - `debugRedact()` masks bearer headers and the OAuth token/secret fields, and every dump goes through it. Debug output is what ends up in a bug report, and credentials are in `3DSync.ini` in plaintext: when adding a dump of anything new that could carry a secret, extend `debugRedact()` and its tests rather than filtering at the call site.
   - `debug.cpp` is free of `<3ds.h>`, libcurl and libsmb2, so the sync engine and the host tests can both log.
-  - **The session log.** While debug mode is on, every byte written to stdout is also kept in `debug.cpp` (`debugLogAppend()`), and the end of `runSync()` offers to write it to `/3ds/3DSync/logs/debug-<stamp>.log`. The capture is fed by `installConsoleTee()` in `main.cpp`, which wraps libctru's console devoptab — so a plain `printf` lands in the log with no extra call, and nothing has to be routed through `debugf()` to be reportable. The tee must be installed *after* the last `consoleInit()`, which replaces `devoptab_list[STD_OUT]` with its own. Only the first 96 KB and the last 48 KB are kept, and what fell out in between is counted and stated in the file. `debugLogSave()` strips ANSI sequences and runs `debugRedact()` over the whole text — a token can straddle two console writes, so redacting per write would miss it.
+  - **The session log.** While debug mode is on, every byte written to stdout is also kept in `debug.cpp` (`debugLogAppend()`), and the end of `runSync()` offers to write it to `/3ds/3DSync/logs/debug-<stamp>.log`. The capture is fed by the stdout devoptab `frontend::init()` installs (`logWrite()` in `ui/frontend.cpp`), the same one that feeds the on-screen log — so a plain `printf` lands in both with no extra call, and nothing has to be routed through `debugf()` to be reportable. Nothing may call `consoleInit()` any more: it would put libctru's console devoptab back over it. Only the first 96 KB and the last 48 KB are kept, and what fell out in between is counted and stated in the file. `debugLogSave()` strips ANSI sequences and runs `debugRedact()` over the whole text — a token can straddle two console writes, so redacting per write would miss it.
 - `Curl::setReadData(FILE *, size)` streams a request body from a file. Pass the real byte count: without it libcurl sends `Transfer-Encoding: chunked`, which the Dropbox content endpoints reject.
 
 ---
@@ -149,6 +159,7 @@ make -C tests F=engine   # only tests whose "suite.name" contains "engine"
 They build for the **host**, not the 3DS, and run in the `Unit Tests` job of `pr.yml`. Nothing here needs hardware or an emulator, which is only possible because the logic under test is kept free of libctru, libcurl and libsmb2 — keep it that way when adding code:
 
 - `sync/syncengine.cpp` talks to `SyncProvider` and `SyncUi` and nothing else. Cancellation and the conflict prompt arrive through `SyncUi` precisely so the decision table can be driven by a scripted stand-in; do not reach for `hidKeysDown()` or `aptMainLoop()` in there.
+- `ui/canvas`, `ui/logbuffer`, `ui/screens` and `ui/touchinput` are host units too: `test_ui.cpp` covers the scrollback (colours, split escapes, wrap, trimming, the view holding still while scrolled back), the tap/repeat/drag rules, and that every screen's buttons are on screen, apart, and wide enough for their label. `make -C tests preview` renders every screen to `tests/build/preview/*.png` — look at those after any layout change, there is no other way to see one without a console.
 - Response parsing lives in `modules/remoteparse.cpp`, so a provider's `list()` is a request plus a call into a testable function. New protocol parsing belongs there, not inline in the provider.
 - `utils/console.h` supplies the `CONSOLE_*` macros off-console, so host-portable code must include it instead of `<3ds.h>`.
 - `utils/debug.cpp` is in the host `UNITS` because the engine, the manifest and `fsutil` all log through it. `test_debug.cpp` covers `debugRedact()`, which is the one part of debug output that has to be right: everything else is only printed, but a redaction that misses puts a token on screen. The `debuglog` suite covers the same risk one step further out — the capture must stay empty outside debug mode, stay bounded on a long run, and reach the SD card with the colour codes gone and the tokens masked.
@@ -162,11 +173,28 @@ What is *not* covered, and would need hardware or a much larger seam: the reques
 
 ---
 
+## On-device UI (`source/ui/`)
+
+Top screen: the log. Bottom screen: a header, a card saying what is happening, the actions open right now as touch buttons, and a scroll strip for the log. Everything is drawn in software into RGB565 canvases and copied to the framebuffers (`gfxInit(GSP_RGB565_OES, …)`); there is no citro2d/3d and no libctru console.
+
+- **Two threads.** `frontend::runWorker()` runs the sync on a worker thread one priority below the main thread, which stays in `frame()`: `aptMainLoop`, HID, touch, scrolling, redraw, `gspWaitForVBlank`. That is what lets the log scroll and START answer while libcurl or libsmb2 is blocked in a request. Consequences:
+  - Code reached from `runSync()` — the engine, every provider — must **never** call `hidScanInput()`/`hidKeysDown()`, `aptMainLoop()` or any `gfx*`. Only the UI thread may scan input. Cancellation comes from `SyncUi::cancelRequested()`, which is why `legacyUpload()` takes a `SyncUi &`.
+  - A question for the user is a prompt: the worker sets the mode and sleeps on a `LightEvent` (`ask()`), and the UI thread answers it from a key. Add a new one as a `ScreenMode` + card + buttons in `screens.cpp`, a case in `handleRunKeys()`, and a worker-side function like `askSaveDebugLog()`.
+  - Shared state is `g_shared` under `g_stateLock`; the log is under `g_logLock`. Do not `printf` while holding either — stdout takes `g_logLock`.
+  - If the system closes the app mid-run, the cancel flag is set, an open prompt is answered "stop", and the worker is joined, so the manifest is still saved.
+- **Touch buttons are keys.** Each `Button` carries a `KEY_*` bit (`ui::K_*`, `static_assert`ed equal in `frontend.cpp`). `TouchInput` turns the stylus into those bits — tap fires on release over the same button, the ▲/▼ arrows fire on contact and repeat — and `frame()` ORs them into `hidKeysDown()`, so one handler serves both. Keep that: a touch-only action would be unreachable for someone using the buttons, and the label must keep naming the key.
+- **The log scrolls in every mode**: D-pad ↑/↓ a row (repeating via `hidKeysDownRepeat()`), ←/→ a page, Circle Pad, the strip. `frame()` consumes the D-pad, so no prompt may use it. `LogScroll` follows the end until the user scrolls up, then holds still, and follows again once back at the bottom. The scrollback keeps 3000 rows across runs.
+- **Redraws are on change only**: the top when the log revision or the view moves, the bottom when `signature()` of the model differs. A new `BottomModel` field that affects drawing must go into `signature()`, or the screen will not update.
+- **Fonts** are pre-rendered 4-bit glyph tables (ASCII, Latin-1, `– — ‘ ’ “ ” • …`). Anything else draws as `?`. To change sizes or coverage, edit `tools/make_font.py` and regenerate `fontdata.cpp` (Inter 4.1 and JetBrains Mono 2.304, both OFL; the script says where to get them). The log font must stay monospaced at `LOG_ADVANCE`; a test checks it.
+- `gpsp-3d` (sibling checkout, GPL-2) was the visual reference. None of its code is copied — its `ui.c` and font script are someone else's and GPL, and this repo is MIT — so keep it that way.
+
+---
+
 ## Remotes
 
 Everything the engine needs from a backend is in `SyncProvider` (`source/modules/syncprovider.h`): `connect`, `ensureRoot`, `list`, `download`, `upload`, `hasFatalError`, and the optional `localTag` / `serverTime` / `legacyUpload` / `isExperimental`. A new protocol means one new module and three lines in `runSync()`; `performSync()` should not need to change.
 
-`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. Only `GoogleDrive` overrides it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer.
+`isExperimental()` **defaults to true**, so a newly added backend warns until someone deliberately marks it stable. `GoogleDrive` and `Dropbox` override it to false. When the flag is set, `syncProvider()` prints a notice on the 3DS naming the backend and the issue-tracker URL (`ISSUES_URL` in `main.cpp`) before the first transfer.
 
 Flipping a backend to stable is four edits, and all four should move together: the `isExperimental()` override, the status table at the top of `README.md`, the section note under its INI example there, and the badge on `docs/index.html` (plus `docs/configurator.html` for a backend the configurator can write).
 
@@ -251,9 +279,12 @@ RemoteName=/LocalPath
 ## Configurator (docs/)
 
 - Pure static site — no server. Credentials are entered by the user (their own Google Cloud project). The client secret lives in `localStorage` only long enough to survive the OAuth redirect, and must be cleared from `localStorage` after `exchangeGoogleCode` succeeds.
+- Step 1 is a picker over all five backends. Dropbox and Drive log in through OAuth and come back on a redirect, so their choice is kept in `localStorage` (`provider`). SMB, FTP and WebDAV are plain forms whose values live only in memory (`remoteSection` in `index.js`) — **never put their passwords in `localStorage`**; there is no redirect to survive. A typed-in remote chosen in the current visit wins over an OAuth login left in storage.
+- Every typed value goes through `iniValueProblem()`: inih ends a value at a `;` that follows whitespace and trims both ends, so such a value is refused with a reason rather than silently cut on the 3DS. Optional keys are written only when filled — an empty `User=` overrides the FTP default of `anonymous`, which the app applies only when the key is missing. Pasted forms (`\\nas\share\dir`, `ftps://user@host:port/dir`, a URL without a scheme) are split into the fields on blur.
+- Step 3 previews the file with `getConfigString(true)`, which masks passwords, secrets and tokens; the download uses `getConfigString(false)`.
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
-- INI generation is in `getConfigString()` in `index.js`. It reads `localStorage` for provider, tokens, and folder ID.
+- INI generation is in `getConfigString()` in `index.js`. It reads `remoteSection` first, then `localStorage` for the OAuth provider, tokens and folder ID.
 
 ## Pages and the Universal-Updater store
 

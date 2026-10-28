@@ -50,13 +50,15 @@ public:
     std::string localTag(const std::string &localPath) override;
     std::string serverTime() const override { return _lastServerTime; }
     bool legacyUpload(const std::string &localBase, const std::string &remoteName,
-                      const std::vector<std::string> &files) override;
+                      const std::vector<std::string> &files, SyncUi &ui) override;
 
     // Ensures the access token is valid; call once before any sync operations.
     bool ensureToken();
 
-    // Legacy flat-name upload (unchanged behaviour).
-    bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths);
+    // Legacy flat-name upload (unchanged behaviour).  ui is asked between
+    // files whether the user has cancelled.
+    bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths,
+                SyncUi &ui);
 
     // Resolve (and create if missing) a '/'-separated folder path under _folderId.
     // Returns the Drive folder ID of the deepest component, or "" on failure.

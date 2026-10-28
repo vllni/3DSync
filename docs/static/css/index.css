@@ -11,3 +11,118 @@ main {
 .brand-logo {
     font-size: 2rem;
 }
+
+/* --- Configurator: backend picker ------------------------------------- */
+.provider-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.provider-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    color: #fff;
+    font-size: 0.95em;
+    line-height: 1.2;
+    transition: background-color 0.15s;
+}
+
+.provider-tab:hover,
+.provider-tab:focus {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.provider-tab.active {
+    background-color: #fff;
+    border-color: #fff;
+    color: #1565c0;
+}
+
+.provider-tab .material-icons {
+    font-size: 1.15rem;
+}
+
+.provider-panel {
+    display: none;
+}
+
+.provider-panel.active {
+    display: block;
+}
+
+.panel-intro {
+    font-size: 0.9em;
+    opacity: 0.9;
+    margin: 0 0 12px 0;
+}
+
+.field-note {
+    font-size: 0.85em;
+    min-height: 1em;
+    margin: 0 0 12px 0;
+}
+
+.field-note.warn {
+    color: #ffcc80 !important;
+}
+
+.experimental-badge {
+    background: #e65100;
+    color: #fff;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.55em;
+    vertical-align: middle;
+    margin-left: 10px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.select-label {
+    display: block;
+    font-size: 0.85em;
+    margin-bottom: 4px;
+}
+
+.dark-select {
+    color: #fff;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 3px;
+    height: 2.6rem;
+    margin-bottom: 14px;
+}
+
+.dark-select option {
+    color: #000;
+}
+
+.remote-security-note {
+    font-size: 0.85em;
+    margin-top: 24px;
+}
+
+.remote-security-note .material-icons {
+    font-size: 1.3rem;
+}
+
+.config-preview {
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    padding: 12px 14px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.input-field input.remote-field.invalid~.helper-text {
+    color: #ff8a80 !important;
+}

@@ -26,8 +26,27 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. [Install 3DSync](#installation), most easily through Universal-Updater.
-4. Launch 3DSync and press **A** to sync all configured paths, or **Y** to sync
-   with [debug output](#debug-mode). **START** exits.
+4. Launch 3DSync and press **A** (or tap **Sync now**) to sync all configured
+   paths, or **Y** to sync with [debug output](#debug-mode). **START** exits.
+
+### Controls
+
+The top screen is the log; the bottom screen shows what 3DSync is doing and the
+choices open right now. Every touch button is also a physical button, and its
+label says which, so either works:
+
+| Where | Buttons |
+|---|---|
+| Menu | **A** sync, **Y** sync with debug output, **START** exit |
+| During a sync | **START** stops after the current file |
+| Conflict | **A** keep the 3DS version, **B** keep the remote one, **X** skip, **L** apply the answer to every remaining conflict, **START** stop |
+| End of a debug run | **A** save the log, **B** discard it |
+
+The log can be scrolled at any time, including while a sync is running:
+**D-pad ↑/↓** one line (hold to keep going), **D-pad ←/→** one page, the
+**Circle Pad**, or the ▲/▼ buttons and the scroll bar on the right of the
+touch screen. While you are scrolled up, new output does not move the text;
+scroll back to the bottom and the log follows it again.
 
 ---
 
@@ -211,7 +230,7 @@ Bidirectional paths (`[Paths]` / `[ShallowPaths]`) compare each file against:
 | No | No | Skip (up to date) |
 | Yes | No | Upload local → remote, update manifest |
 | No | Yes | Download from remote → local, update manifest |
-| Yes | Yes | **Conflict** — 3DS shows a prompt: press **A** to keep the 3DS version (upload) or **B** to keep the remote version (download) |
+| Yes | Yes | **Conflict** — 3DS shows a prompt: press **A** to keep the 3DS version (upload) or **B** to keep the remote version (download); see [Controls](#controls) |
 | Local missing | Remote exists | Download from remote |
 | Local exists | Remote missing | Upload to remote |
 | Both missing | — | Remove stale manifest entry |
@@ -285,11 +304,11 @@ Debug mode prints:
 
 Passwords, tokens and OAuth secrets are replaced with `<redacted>`, so the
 output is safe to attach to a [bug report](https://github.com/vllni/3DSync/issues).
-The rest is not filtered — a debug run prints one line per file examined, and by
-the time it reaches whatever went wrong, the start of the run has scrolled off
-the top of the screen.
+The rest is not filtered — a debug run prints one line per file examined. The
+log on the top screen can be scrolled back while the run is going (see
+[Controls](#controls)), but for a bug report a file beats a photo.
 
-So a debug run does not ask you to read it live: when the sync ends, 3DSync
+So a debug run does not leave it at the screen: when the sync ends, 3DSync
 offers to write everything it printed to the SD card as
 `/3ds/3DSync/logs/debug-<date>-<time>.log`. Press **A** to save it or **B** to
 discard it. That file is the whole run, colour codes removed and secrets masked

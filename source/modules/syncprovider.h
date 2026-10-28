@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+class SyncUi; // sync/syncengine.h, which includes this header
+
 // One remote file, as reported by SyncProvider::list().
 struct RemoteFileInfo
 {
@@ -92,13 +94,15 @@ public:
     // default — makes the engine mirror the folder with performSync() instead,
     // which is manifest-aware and skips unchanged files.  Only Google Drive
     // overrides this, to keep the flat remote naming its users already have.
+    // Cancellation is polled through ui between files, like performSync().
     virtual bool legacyUpload(const std::string &localBase,
                               const std::string &remoteName,
-                              const std::vector<std::string> &files)
+                              const std::vector<std::string> &files, SyncUi &ui)
     {
         (void)localBase;
         (void)remoteName;
         (void)files;
+        (void)ui;
         return false;
     }
 

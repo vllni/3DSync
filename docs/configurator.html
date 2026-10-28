@@ -19,6 +19,7 @@
         <a href="index.html" class="brand-logo left">3DSync</a>
         <ul class="right hide-on-med-and-down">
           <li><a href="index.html">Home</a></li>
+          <li><a href="index.html#installation">Installation</a></li>
           <li class="active"><a href="configurator.html">Configurator</a></li>
         </ul>
       </div>
@@ -29,9 +30,10 @@
     <div class="container">
       <div class="row">
         <div class="card-panel teal darken-3 white-text">
-          <span>Use this tool to generate config file for 3DSync. Authenticate with Dropbox or Google Drive, configure
-            your sync folders, then download the config file and copy it to your 3DS SD card at: <strong
-              style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong> (create folders if not existing)</span>
+          <span>Use this tool to generate the config file for 3DSync. Pick where to sync &mdash; Dropbox, Google
+            Drive, an SMB file server, FTP or WebDAV &mdash; configure your sync folders, then download the config
+            file and copy it to your 3DS SD card at: <strong style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong>
+            (create folders if not existing)</span>
         </div>
       </div>
       <div class="row">
@@ -39,12 +41,24 @@
           <div class="card-panel blue darken-2">
             <ul class="stepper">
               <li class="step active">
-                <div class="step-title white-text">Authenticate with cloud service</div>
+                <div class="step-title white-text">Choose where to sync</div>
                 <div class="step-content">
-                  <div class="row">
-                    <div class="col s12 m5">
-                      <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox
-                      </h5>
+                  <div class="provider-picker" role="tablist">
+                    <a href="#" class="provider-tab" data-provider="dropbox" role="tab"><i class="fa fa-dropbox"></i>
+                      Dropbox</a>
+                    <a href="#" class="provider-tab" data-provider="googledrive" role="tab"><i
+                        class="material-icons">add_to_drive</i> Google Drive</a>
+                    <a href="#" class="provider-tab" data-provider="smb" role="tab"><i
+                        class="material-icons">storage</i> SMB</a>
+                    <a href="#" class="provider-tab" data-provider="ftp" role="tab"><i
+                        class="material-icons">folder_shared</i> FTP</a>
+                    <a href="#" class="provider-tab" data-provider="webdav" role="tab"><i
+                        class="material-icons">cloud_queue</i> WebDAV</a>
+                  </div>
+
+                  <!-- Dropbox -->
+                  <div class="provider-panel" data-provider="dropbox">
+                    <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox</h5>
                       <p class="white-text" style="font-size:0.85em;opacity:0.9;margin:0 0 10px 0">
                         Two-way sync, the same as the Google Drive backend. Please report problems at
                         <a class="white-text" style="text-decoration:underline"
@@ -88,12 +102,10 @@
                           </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="col s12 m1 center-align hide-on-small-only"
-                      style="border-left:1px solid rgba(255,255,255,0.2);min-height:220px;padding-top:80px">
-                      <span class="white-text">or</span>
-                    </div>
-                    <div class="col s12 m6">
+                  </div>
+
+                  <!-- Google Drive -->
+                  <div class="provider-panel" data-provider="googledrive">
                       <h5 class="white-text"><i class="material-icons left"
                           style="vertical-align:middle;font-size:1.4rem">add_to_drive</i> Google Drive</h5>
                       <div style="margin-bottom:12px">
@@ -141,7 +153,172 @@
                           <li>Import the downloaded file with the button above, then disable your old secret</li>
                         </ol>
                       </div>
+                  </div>
+
+                  <!-- SMB -->
+                  <div class="provider-panel" data-provider="smb">
+                    <h5 class="white-text"><i class="material-icons left">storage</i> SMB file server<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                    <p class="white-text panel-intro">A NAS or a shared folder on a Windows PC, over SMB2/SMB3 &mdash;
+                      what modern NAS boxes and Windows accept by default. SMB1 does not need to be re-enabled.</p>
+                    <div class="row">
+                      <div class="input-field col s12 m7">
+                        <input id="smb-server" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="smb-server" class="white-text">Server</label>
+                        <span class="helper-text white-text" data-error="">IP address or host name, e.g.
+                          <strong>192.168.1.10</strong>. A path like <strong>\\nas\saves</strong> is split up for
+                          you.</span>
+                      </div>
+                      <div class="input-field col s12 m5">
+                        <input id="smb-share" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="smb-share" class="white-text">Share</label>
+                        <span class="helper-text white-text" data-error="">The share name, without slashes</span>
+                      </div>
                     </div>
+                    <div class="row">
+                      <div class="input-field col s12 m6">
+                        <input id="smb-user" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="smb-user" class="white-text">User</label>
+                        <span class="helper-text white-text" data-error=""></span>
+                      </div>
+                      <div class="input-field col s12 m6">
+                        <input id="smb-password" class="white-text remote-field" type="password"
+                          autocomplete="new-password">
+                        <label for="smb-password" class="white-text">Password</label>
+                        <span class="helper-text white-text" data-error=""></span>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="input-field col s12 m6">
+                        <input id="smb-domain" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="smb-domain" class="white-text">Domain (optional)</label>
+                        <span class="helper-text white-text" data-error="">Only for an account in a Windows
+                          domain</span>
+                      </div>
+                      <div class="input-field col s12 m6">
+                        <input id="smb-path" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="smb-path" class="white-text">Folder inside the share (optional)</label>
+                        <span class="helper-text white-text" data-error="">e.g. <strong>3DS</strong>; blank for the
+                          top of the share</span>
+                      </div>
+                    </div>
+                    <div class="step-actions">
+                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="smb">Continue</a>
+                    </div>
+                  </div>
+
+                  <!-- FTP -->
+                  <div class="provider-panel" data-provider="ftp">
+                    <h5 class="white-text"><i class="material-icons left">folder_shared</i> FTP / FTPS<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                    <p class="white-text panel-intro">Any FTP server, with TLS where the server offers it. SFTP (over
+                      SSH) is a different protocol and is <strong>not</strong> supported: the 3DS build of libcurl
+                      cannot speak it.</p>
+                    <div class="row">
+                      <div class="input-field col s12 m8">
+                        <input id="ftp-host" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="ftp-host" class="white-text">Host</label>
+                        <span class="helper-text white-text" data-error="">IP address or host name.
+                          <strong>ftp://host:2121</strong> works too.</span>
+                      </div>
+                      <div class="input-field col s12 m4">
+                        <input id="ftp-port" class="white-text remote-field" type="number" min="1" max="65535"
+                          inputmode="numeric">
+                        <label for="ftp-port" class="white-text">Port (optional)</label>
+                        <span class="helper-text white-text" data-error="">21, or 990 for implicit TLS</span>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="input-field col s12 m6">
+                        <input id="ftp-user" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="ftp-user" class="white-text">User</label>
+                        <span class="helper-text white-text" data-error="">Blank for anonymous</span>
+                      </div>
+                      <div class="input-field col s12 m6">
+                        <input id="ftp-password" class="white-text remote-field" type="password"
+                          autocomplete="new-password">
+                        <label for="ftp-password" class="white-text">Password</label>
+                        <span class="helper-text white-text" data-error=""></span>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="input-field col s12">
+                        <input id="ftp-path" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="ftp-path" class="white-text">Base directory (optional)</label>
+                        <span class="helper-text white-text" data-error="">e.g. <strong>/home/me/3ds</strong>; blank
+                          for the directory the server logs you into</span>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="col s12 m7">
+                        <label class="white-text select-label" for="ftp-tls">Encryption</label>
+                        <select id="ftp-tls" class="browser-default dark-select">
+                          <option value="try" selected>Use TLS when the server offers it</option>
+                          <option value="require">Require TLS (explicit, AUTH TLS)</option>
+                          <option value="implicit">Implicit TLS (ftps://, usually port 990)</option>
+                          <option value="none">None &mdash; plaintext</option>
+                        </select>
+                      </div>
+                      <div class="col s12 m5">
+                        <label class="white-text select-label" for="ftp-mode">Connection mode</label>
+                        <select id="ftp-mode" class="browser-default dark-select">
+                          <option value="passive" selected>Passive (works almost everywhere)</option>
+                          <option value="active">Active</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p class="white-text field-note" id="ftp-tls-note"></p>
+                    <div class="step-actions">
+                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="ftp">Continue</a>
+                    </div>
+                  </div>
+
+                  <!-- WebDAV -->
+                  <div class="provider-panel" data-provider="webdav">
+                    <h5 class="white-text"><i class="material-icons left">cloud_queue</i> WebDAV<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                    <p class="white-text panel-intro">Nextcloud, ownCloud, or any NAS with WebDAV switched on.</p>
+                    <div class="row">
+                      <div class="input-field col s12">
+                        <input id="webdav-url" class="white-text remote-field" type="url" autocomplete="off"
+                          spellcheck="false">
+                        <label for="webdav-url" class="white-text">URL</label>
+                        <span class="helper-text white-text" data-error="">The folder 3DSync should work in. For
+                          Nextcloud: <strong>https://cloud.example/remote.php/dav/files/USERNAME/</strong></span>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="input-field col s12 m6">
+                        <input id="webdav-user" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="webdav-user" class="white-text">User</label>
+                        <span class="helper-text white-text" data-error=""></span>
+                      </div>
+                      <div class="input-field col s12 m6">
+                        <input id="webdav-password" class="white-text remote-field" type="password"
+                          autocomplete="new-password">
+                        <label for="webdav-password" class="white-text">Password</label>
+                        <span class="helper-text white-text" data-error="">Use an app password where the server
+                          offers one</span>
+                      </div>
+                    </div>
+                    <p class="white-text field-note" id="webdav-url-note"></p>
+                    <div class="step-actions">
+                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="webdav">Continue</a>
+                    </div>
+                  </div>
+
+                  <div class="card-panel blue darken-4 white-text remote-security-note">
+                    <i class="material-icons left">lock_outline</i>
+                    Everything here stays in this browser tab: nothing is sent anywhere, and for SMB, FTP and WebDAV
+                    the password is not even kept between visits. It does end up in <strong>3DSync.ini</strong> in
+                    plain text, because that is the only place the 3DS can read it from &mdash; so treat the file
+                    like the password, and prefer a separate account or app password for 3DSync.
                   </div>
                 </div>
               </li>
@@ -167,22 +344,22 @@
                   <div class="card-panel blue darken-4 white-text" style="font-size:0.88em">
                     <p style="margin:0 0 8px 0"><strong>Path</strong> — absolute path on the 3DS SD card to sync, POSIX
                       style. Examples: <strong>/3ds/MyApp</strong>, <strong>/roms/nds</strong></p>
-                    <p style="margin:0 0 8px 0"><strong>Name</strong> — destination folder on your cloud storage. Use
+                    <p style="margin:0 0 8px 0"><strong>Name</strong> — destination folder on the remote. Use
                       <strong>/</strong> to create nested folders. Examples: <strong>Saves</strong>,
                       <strong>roms/nds</strong>, <strong>3DS/Checkpoint</strong>
                     </p>
                     <p style="margin:0 0 8px 0"><strong>Subdirs</strong> — when checked, all subdirectories are synced
-                      recursively and their structure is preserved on Drive (e.g. <strong>/saves/Game/001.sav</strong>
+                      recursively and their structure is preserved on the remote (e.g. <strong>/saves/Game/001.sav</strong>
                       becomes <strong>Name/saves/Game/001.sav</strong>). Uncheck to sync only the files directly inside
                       the specified folder, ignoring subdirectories entirely.</p>
                     <p style="margin:0 0 8px 0"><strong>Both ways</strong> — full bidirectional sync. The 3DS compares
-                      each file against a local manifest (<code>/3ds/3DSync/manifest.json</code>) and against the Drive
+                      each file against a local manifest (<code>/3ds/3DSync/manifest.json</code>) and against the remote
                       copy, then uploads, downloads, or prompts for conflict resolution as needed.
-                      <br><strong>Upload only</strong> — one-way upload to Drive (no downloads, no manifest). Useful for
-                      backups or Dropbox paths.
+                      <br><strong>Upload only</strong> — one-way: the 3DS copy is uploaded and nothing is ever
+                      downloaded. Useful for backups.
                     </p>
-                    <p style="margin:0">If Name is left empty the files go directly into the root Drive folder (or the
-                      Folder ID you configured).</p>
+                    <p style="margin:0">If Name is left empty the files go directly into the top of the remote (the
+                      Drive Folder ID, the SMB folder, the FTP base directory, the WebDAV URL).</p>
                   </div>
                   <div id="paths-custom">
                     <a href="#" class="btn-floating waves-effect waves-light green" id="add-custom-path"><i
@@ -198,6 +375,9 @@
               <li class="step">
                 <div class="step-title white-text">Download config file</div>
                 <div class="step-content">
+                  <p class="white-text panel-intro">This is the file that will be downloaded, with passwords and
+                    tokens hidden here. Copy it to <strong>/3ds/3DSync/3DSync.ini</strong> on the SD card.</p>
+                  <pre id="config-preview" class="config-preview"></pre>
                   <div class="step-actions">
                     <a href="#" class="waves-effect waves-dark btn-flat previous-step white-text">Back</a>
                     <a href="#" class="waves-effect waves-dark btn" id="download-config">Download</a>

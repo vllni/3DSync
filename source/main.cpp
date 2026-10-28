@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include <3ds.h>
-#include <sys/iosupport.h>
 
 #include <curl/curl.h>
 
@@ -23,6 +22,7 @@
 #include "modules/syncprovider.h"
 #include "modules/webdavremote.h"
 #include "sync/syncengine.h"
+#include "ui/frontend.h"
 #include "utils/debug.h"
 #include "utils/fsutil.h"
 #include "utils/timeutil.h"
@@ -78,6 +78,44 @@ std::vector<std::string> recurse_dir(std::string basepath, std::string additiona
 // ---------------------------------------------------------------------------
 // getConfiguredSyncPaths
 // ---------------------------------------------------------------------------
+// INIReader lowercases both section and key and stores them as "section=key";
+// whether such a key is a sync path, and of which kind.
+static bool parsePathKey(const std::string &key, SyncDirection &dir, bool &recursive,
+                         std::string &prefix)
+{
+    static const struct
+    {
+        const char *prefix;
+        SyncDirection dir;
+        bool recursive;
+    } kinds[] = {{"paths=", SYNC_BOTH, true},
+                 {"shallowpaths=", SYNC_BOTH, false},
+                 {"uploadpaths=", SYNC_UPLOAD_ONLY, true},
+                 {"uploadshallowpaths=", SYNC_UPLOAD_ONLY, false}};
+    for (auto &k : kinds)
+        if (key.rfind(k.prefix, 0) == 0)
+        {
+            dir = k.dir;
+            recursive = k.recursive;
+            prefix = k.prefix;
+            return true;
+        }
+    return false;
+}
+
+// For the idle screen, which must not walk the SD card to say how many.
+static int countSyncPaths(const INIReader &reader)
+{
+    int n = 0;
+    SyncDirection dir;
+    bool recursive;
+    std::string prefix;
+    for (auto &kv : reader.GetValues())
+        if (parsePathKey(kv.first, dir, recursive, prefix))
+            n++;
+    return n;
+}
+
 static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
 {
     std::vector<SyncEntry> entries;
@@ -85,36 +123,10 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
 
     for (auto &kv : values)
     {
-        // INIReader lowercases both section and key, format: "section=key"
         SyncDirection dir;
         bool recursive;
         std::string prefix;
-
-        if (kv.first.rfind("paths=", 0) == 0)
-        {
-            dir = SYNC_BOTH;
-            recursive = true;
-            prefix = "paths=";
-        }
-        else if (kv.first.rfind("shallowpaths=", 0) == 0)
-        {
-            dir = SYNC_BOTH;
-            recursive = false;
-            prefix = "shallowpaths=";
-        }
-        else if (kv.first.rfind("uploadpaths=", 0) == 0)
-        {
-            dir = SYNC_UPLOAD_ONLY;
-            recursive = true;
-            prefix = "uploadpaths=";
-        }
-        else if (kv.first.rfind("uploadshallowpaths=", 0) == 0)
-        {
-            dir = SYNC_UPLOAD_ONLY;
-            recursive = false;
-            prefix = "uploadshallowpaths=";
-        }
-        else
+        if (!parsePathKey(kv.first, dir, recursive, prefix))
             continue;
 
         SyncEntry entry;
@@ -131,138 +143,6 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         entries.push_back(entry);
     }
     return entries;
-}
-
-// ---------------------------------------------------------------------------
-// ConsoleSyncUi  — the 3DS side of SyncUi
-// ---------------------------------------------------------------------------
-// Cancellation is polled from the START button between files, and conflicts are
-// resolved from the buttons.  "Apply to all" lives here rather than in the
-// engine: it is a property of how this front-end asks, not of the sync rules.
-// ---------------------------------------------------------------------------
-class ConsoleSyncUi : public SyncUi
-{
-public:
-    ConsoleSyncUi() : _cancelled(false), _applyAllChoice(-1) {}
-
-    bool cancelRequested() override
-    {
-        if (_cancelled)
-            return true;
-
-        hidScanInput();
-        if (hidKeysDown() & KEY_START)
-        {
-            printf("  -> Cancellation requested\n");
-            _cancelled = true;
-        }
-        return _cancelled;
-    }
-
-    void requestCancel() override { _cancelled = true; }
-
-    ConflictChoice resolveConflict(const std::string &localPath) override;
-
-private:
-    bool _cancelled;
-    // -1 = not set; otherwise a ConflictChoice applied to every later conflict.
-    int _applyAllChoice;
-};
-
-ConflictChoice ConsoleSyncUi::resolveConflict(const std::string &localPath)
-{
-    (void)localPath;
-    if (_applyAllChoice >= 0)
-        return (ConflictChoice)_applyAllChoice;
-
-    while (aptMainLoop())
-    {
-        hidScanInput();
-        u32 k = hidKeysDown();
-        if (k & KEY_A)
-            return CONFLICT_KEEP_LOCAL;
-        if (k & KEY_B)
-            return CONFLICT_KEEP_REMOTE;
-        if (k & KEY_X)
-            return CONFLICT_SKIP;
-        if (k & KEY_START)
-            return CONFLICT_CANCEL;
-        if (k & KEY_L)
-        {
-            printf("  Apply resolution to ALL remaining conflicts:\n");
-            printf("  A: 3DS wins all  B: remote wins all\n  X: skip all  L: cancel\n\n");
-            bool inSubmenu = true;
-            while (aptMainLoop() && inSubmenu)
-            {
-                hidScanInput();
-                u32 k2 = hidKeysDown();
-                if (k2 & KEY_A)
-                {
-                    _applyAllChoice = CONFLICT_KEEP_LOCAL;
-                    return CONFLICT_KEEP_LOCAL;
-                }
-                if (k2 & KEY_B)
-                {
-                    _applyAllChoice = CONFLICT_KEEP_REMOTE;
-                    return CONFLICT_KEEP_REMOTE;
-                }
-                if (k2 & KEY_X)
-                {
-                    _applyAllChoice = CONFLICT_SKIP;
-                    return CONFLICT_SKIP;
-                }
-                if (k2 & KEY_L)
-                {
-                    inSubmenu = false;
-                }
-                gfxFlushBuffers();
-                gfxSwapBuffers();
-                gspWaitForVBlank();
-            }
-            // L pressed again — cancel apply-all, reprint conflict prompt
-            printf("  A: keep 3DS version  B: keep remote version\n  X: skip  START: cancel  L: apply all\n\n");
-        }
-        gfxFlushBuffers();
-        gfxSwapBuffers();
-        gspWaitForVBlank();
-    }
-    return CONFLICT_CANCEL;
-}
-
-// ---------------------------------------------------------------------------
-// waitForMainMenuKey  — which sync to run, or none
-// ---------------------------------------------------------------------------
-// Debug mode is a second entry point rather than a toggle: someone chasing a
-// failure re-runs the sync with Y, and everything the quiet run swallowed —
-// remote status codes, error bodies, per-file decisions — is printed.
-// ---------------------------------------------------------------------------
-enum MainMenuChoice
-{
-    MENU_EXIT,
-    MENU_SYNC,
-    MENU_SYNC_DEBUG
-};
-
-static MainMenuChoice waitForMainMenuKey()
-{
-    printf("\n      A: Run sync\n");
-    printf("      Y: Run sync with debug output\n");
-    printf("  START: Exit\n\n");
-    while (aptMainLoop())
-    {
-        hidScanInput();
-        u32 k = hidKeysDown();
-        if (k & KEY_A)
-            return MENU_SYNC;
-        if (k & KEY_Y)
-            return MENU_SYNC_DEBUG;
-        if (k & KEY_START)
-            return MENU_EXIT;
-        gfxFlushBuffers();
-        gfxSwapBuffers();
-        gspWaitForVBlank();
-    }
-    return MENU_EXIT;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,41 +173,26 @@ static void offerDebugLogSave()
     if (!debugEnabled() || debugLogSize() == 0)
         return;
 
+    // The question itself is on the bottom screen; the log keeps a line so
+    // the saved file and the screen agree about what was asked.
+    unsigned kb = (unsigned)((debugLogSize() + 1023) / 1024);
     printf("\n--- Debug log ---\n");
-    printf("%d KB captured", (int)((debugLogSize() + 1023) / 1024));
-    if (debugLogDropped() > 0)
-        printf(", middle of the run trimmed");
-    printf(".\n");
-    printf("Tokens and passwords are masked, but save\n");
-    printf("paths are not — read it before sharing it.\n");
-    printf("\n      A: Save to the SD card\n");
-    printf("      B: Discard\n\n");
+    printf("%u KB captured%s.\n", kb,
+           debugLogDropped() > 0 ? ", middle of the run trimmed" : "");
 
-    while (aptMainLoop())
+    if (!frontend::askSaveDebugLog(kb, debugLogDropped() > 0))
     {
-        hidScanInput();
-        u32 k = hidKeysDown();
-        if (k & KEY_B)
-        {
-            printf("Debug log discarded.\n");
-            return;
-        }
-        if (k & KEY_A)
-        {
-            std::string path = debugLogPath();
-            // The write itself prints, and the tee would fold that into the
-            // very text being written; it is already snapshotted by then, so
-            // the file just ends a line or two before the screen does.
-            if (debugLogSave(path))
-                printf(CONSOLE_GREEN "Saved to\n  %s\n" CONSOLE_RESET, path.c_str());
-            else
-                printf(CONSOLE_RED "Could not write\n  %s\n" CONSOLE_RESET, path.c_str());
-            return;
-        }
-        gfxFlushBuffers();
-        gfxSwapBuffers();
-        gspWaitForVBlank();
+        printf("Debug log discarded.\n");
+        return;
     }
+    std::string path = debugLogPath();
+    // The write itself prints, and the stdout hook would fold that into the
+    // very text being written; it is already snapshotted by then, so the
+    // file just ends a line or two before the screen does.
+    if (debugLogSave(path))
+        printf(CONSOLE_GREEN "Saved to\n  %s\n" CONSOLE_RESET, path.c_str());
+    else
+        printf(CONSOLE_RED "Could not write\n  %s\n" CONSOLE_RESET, path.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -352,9 +217,10 @@ static void printExperimentalNotice(const char *backendName)
 // syncProvider  — run every configured entry against one remote
 // ---------------------------------------------------------------------------
 static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &entries,
-                         Manifest &manifest, SyncSummary &summary, ConsoleSyncUi &ui)
+                         Manifest &manifest, SyncSummary &summary, SyncUi &ui)
 {
     printf("\n=== %s ===\n", provider.name());
+    frontend::setActivity(provider.name(), "Connecting\xE2\x80\xA6");
     if (provider.isExperimental())
         printExperimentalNotice(provider.name());
 
@@ -396,6 +262,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
     for (auto &entry : entries)
     {
         bool uploadOnly = (entry.direction == SYNC_UPLOAD_ONLY);
+        frontend::setActivity(provider.name(), entry.localBase);
 
         if (uploadOnly)
         {
@@ -403,7 +270,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
                    provider.name(), entry.remoteName.c_str());
             // Providers that shipped their own one-way upload keep using it so
             // the remote layout their users already have does not change.
-            if (provider.legacyUpload(entry.localBase, entry.remoteName, entry.localFiles))
+            if (provider.legacyUpload(entry.localBase, entry.remoteName, entry.localFiles, ui))
             {
                 if (provider.hasFatalError())
                 {
@@ -443,41 +310,6 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
 }
 
 // ---------------------------------------------------------------------------
-// installConsoleTee  — copy everything the console prints into the debug log
-// ---------------------------------------------------------------------------
-// A debug run is read off a 30-line screen that scrolls, so the part worth
-// reporting has usually gone by the time anyone reaches for a camera.  Rather
-// than route every printf in the app through debugf(), stdout itself is teed:
-// libctru's console is a newlib devoptab, so a copy of it with write_r wrapped
-// captures the run exactly as it appeared, debugf() output included.
-//
-// Must run after consoleInit(), which installs its own devoptab over whatever
-// was there — a tee put in first would simply be dropped.
-// ---------------------------------------------------------------------------
-static devoptab_t g_teeStdout;
-static const devoptab_t *g_realStdout = NULL;
-
-static ssize_t teeWrite(struct _reent *r, void *fd, const char *ptr, size_t len)
-{
-    debugLogAppend(ptr, len);
-    if (g_realStdout == NULL || g_realStdout->write_r == NULL)
-        return (ssize_t)len;
-    return g_realStdout->write_r(r, fd, ptr, len);
-}
-
-static void installConsoleTee()
-{
-    const devoptab_t *current = devoptab_list[STD_OUT];
-    if (current == NULL || current == &g_teeStdout || current->write_r == NULL)
-        return;
-
-    g_realStdout = current;
-    g_teeStdout = *current;
-    g_teeStdout.write_r = teeWrite;
-    devoptab_list[STD_OUT] = &g_teeStdout;
-}
-
-// ---------------------------------------------------------------------------
 // componentsInit / componentsExit
 // ---------------------------------------------------------------------------
 // The startup services all return a Result that the app used to discard.  Most
@@ -508,16 +340,11 @@ static void dumpInitLog()
 bool componentsInit()
 {
     bool result = true;
-    gfxInitDefault();
-
-    consoleInit(GFX_BOTTOM, NULL);
-    printf(CONSOLE_RED "\n 3DSync v" APP_VERSION " modified by michvllni, original by Kyraminol" CONSOLE_RESET);
-    printf("\n\n\n\n\n\n  Sync your saves with another 3DS,\n   a PC or even a cloud.");
-    printf("\n\n\n\n\n\n Version: " CONSOLE_BLUE "v" APP_VERSION CONSOLE_RESET);
-
-    consoleInit(GFX_TOP, NULL);
-    installConsoleTee();
-    printf("Initializing components...\n\n");
+    // Screens and stdout first, so a failure below is printed somewhere.
+    frontend::init();
+    printf("3DSync v" APP_VERSION " \xE2\x80\x94 modified by michvllni,\n"
+           "original by Kyraminol\n\n");
+    printf("Initializing components...\n");
 
     initStep("APT_SetAppCpuTimeLimit", APT_SetAppCpuTimeLimit(30));
     initStep("cfguInit", cfguInit());
@@ -555,7 +382,7 @@ void componentsExit()
     pxiDevExit();
     romfsExit();
     cfguExit();
-    gfxExit();
+    frontend::exit();
 }
 
 // ---------------------------------------------------------------------------
@@ -628,11 +455,52 @@ static void debugConfigSummary(const INIReader &reader)
 }
 
 // ---------------------------------------------------------------------------
-// runSync  — one full sync pass; called from main loop
+// configuredRemotes  — which [sections] are filled in enough to try
+// ---------------------------------------------------------------------------
+// Shared by runSync() and the idle screen, so the screen never lists a remote
+// the sync would skip or leaves out one it would run.
+struct ConfiguredRemotes
+{
+    bool dropbox, drive, smb, ftp, webdav;
+
+    bool any() const { return dropbox || drive || smb || ftp || webdav; }
+
+    // In the order runSync() visits them, by SyncProvider::name().
+    std::string names() const
+    {
+        std::string out;
+        const struct
+        {
+            bool on;
+            const char *name;
+        } all[] = {{dropbox, "Dropbox"}, {drive, "Drive"}, {smb, "SMB"},
+                   {ftp, "FTP"}, {webdav, "WebDAV"}};
+        for (auto &r : all)
+            if (r.on)
+                out += (out.empty() ? "" : ", ") + std::string(r.name);
+        return out;
+    }
+};
+
+static ConfiguredRemotes configuredRemotes(const INIReader &reader)
+{
+    ConfiguredRemotes r;
+    r.dropbox = !reader.Get("Dropbox", "token", "").empty() ||
+                !reader.Get("Dropbox", "refreshtoken", "").empty();
+    r.drive = !reader.Get("GoogleDrive", "token", "").empty() ||
+              !reader.Get("GoogleDrive", "refreshtoken", "").empty();
+    r.smb = !reader.Get("SMB", "server", "").empty() && !reader.Get("SMB", "share", "").empty();
+    r.ftp = !reader.Get("FTP", "host", "").empty();
+    r.webdav = !reader.Get("WebDAV", "url", "").empty();
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// runSync  — one full sync pass, on the frontend's worker thread
 // ---------------------------------------------------------------------------
 static void runSync(const INIReader &reader)
 {
-    ConsoleSyncUi ui;
+    frontend::WorkerSyncUi ui;
 
     if (debugEnabled())
     {
@@ -648,32 +516,30 @@ static void runSync(const INIReader &reader)
     std::string dropboxAppSecret = reader.Get("Dropbox", "appsecret", "");
     std::string dropboxRefreshToken = reader.Get("Dropbox", "refreshtoken", "");
     std::string dropboxPath = reader.Get("Dropbox", "path", "");
-    bool hasDropbox = !dropboxToken.empty() || !dropboxRefreshToken.empty();
 
     std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
     std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
     std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
     std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
     std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
-    bool hasGoogleDrive = !googleDriveToken.empty() || !googleDriveRefreshToken.empty();
 
     std::string smbServer = reader.Get("SMB", "server", "");
     std::string smbShare = reader.Get("SMB", "share", "");
-    bool hasSmb = !smbServer.empty() && !smbShare.empty();
-
     std::string ftpHost = reader.Get("FTP", "host", "");
-    bool hasFtp = !ftpHost.empty();
-
     std::string webdavUrl = reader.Get("WebDAV", "url", "");
-    bool hasWebdav = !webdavUrl.empty();
+
+    ConfiguredRemotes remotes = configuredRemotes(reader);
+    bool hasDropbox = remotes.dropbox, hasGoogleDrive = remotes.drive, hasSmb = remotes.smb,
+         hasFtp = remotes.ftp, hasWebdav = remotes.webdav;
 
     debugf("remotes configured: dropbox=%d drive=%d smb=%d ftp=%d webdav=%d\n",
            hasDropbox, hasGoogleDrive, hasSmb, hasFtp, hasWebdav);
 
-    if (!hasDropbox && !hasGoogleDrive && !hasSmb && !hasFtp && !hasWebdav)
+    if (!remotes.any())
     {
         printf("No remote configured in 3DSync.ini\n");
         printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP] or [WebDAV] section.\n");
+        frontend::setLastResult("no remote configured", false);
         return;
     }
 
@@ -681,6 +547,7 @@ static void runSync(const INIReader &reader)
     if (syncEntries.empty())
     {
         printf("No sync paths configured in 3DSync.ini\n");
+        frontend::setLastResult("no sync paths configured", false);
         return;
     }
 
@@ -758,12 +625,39 @@ static void runSync(const INIReader &reader)
             printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
     }
 
+    char result[64];
+    snprintf(result, sizeof(result), "%d up, %d down", summary.uploaded, summary.downloaded);
     if (ui.cancelRequested())
+    {
         printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
+        frontend::setLastResult(std::string("cancelled, ") + result, false);
+    }
     else
+    {
         printf("\nSync complete.\n");
+        frontend::setLastResult(summary.changes.empty() ? std::string("everything up to date")
+                                                        : std::string(result),
+                                true);
+    }
 
     offerDebugLogSave();
+}
+
+// ---------------------------------------------------------------------------
+// syncWorker  — what a menu choice runs, on the worker thread
+// ---------------------------------------------------------------------------
+static void syncWorker(void *arg)
+{
+    const INIReader &reader = *(const INIReader *)arg;
+    if (reader.ParseError() >= 0)
+        runSync(reader);
+    else
+    {
+        printf("Can't load configuration\n");
+        debugConfigSummary(reader);
+        frontend::setLastResult("configuration not loaded", false);
+        offerDebugLogSave();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -780,29 +674,23 @@ int main(int argc, char **argv)
     INIReader reader("/3ds/3DSync/3DSync.ini");
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
+    frontend::setMenuInfo(reader.ParseError() >= 0, configuredRemotes(reader).names(),
+                          countSyncPaths(reader));
 
     while (true)
     {
-        MainMenuChoice choice = waitForMainMenuKey();
-        if (choice == MENU_EXIT)
+        frontend::MenuChoice choice = frontend::waitForMenu();
+        if (choice == frontend::MENU_EXIT)
             break;
 
         // Set before anything else runs: the providers read it when they build
         // their libcurl handle, and the engine when it logs a decision.
-        setDebugEnabled(choice == MENU_SYNC_DEBUG);
+        setDebugEnabled(choice == frontend::MENU_SYNC_DEBUG);
         // Per run, not per session: syncing twice should not offer the first
         // run's transcript along with the second's.
         debugLogReset();
 
-        if (reader.ParseError() >= 0)
-            runSync(reader);
-        else
-        {
-            printf("Can't load configuration\n");
-            debugConfigSummary(reader);
-            offerDebugLogSave();
-        }
-
+        frontend::runWorker(syncWorker, &reader);
         // after sync: fall back to the menu (sync again or exit)
     }
 
