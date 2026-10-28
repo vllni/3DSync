@@ -38,6 +38,9 @@ public:
     void setUploadFile(FILE *fp, curl_off_t size);
     // TLS level for FTP: CURLUSESSL_NONE / _TRY / _CONTROL / _ALL.
     void setUseSSL(long level);
+    // Open a new connection for the next perform() instead of reusing one
+    // from the cache.  Cleared by reset().
+    void setFreshConnect(bool enabled);
     // FTP: NLST instead of LIST (names only).
     void setDirListOnly(bool enabled);
     // FTP: create missing directories on upload.

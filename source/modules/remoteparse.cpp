@@ -1,5 +1,6 @@
 #include "remoteparse.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -134,6 +135,19 @@ DropboxPathState dropboxPathState(int status, const std::string &response)
     if (reason.rfind("path/conflict/file", 0) == 0)
         return DROPBOX_PATH_NOT_FOLDER;
     return DROPBOX_PATH_ERROR;
+}
+
+bool isAnonymousFtpUser(const std::string &user)
+{
+    std::string lower;
+    for (char c : user)
+        lower += (char)tolower((unsigned char)c);
+    return lower == "anonymous" || lower == "ftp";
+}
+
+bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied)
+{
+    return loginDenied && mode == FTP_TLS_TRY && isAnonymousFtpUser(user);
 }
 
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,

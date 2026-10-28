@@ -5,16 +5,8 @@
 #include <vector>
 
 #include "../utils/curl.h"
+#include "remoteparse.h" // FtpTlsMode
 #include "syncprovider.h"
-
-// How much of the FTP session is protected.
-enum FtpTlsMode
-{
-    FTP_TLS_NONE,     // plaintext — credentials cross the network in the clear
-    FTP_TLS_TRY,      // AUTH TLS when the server offers it, plaintext otherwise
-    FTP_TLS_REQUIRE,  // AUTH TLS or fail
-    FTP_TLS_IMPLICIT  // ftps:// on port 990
-};
 
 // FTP / FTPS remote.  libcurl on the 3DS is built with FTP and FTPS but without
 // libssh2, so SFTP is not reachable from here.
@@ -50,6 +42,9 @@ private:
     std::string _password;
     std::string _basePath;
     FtpTlsMode _tls;
+    // Set once an anonymous TLS=try login was refused over TLS and retried in
+    // plaintext; every later request of the run then goes in plaintext too.
+    bool _tlsDropped;
     bool _activeMode;
     bool _fatalError;
     std::string _lastServerTime;
@@ -63,6 +58,8 @@ private:
     };
     static long _onListEntry(const void *transferInfo, void *userdata, int remains);
 
+    // _tls, or FTP_TLS_NONE once _tlsDropped.
+    FtpTlsMode _effectiveTls() const;
     // Reset the handle and apply the connection options every request needs.
     void _prepare();
     // "ftp://host:port/" + url-encoded path.

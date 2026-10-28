@@ -55,6 +55,29 @@ enum DropboxPathState
 // the HTTP status.  response is the body that came with it.
 DropboxPathState dropboxPathState(int status, const std::string &response);
 
+// How much of the FTP session is protected.
+enum FtpTlsMode
+{
+    FTP_TLS_NONE,     // plaintext — credentials cross the network in the clear
+    FTP_TLS_TRY,      // AUTH TLS when the server offers it, plaintext otherwise
+    FTP_TLS_REQUIRE,  // AUTH TLS or fail
+    FTP_TLS_IMPLICIT  // ftps:// on port 990
+};
+
+// "anonymous" or "ftp", any case: the two names FTP servers take as an
+// anonymous login, whose password is by convention not a secret.
+bool isAnonymousFtpUser(const std::string &user);
+
+// TLS=try asks for AUTH TLS and libcurl falls back to plaintext only when the
+// server refuses AUTH itself.  Stock vsftpd (allow_anon_ssl=NO) accepts AUTH
+// and then refuses an anonymous login inside the TLS session with 530, which
+// reaches the provider as "login denied".  Whether to reconnect once without
+// TLS: only for TLS=try, only for an anonymous login, only on a denied login.
+// A named user never falls back — that would resend a real password in
+// plaintext right after the server turned it down over TLS.  Pass the mode
+// currently in effect, so once TLS has been dropped this says no again.
+bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied);
+
 // Build an FTP URL for a path relative to the login directory.
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);

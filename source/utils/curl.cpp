@@ -242,6 +242,11 @@ void Curl::setUseSSL(long level)
     curl_easy_setopt(_curl, CURLOPT_USE_SSL, level);
 }
 
+void Curl::setFreshConnect(bool enabled)
+{
+    curl_easy_setopt(_curl, CURLOPT_FRESH_CONNECT, enabled ? 1L : 0L);
+}
+
 void Curl::setDirListOnly(bool enabled)
 {
     curl_easy_setopt(_curl, CURLOPT_DIRLISTONLY, enabled ? 1L : 0L);

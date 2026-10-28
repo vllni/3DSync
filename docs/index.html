@@ -291,7 +291,9 @@ TLS=try                   ; none | try | require | implicit
 Mode=passive              ; passive | active</code></pre>
         <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
           <code>TLS=try</code> encrypts the session when the server offers <code>AUTH TLS</code> and falls back
-          to plaintext otherwise. SFTP is not supported &mdash; the 3DS build of libcurl has no libssh2.
+          to plaintext otherwise &mdash; also for an anonymous login the server refuses over TLS (stock vsftpd
+          does), but never for a named user, whose password would then travel unencrypted. SFTP is not
+          supported &mdash; the 3DS build of libcurl has no libssh2.
         </p>
 
         <h5 class="white-text" style="margin-top:1.25rem">
