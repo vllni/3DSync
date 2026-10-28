@@ -74,7 +74,8 @@ services:
     restart: unless-stopped
 
   # Anonymous-only like ftp-anon, but with vsftpd's stock refusal of TLS for
-  # anonymous logins: AUTH TLS succeeds, then USER gets 530.
+  # anonymous logins: AUTH TLS succeeds, then USER gets 530, and 3DSync's
+  # TLS=try has to fall back to plaintext.
   ftp-anon-stock:
     image: localhost/3dsync-test-ftp
     network_mode: host

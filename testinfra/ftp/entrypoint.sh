@@ -36,8 +36,8 @@ anon_upload_enable=YES
 anon_mkdir_write_enable=YES
 anon_other_write_enable=YES
 anon_umask=022
-# Stock vsftpd refuses AUTH TLS from anonymous users (530), which 3DSync's
-# default TLS=try runs straight into. FTP_ANON_SSL=no keeps that default.
+# Stock vsftpd refuses anonymous logins over TLS (530), which 3DSync's
+# TLS=try has to fall back from. FTP_ANON_SSL=no keeps that default.
 allow_anon_ssl=$(echo "${FTP_ANON_SSL:-yes}" | tr a-z A-Z)"
 else
     AUTH_CONF="anonymous_enable=NO

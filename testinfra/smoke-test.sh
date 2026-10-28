@@ -48,7 +48,8 @@ check "ftp anon active mode list"  $a --ssl-reqd -P - "ftp://$H:$ANON/pub/"
 check "ftp anon refuses test user" refused $c "ftp://$H:$ANON/"
 check "ftp refuses anonymous"      refused $a "ftp://$H:$FTP/"
 # Stock vsftpd: plaintext works, and AUTH TLS is accepted but the login
-# after it is refused, so TLS=try does not get in.
+# after it is refused. curl's --ssl does not fall back from that; 3DSync
+# does, for anonymous logins.
 check "ftp anon stock TLS=none upload"   $a --ftp-create-dirs -T "$tmp/f.txt" "ftp://$H:$ANON_STOCK/pub/smoke/f.txt"
 check "ftp anon stock TLS=none delete"   $a -Q "DELE pub/smoke/f.txt" -o /dev/null "ftp://$H:$ANON_STOCK/"
 check "ftp anon stock TLS=try refused"   refused $a --ssl "ftp://$H:$ANON_STOCK/pub/"

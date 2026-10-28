@@ -10,7 +10,7 @@ address — no NAT between the 3DS and passive or active FTP.
 | `ftps-implicit` | 2990, passive 30010–30019 | `TLS=implicit` |
 | `ftp-plain` | 2122, passive 30020–30029 | No `AUTH TLS` at all: `TLS=try` must fall back, `TLS=require` must refuse |
 | `ftp-anon` | 2123, passive 30030–30039 | Anonymous only, `AUTH TLS` offered. Read-only root, writable `pub/` |
-| `ftp-anon-stock` | 2124, passive 30040–30049 | Same, but with vsftpd's default of refusing TLS for anonymous logins: `AUTH TLS` is accepted, then `USER anonymous` gets 530 |
+| `ftp-anon-stock` | 2124, passive 30040–30049 | Same, but with vsftpd's default of refusing TLS for anonymous logins: `AUTH TLS` is accepted, then `USER anonymous` gets 530. Exercises 3DSync's plaintext fallback |
 | `smb` | 1445 | Samba, SMB2 minimum. Shares `3ds`, `3ds-encrypted` (SMB3 encryption required) and `3ds-public` (guest, no login) |
 | `webdav` | 8080 (HTTP), 8443 (HTTPS) | Apache mod_dav. `/dav/` allows `Depth: infinity`; `/dav-nodepth/` refuses it with 403, like stock Apache; `/dav-anon/` needs no login |
 
@@ -75,7 +75,7 @@ and 2124, where the root is read-only.
 | No TLS on server, try | `2122` | `3dsync` / `3dsync` | | Use TLS when offered | Passive | falls back to plaintext |
 | No TLS on server, require | `2122` | `3dsync` / `3dsync` | | Require TLS | Passive | refused: "server does not support FTPS" |
 | Anonymous | `2123` | *(empty)* | `pub` | Use TLS when offered | Passive | works, encrypted |
-| Anonymous, stock vsftpd | `2124` | *(empty)* | `pub` | Use TLS when offered | Passive | **fails** with "login denied" — the anonymous TLS bug below |
+| Anonymous, stock vsftpd | `2124` | *(empty)* | `pub` | Use TLS when offered | Passive | falls back to plaintext and works; a debug run says so (see below) |
 | Anonymous, stock vsftpd | `2124` | *(empty)* | `pub` | None | Passive | works |
 
 ### WebDAV
@@ -155,12 +155,14 @@ On SMB, 3DSync passes no user, so libsmb2 falls back to `getlogin()` or,
 failing that (presumably on the 3DS), `Guest`, with no password. A client
 built from the pinned libsmb2 doing exactly that reaches `3ds-public`.
 
-**Anonymous TLS bug.** `ftp-anon` allows TLS for anonymous logins so every
-`TLS=` mode can be tested. `ftp-anon-stock` (`Port=2124`) keeps vsftpd's
-default (`allow_anon_ssl=NO`), as most real anonymous servers do: there
-`TLS=try` gets `530 Anonymous sessions may not use encryption` after the TLS
-handshake. libcurl reports that as a denied login rather than falling back,
-3DSync stops with "Check User and Password", and only `TLS=none` gets in.
+**Anonymous logins refused over TLS.** `ftp-anon` allows TLS for anonymous
+logins so every `TLS=` mode can be tested. `ftp-anon-stock` (`Port=2124`)
+keeps vsftpd's default (`allow_anon_ssl=NO`), as most real anonymous servers
+do: it accepts `AUTH TLS`, then answers the login with `530 Anonymous
+sessions may not use encryption`. libcurl reports that as a denied login.
+Since #33, 3DSync then reconnects once without TLS for an anonymous user
+and stays in plaintext for the run; before it, the run stopped with "Check
+User and Password". A named user never falls back.
 
 ## Things worth trying
 
