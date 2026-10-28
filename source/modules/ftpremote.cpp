@@ -409,15 +409,19 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
 
     // Upload beside the target and rename on success, so an interrupted
     // transfer cannot leave a truncated save on the server.  RNTO does not
-    // replace on every server, so the old file is removed first; '*' marks the
-    // DELE as allowed to fail (it is absent on a first upload).
-    std::string dele = "*DELE " + remotePath;
-    std::string rnfr = "RNFR " + tmpRemote;
-    std::string rnto = "RNTO " + remotePath;
+    // replace on every server, so the old file is removed first.
+    //
+    // Invariant: the swap runs only after the server confirmed the whole
+    // upload.  It is the post-quote of the STOR itself, and libcurl 8.4's
+    // ftp_done() sends a post-quote only when nothing failed — a final reply
+    // other than 226/250 (the 426 vsftpd sent for a RST-ended upload), a byte
+    // count short of the file, or a premature end all set an error first and
+    // skip it.  A retry is a new STOR with the same rule.  Never move the
+    // swap out of the transfer without keeping that: DELE removes the good
+    // copy before RNFR puts the new one in its place.
     struct curl_slist *quote = NULL;
-    quote = curl_slist_append(quote, dele.c_str());
-    quote = curl_slist_append(quote, rnfr.c_str());
-    quote = curl_slist_append(quote, rnto.c_str());
+    for (auto &command : ftpReplaceCommands(remotePath, tmpRemote))
+        quote = curl_slist_append(quote, command.c_str());
 
     _prepare();
     _curl.setURL(_urlFor(tmpRemote));
