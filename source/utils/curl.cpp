@@ -101,8 +101,10 @@ int Curl::perform()
     CURLcode rescode = curl_easy_perform(_curl);
     long status = getStatusCode();
 
-    if (rescode != CURLE_OK)
-        printf("Network error: %s\n", curl_easy_strerror(rescode));
+    // No printf here: the caller decides what a failure means.  A refused
+    // FTP CWD is "nothing there yet" while listing, and announcing it as a
+    // network error would contradict the provider.  Every _performWithRetry()
+    // prints the reason itself; the code is in the debug output below.
 
     if (debugEnabled())
     {

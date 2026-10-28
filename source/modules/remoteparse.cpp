@@ -67,6 +67,15 @@ void parseDavResponses(const std::string &xml, const std::string &rootHref,
     }
 }
 
+WebDavMkcolResult webdavMkcolResult(int res, long status)
+{
+    if (res == 0)
+        return WEBDAV_MKCOL_CREATED;
+    if (res == WEBDAV_MKCOL_EXISTS_STATUS && status == WEBDAV_MKCOL_EXISTS_STATUS)
+        return WEBDAV_MKCOL_EXISTS;
+    return WEBDAV_MKCOL_FAILED;
+}
+
 void parseDropboxEntries(const std::string &response, const std::string &root,
                          std::map<std::string, RemoteFileInfo> &out)
 {
@@ -148,6 +157,20 @@ bool isAnonymousFtpUser(const std::string &user)
 bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied)
 {
     return loginDenied && mode == FTP_TLS_TRY && isAnonymousFtpUser(user);
+}
+
+FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal)
+{
+    switch (request)
+    {
+    case FTP_REQUEST_LIST:
+        return FTP_OUTCOME_EMPTY;
+    case FTP_REQUEST_UPLOAD:
+        return FTP_OUTCOME_THIS_FILE;
+    case FTP_REQUEST_FILE:
+    default:
+        return refusal == FTP_REFUSED_FILE ? FTP_OUTCOME_THIS_FILE : FTP_OUTCOME_FATAL;
+    }
 }
 
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,

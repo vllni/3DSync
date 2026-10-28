@@ -63,7 +63,32 @@ void FtpRemote::_prepare()
     }
 }
 
-int FtpRemote::_performWithRetry(FILE *uploadFile)
+// The curl codes that refuse one path rather than the session.
+static bool pathRefusal(int res, FtpPathRefusal &out)
+{
+    switch (res)
+    {
+    case CURLE_REMOTE_ACCESS_DENIED:
+        out = FTP_REFUSED_DIRECTORY;
+        return true;
+    case CURLE_REMOTE_FILE_NOT_FOUND:
+    case CURLE_FTP_COULDNT_RETR_FILE:
+        out = FTP_REFUSED_FILE;
+        return true;
+    default:
+        return false;
+    }
+}
+
+// A listing that failed only because the path is not there yet.
+static bool nothingThereYet(int res)
+{
+    FtpPathRefusal refusal;
+    return pathRefusal(res, refusal) &&
+           ftpRefusalOutcome(FTP_REQUEST_LIST, refusal) == FTP_OUTCOME_EMPTY;
+}
+
+int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
 {
     if (_fatalError)
         return -1;
@@ -129,10 +154,6 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
                    _tlsDropped ? "dropped" : "as configured");
             _fatalError = true;
             return res;
-        case CURLE_REMOTE_ACCESS_DENIED:
-            printf(CONSOLE_RED "  FATAL: FTP server denied access to the path." CONSOLE_RESET "\n");
-            _fatalError = true;
-            return res;
         case CURLE_USE_SSL_FAILED:
             printf(CONSOLE_RED "  FATAL: the server does not support FTPS." CONSOLE_RESET "\n");
             printf("  Set TLS=try or TLS=none in 3DSync.ini\n");
@@ -144,14 +165,36 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
             _fatalError = true;
             return res;
 
-        // Missing file or directory — affects this entry only.
+        // A path refused — a CWD, the MKD before a STOR, or the file itself.
+        // libcurl reports a refused CWD as "access denied", which is also
+        // what a directory that does not exist yet looks like; what it means
+        // depends on the request, see ftpRefusalOutcome().
+        case CURLE_REMOTE_ACCESS_DENIED:
         case CURLE_REMOTE_FILE_NOT_FOUND:
         case CURLE_FTP_COULDNT_RETR_FILE:
-            // Silent by design: callers read this as "nothing there yet".  It is
-            // also what a permission problem on a real directory looks like.
-            debugf("%s: %s\n", _curl.getURL().c_str(),
-                   curl_easy_strerror((CURLcode)res));
-            return res;
+        {
+            FtpPathRefusal refusal = FTP_REFUSED_FILE;
+            pathRefusal(res, refusal);
+            switch (ftpRefusalOutcome(request, refusal))
+            {
+            case FTP_OUTCOME_EMPTY:
+                debugf("%s: %s; read as nothing there yet\n", _curl.getURL().c_str(),
+                       curl_easy_strerror((CURLcode)res));
+                return res;
+            case FTP_OUTCOME_THIS_FILE:
+                // The caller says which file failed.
+                debugf("%s: %s\n", _curl.getURL().c_str(),
+                       curl_easy_strerror((CURLcode)res));
+                return res;
+            case FTP_OUTCOME_FATAL:
+            default:
+                printf(CONSOLE_RED "  FATAL: FTP server denied access to" CONSOLE_RESET "\n");
+                printf(CONSOLE_RED "  a folder it just listed." CONSOLE_RESET "\n");
+                debugf("  curl %d on %s\n", res, _curl.getURL().c_str());
+                _fatalError = true;
+                return res;
+            }
+        }
 
         // Transient: retry.
         default:
@@ -177,13 +220,13 @@ bool FtpRemote::connect()
     _curl.setURL(_urlFor(_basePath.empty() ? "" : _basePath + "/"));
     _curl.setDirListOnly(true);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(FTP_REQUEST_LIST);
     if (res == CURLE_OK)
         return true;
 
-    // The base directory may simply not exist yet; that is not a login problem.
-    if (!_fatalError && (res == CURLE_REMOTE_FILE_NOT_FOUND ||
-                         res == CURLE_FTP_COULDNT_RETR_FILE))
+    // The base directory may simply not exist yet; that is not a login
+    // problem, and the first upload creates it.
+    if (!_fatalError && nothingThereYet(res))
     {
         debugf("base directory \"%s\" is not listable yet, continuing\n",
                _basePath.c_str());
@@ -233,7 +276,7 @@ std::string FtpRemote::_tagFor(const std::string &path)
     _curl.setNoBody(true);
     _curl.setFileTime(true);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(FTP_REQUEST_FILE);
     if (res != 0)
     {
         // The caller turns this into "upload failed" with nothing to explain it.
@@ -263,13 +306,15 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
     _curl.setURL(listUrl);
     _curl.setWildcardMatch(_onListEntry, &ctx);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(FTP_REQUEST_LIST);
     _curl.setWildcardMatch(NULL, NULL);
 
     if (res != 0)
     {
-        // A directory that does not exist yet simply has nothing in it.
-        if (res == CURLE_REMOTE_FILE_NOT_FOUND || res == CURLE_FTP_COULDNT_RETR_FILE)
+        // A directory that does not exist yet simply has nothing in it.  The
+        // sync folder is missing on every first sync: FTP creates directories
+        // only when it uploads into them.
+        if (!_fatalError && nothingThereYet(res))
         {
             debugf("nothing to list under \"%s\", treated as empty\n",
                    dirPath.c_str());
@@ -323,7 +368,7 @@ bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPat
     _curl.setURL(_urlFor(file.id));
     _curl.setDownloadFile(fp);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(FTP_REQUEST_FILE);
     _curl.clearDownloadFile();
     fclose(fp);
 
@@ -380,7 +425,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     _curl.setCreateMissingDirs(true);
     _curl.setPostQuote(quote);
 
-    int res = _performWithRetry(fp);
+    int res = _performWithRetry(FTP_REQUEST_UPLOAD, fp);
 
     _curl.setPostQuote(NULL);
     curl_slist_free_all(quote);
@@ -388,7 +433,31 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
 
     if (res != 0)
     {
-        printf("FTP: upload failed for %s\n", remotePath.c_str());
+        printf("FTP: upload failed for\n  %s\n", remotePath.c_str());
+        if (res == CURLE_REMOTE_ACCESS_DENIED)
+        {
+            // A CWD or MKD on the way was refused.  Listing read the same 550
+            // as "not there yet", so this is where a folder the account may
+            // not write to shows up.  Once per folder: every file in it fails
+            // the same way.
+            size_t slash = remotePath.rfind('/');
+            std::string dir = (slash == std::string::npos) ? "" : remotePath.substr(0, slash);
+            if (_refusedDirs.insert(dir).second)
+            {
+                printf(CONSOLE_RED "  The server would not create or enter" CONSOLE_RESET "\n");
+                printf(CONSOLE_RED "  the folder:" CONSOLE_RESET "\n");
+                printf("    %s\n", dir.c_str());
+                printf("  Check the FTP account may write there.\n");
+                if (isAnonymousFtpUser(_user))
+                {
+                    // The usual anonymous setup: read-only except for one
+                    // upload folder, which Path= has to point into.
+                    printf("  Anonymous FTP often allows uploads\n");
+                    printf("  only in one folder, such as pub —\n");
+                    printf("  set Path= in 3DSync.ini.\n");
+                }
+            }
+        }
         debugf("  curl %d; the DELE/RNFR/RNTO quote may also have failed\n", res);
         return false;
     }

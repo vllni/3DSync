@@ -47,7 +47,12 @@ private:
     void _prepare();
     std::string _urlFor(const std::string &path) const;
     // perform() with back-off; maps HTTP status to fatal / transient / per-file.
-    int _performWithRetry(FILE *uploadFile = NULL);
+    //
+    // expectedStatus names one status the caller handles as a normal outcome
+    // rather than a failure: it is still returned, and still explained through
+    // debugf(), but it is not announced on the console.  MKCOL answers "the
+    // folder is already there" with 405, on every sync after the first.
+    int _performWithRetry(FILE *uploadFile = NULL, long expectedStatus = 0);
     // One PROPFIND at the given depth ("0", "1" or "infinity").
     bool _propfind(const std::string &path, const char *depth,
                    std::vector<DavEntry> &out);

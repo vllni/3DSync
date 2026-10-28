@@ -419,3 +419,80 @@ TEST(ftptls, only_a_denied_login_falls_back)
 {
     CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_TRY, "anonymous", false));
 }
+
+// ---------------------------------------------------------------------------
+// FTP: what a refused path means
+// ---------------------------------------------------------------------------
+// libcurl CWDs into a directory before listing it and reports a 550 as
+// CURLE_REMOTE_ACCESS_DENIED, never as "not found" — every server in
+// testinfra/ does this for a folder that does not exist yet:
+//
+//   curl -u u:p "ftp://host/missing/*"   -> rc 9 (CWD refused)
+//   curl -u u:p "ftp://host/missing.txt" -> rc 78 (file not found)
+
+TEST(ftprefusal, refused_cwd_while_listing_is_an_empty_folder)
+{
+    // The sync folder on a first sync: FTP creates it only at upload.
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_DIRECTORY), FTP_OUTCOME_EMPTY);
+}
+
+TEST(ftprefusal, refused_cwd_into_the_base_path_is_an_empty_folder)
+{
+    // connect() lists Path= the same way, so Path=does/not/exist/yet goes on.
+    CHECK(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_DIRECTORY) != FTP_OUTCOME_FATAL);
+}
+
+TEST(ftprefusal, file_not_found_while_listing_is_an_empty_folder)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_LIST, FTP_REFUSED_FILE), FTP_OUTCOME_EMPTY);
+}
+
+TEST(ftprefusal, refused_folder_at_upload_fails_that_file_only)
+{
+    // Where a forbidden folder surfaces, since listing cannot tell it from a
+    // missing one.  Never "empty": that would read as a successful upload.
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_UPLOAD, FTP_REFUSED_DIRECTORY),
+             FTP_OUTCOME_THIS_FILE);
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_UPLOAD, FTP_REFUSED_FILE), FTP_OUTCOME_THIS_FILE);
+}
+
+TEST(ftprefusal, missing_file_at_download_fails_that_file_only)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_FILE, FTP_REFUSED_FILE), FTP_OUTCOME_THIS_FILE);
+}
+
+TEST(ftprefusal, refused_folder_of_a_listed_file_stops_the_run)
+{
+    CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_FILE, FTP_REFUSED_DIRECTORY), FTP_OUTCOME_FATAL);
+}
+
+// ---------------------------------------------------------------------------
+// WebDAV: MKCOL on a folder that may already be there
+// ---------------------------------------------------------------------------
+// Apache in testinfra/: MKCOL new folder -> 201, the same again -> 405.
+
+TEST(webdavmkcol, created)
+{
+    CHECK_EQ(webdavMkcolResult(0, 201), WEBDAV_MKCOL_CREATED);
+}
+
+TEST(webdavmkcol, 405_means_it_is_already_there)
+{
+    CHECK_EQ(webdavMkcolResult(405, 405), WEBDAV_MKCOL_EXISTS);
+}
+
+TEST(webdavmkcol, other_refusals_fail)
+{
+    CHECK_EQ(webdavMkcolResult(409, 409), WEBDAV_MKCOL_FAILED); // a parent is missing
+    CHECK_EQ(webdavMkcolResult(403, 403), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(507, 507), WEBDAV_MKCOL_FAILED);
+}
+
+TEST(webdavmkcol, a_network_error_is_not_a_status)
+{
+    // _performWithRetry() returns the curl code; the status of the last
+    // attempt must not be read on its own.
+    CHECK_EQ(webdavMkcolResult(7, 0), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(28, 405), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(-1, 405), WEBDAV_MKCOL_FAILED);
+}

@@ -1,6 +1,7 @@
 #ifndef MODULES_FTPREMOTE_H
 #define MODULES_FTPREMOTE_H
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,8 @@ private:
     bool _tlsDropped;
     bool _activeMode;
     bool _fatalError;
+    // Folders an upload could not create or enter, explained once each.
+    std::set<std::string> _refusedDirs;
     std::string _lastServerTime;
     Curl _curl;
 
@@ -65,7 +68,9 @@ private:
     // "ftp://host:port/" + url-encoded path.
     std::string _urlFor(const std::string &path) const;
     // perform() with back-off; maps curl codes to fatal / transient / per-file.
-    int _performWithRetry(FILE *uploadFile = NULL);
+    // request says what the call was for, which decides whether a refused
+    // directory is fatal — see ftpRefusalOutcome().
+    int _performWithRetry(FtpRequest request, FILE *uploadFile = NULL);
     bool _listDir(const std::string &dirPath, const std::string &prefix,
                   std::map<std::string, RemoteFileInfo> &out);
     // MDTM + SIZE for one file, as "<size>:<mtime>".  "" when unavailable.

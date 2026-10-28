@@ -409,7 +409,8 @@ int GoogleDrive::_performWithRetry()
         // Network-level failure (timeout, DNS, TLS, …)
         if (curlRes != 0)
         {
-            printf("  Network error (attempt %d/3)\n", attempt + 1);
+            printf("  Network error (attempt %d/3):\n", attempt + 1);
+            printf("    %s\n", curl_easy_strerror((CURLcode)curlRes));
             debugf("  %s\n", _curl.getURL().c_str());
             if (attempt < 2)
             {
