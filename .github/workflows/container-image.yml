@@ -3,7 +3,7 @@ name: Container Image
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - docker/3dsync-devcontainer.Dockerfile
       - .github/workflows/container-image.yml
@@ -35,7 +35,7 @@ jobs:
         id: tags
         run: |
           echo "tags=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          if [ "${GITHUB_REF_NAME}" = "master" ]; then
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
             echo "latest=${IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
           else
             echo "latest=${IMAGE_NAME}:${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
