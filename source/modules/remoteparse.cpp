@@ -67,6 +67,15 @@ void parseDavResponses(const std::string &xml, const std::string &rootHref,
     }
 }
 
+WebDavMkcolResult webdavMkcolResult(int res, long status)
+{
+    if (res == 0)
+        return WEBDAV_MKCOL_CREATED;
+    if (res == WEBDAV_MKCOL_EXISTS_STATUS && status == WEBDAV_MKCOL_EXISTS_STATUS)
+        return WEBDAV_MKCOL_EXISTS;
+    return WEBDAV_MKCOL_FAILED;
+}
+
 void parseDropboxEntries(const std::string &response, const std::string &root,
                          std::map<std::string, RemoteFileInfo> &out)
 {

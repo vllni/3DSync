@@ -50,7 +50,7 @@ void WebDavRemote::_prepare()
         _curl.setUserPassword(_user, _password);
 }
 
-int WebDavRemote::_performWithRetry(FILE *uploadFile)
+int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
 {
     if (_fatalError)
         return -1;
@@ -99,8 +99,13 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile)
             }
         }
 
-        printf(CONSOLE_RED "  WebDAV error: HTTP %ld" CONSOLE_RESET "\n", status);
-        debugf("  %s\n", _curl.getURL().c_str());
+        // A status the caller asked about is its business to report, not an
+        // error to announce here — see expectedStatus in the header.
+        bool expected = (expectedStatus != 0 && status == expectedStatus);
+        if (!expected)
+            printf(CONSOLE_RED "  WebDAV error: HTTP %ld" CONSOLE_RESET "\n", status);
+        debugf("  HTTP %ld%s for %s\n", status, expected ? " (expected by the caller)" : "",
+               _curl.getURL().c_str());
         return (int)status;
     }
     debugf("  giving up on %s after 3 attempts\n", _curl.getURL().c_str());
@@ -177,15 +182,24 @@ bool WebDavRemote::_mkcol(const std::string &path)
     _curl.setURL(_urlFor(path + "/"));
     _curl.setCustomRequest("MKCOL");
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(NULL, WEBDAV_MKCOL_EXISTS_STATUS);
     long status = _curl.getStatusCode();
 
-    // 405 means it is already there, which is exactly what we wanted.
-    if (res == 0 || status == 405)
+    switch (webdavMkcolResult(res, status))
+    {
+    case WEBDAV_MKCOL_CREATED:
         return true;
-    printf("WebDAV: cannot create %s (HTTP %ld)\n", path.c_str(), status);
-    debugf("MKCOL returned %d\n", res);
-    return false;
+    case WEBDAV_MKCOL_EXISTS:
+        // Already there, which is exactly what was wanted.
+        debugf("MKCOL \"%s\": already exists\n", path.c_str());
+        return true;
+    case WEBDAV_MKCOL_FAILED:
+    default:
+        printf("WebDAV: cannot create (HTTP %ld)\n", status);
+        printf("  %s\n", path.c_str());
+        debugf("MKCOL returned %d\n", res);
+        return false;
+    }
 }
 
 std::string WebDavRemote::ensureRoot(const std::string &remoteName)

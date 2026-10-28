@@ -465,3 +465,34 @@ TEST(ftprefusal, refused_folder_of_a_listed_file_stops_the_run)
 {
     CHECK_EQ(ftpRefusalOutcome(FTP_REQUEST_FILE, FTP_REFUSED_DIRECTORY), FTP_OUTCOME_FATAL);
 }
+
+// ---------------------------------------------------------------------------
+// WebDAV: MKCOL on a folder that may already be there
+// ---------------------------------------------------------------------------
+// Apache in testinfra/: MKCOL new folder -> 201, the same again -> 405.
+
+TEST(webdavmkcol, created)
+{
+    CHECK_EQ(webdavMkcolResult(0, 201), WEBDAV_MKCOL_CREATED);
+}
+
+TEST(webdavmkcol, 405_means_it_is_already_there)
+{
+    CHECK_EQ(webdavMkcolResult(405, 405), WEBDAV_MKCOL_EXISTS);
+}
+
+TEST(webdavmkcol, other_refusals_fail)
+{
+    CHECK_EQ(webdavMkcolResult(409, 409), WEBDAV_MKCOL_FAILED); // a parent is missing
+    CHECK_EQ(webdavMkcolResult(403, 403), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(507, 507), WEBDAV_MKCOL_FAILED);
+}
+
+TEST(webdavmkcol, a_network_error_is_not_a_status)
+{
+    // _performWithRetry() returns the curl code; the status of the last
+    // attempt must not be read on its own.
+    CHECK_EQ(webdavMkcolResult(7, 0), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(28, 405), WEBDAV_MKCOL_FAILED);
+    CHECK_EQ(webdavMkcolResult(-1, 405), WEBDAV_MKCOL_FAILED);
+}

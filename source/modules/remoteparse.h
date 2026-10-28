@@ -29,6 +29,23 @@ struct DavEntry
 void parseDavResponses(const std::string &xml, const std::string &rootHref,
                        std::vector<DavEntry> &out);
 
+// MKCOL on a collection that already exists answers 405 Method Not Allowed
+// (RFC 4918, 9.3.1).  For a sync that is the ordinary case — every run after
+// the first, and every upload into an existing folder — so the request passes
+// it to WebDavRemote::_performWithRetry() as expected, not as an error.
+const long WEBDAV_MKCOL_EXISTS_STATUS = 405;
+
+enum WebDavMkcolResult
+{
+    WEBDAV_MKCOL_CREATED,
+    WEBDAV_MKCOL_EXISTS,
+    WEBDAV_MKCOL_FAILED // 409 (a parent is missing), 403, 507, a network error…
+};
+
+// res is what WebDavRemote::_performWithRetry() returned: 0 for a 2xx,
+// otherwise the HTTP status or a curl code.  status is the HTTP status.
+WebDavMkcolResult webdavMkcolResult(int res, long status);
+
 // Parse the "entries" array of a Dropbox list_folder response.  root is the
 // sync root as an absolute Dropbox path; entries outside it, folders, deleted
 // entries and in-flight transfers are skipped.  Comparison of the root is
