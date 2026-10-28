@@ -368,3 +368,54 @@ TEST(remoteparse, dropbox_an_unreadable_success_is_not_a_verdict)
     CHECK_EQ(dropboxPathState(0, ""), DROPBOX_PATH_ERROR);
     CHECK_EQ(dropboxPathState(0, "<html>proxy error</html>"), DROPBOX_PATH_ERROR);
 }
+
+// ---------------------------------------------------------------------------
+// FTP: dropping TLS=try for an anonymous login
+// ---------------------------------------------------------------------------
+// Stock vsftpd accepts AUTH TLS and then refuses an anonymous login inside it
+// ("530 Anonymous sessions may not use encryption").  Only that case may be
+// retried in plaintext; a named user's password must never be.
+
+TEST(ftptls, anonymous_with_try_falls_back)
+{
+    CHECK(ftpShouldRetryWithoutTls(FTP_TLS_TRY, "anonymous", true));
+}
+
+TEST(ftptls, ftp_user_with_try_falls_back)
+{
+    CHECK(ftpShouldRetryWithoutTls(FTP_TLS_TRY, "ftp", true));
+}
+
+TEST(ftptls, anonymous_is_matched_in_any_case)
+{
+    CHECK(ftpShouldRetryWithoutTls(FTP_TLS_TRY, "Anonymous", true));
+    CHECK(ftpShouldRetryWithoutTls(FTP_TLS_TRY, "FTP", true));
+    CHECK(!isAnonymousFtpUser("anonymous2"));
+    CHECK(!isAnonymousFtpUser(" anonymous"));
+    CHECK(!isAnonymousFtpUser(""));
+}
+
+TEST(ftptls, named_user_with_try_does_not_fall_back)
+{
+    // Would resend the password in plaintext right after the server refused
+    // it over TLS.
+    CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_TRY, "alice", true));
+}
+
+TEST(ftptls, anonymous_with_require_does_not_fall_back)
+{
+    CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_REQUIRE, "anonymous", true));
+    CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_IMPLICIT, "anonymous", true));
+}
+
+TEST(ftptls, anonymous_with_none_does_not_fall_back)
+{
+    // Also what stops a second fallback: once TLS has been dropped the
+    // provider asks with FTP_TLS_NONE.
+    CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_NONE, "anonymous", true));
+}
+
+TEST(ftptls, only_a_denied_login_falls_back)
+{
+    CHECK(!ftpShouldRetryWithoutTls(FTP_TLS_TRY, "anonymous", false));
+}

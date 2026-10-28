@@ -33,7 +33,7 @@ bool GoogleDrive::upload(std::map<std::pair<std::string, std::string>, std::vect
 {
     if (!ensureToken())
     {
-        printf("Cannot upload: failed to obtain Google Drive access token\n");
+        printf("Cannot upload: no Google Drive access token.\n");
         return false;
     }
 
@@ -208,7 +208,9 @@ std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std:
 
     if (folderId.empty())
     {
-        printf("Warning: could not find or create Drive folder '%s', uploading to parent\n", name.c_str());
+        printf("Warning: Drive folder '%s'\n", name.c_str());
+        printf("  could not be found or created; uploading\n");
+        printf("  to its parent folder instead.\n");
         // The failure is cached like a success, so every later file under this
         // folder silently lands in the parent without another warning.
         debugf("caching '%s' as unresolved for the rest of the run\n",
@@ -446,7 +448,7 @@ int GoogleDrive::_performWithRetry()
         {
             printf(CONSOLE_RED "  FATAL: Authentication failed." CONSOLE_RESET "\n");
             printf("  Your refresh token may be invalid or revoked.\n");
-            printf("  Re-run the configurator to obtain a new refresh token.\n");
+            printf("  Re-run the configurator to get a new one.\n");
             _fatalError = true;
             return -401;
         }
@@ -472,14 +474,16 @@ int GoogleDrive::_performWithRetry()
                        "temp file), so the 403 is taken as fatal\n");
             if (reason == "accessNotConfigured")
             {
-                printf("  The Google Drive API is not enabled in your Cloud project.\n");
+                printf("  The Drive API is not enabled in your\n");
+                printf("  Google Cloud project.\n");
                 printf("  Visit console.cloud.google.com to enable it.\n");
             }
             else
             {
-                printf("  The Drive API may not be enabled, or this account\n");
-                printf("  lacks the required permissions.\n");
-                printf("  Visit console.cloud.google.com to check API settings.\n");
+                printf("  The Drive API may not be enabled, or this\n");
+                printf("  account lacks the required permissions.\n");
+                printf("  Check the API settings at\n");
+                printf("  console.cloud.google.com.\n");
             }
             _fatalError = true;
             return -403;

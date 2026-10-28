@@ -543,7 +543,8 @@ static void runSync(const INIReader &reader)
     if (!remotes.any())
     {
         printf("No remote configured in 3DSync.ini\n");
-        printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP] or [WebDAV] section.\n");
+        printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP]\n");
+        printf("or [WebDAV] section.\n");
         frontend::setLastResult("no remote configured", false);
         return;
     }

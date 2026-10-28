@@ -16,7 +16,7 @@ FtpRemote::FtpRemote(const std::string &host, int port, const std::string &user,
                      const std::string &password, const std::string &basePath,
                      FtpTlsMode tls, bool activeMode)
     : _host(host), _port(port > 0 ? port : (tls == FTP_TLS_IMPLICIT ? 990 : 21)),
-      _user(user), _password(password), _tls(tls), _activeMode(activeMode),
+      _user(user), _password(password), _tls(tls), _tlsDropped(false), _activeMode(activeMode),
       _fatalError(false)
 {
     // Strip the separators so paths can be joined without doubling them.
@@ -37,13 +37,18 @@ std::string FtpRemote::_urlFor(const std::string &path) const
     return buildFtpUrl(_tls == FTP_TLS_IMPLICIT, _host, _port, path);
 }
 
+FtpTlsMode FtpRemote::_effectiveTls() const
+{
+    return _tlsDropped ? FTP_TLS_NONE : _tls;
+}
+
 void FtpRemote::_prepare()
 {
     _curl.reset();
     _curl.setUserPassword(_user, _password);
     _curl.setActiveMode(_activeMode);
 
-    switch (_tls)
+    switch (_effectiveTls())
     {
     case FTP_TLS_TRY:
         _curl.setUseSSL(CURLUSESSL_TRY);
@@ -79,10 +84,49 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
 
         switch (res)
         {
-        // Wrong credentials or no access to the tree — nothing else will work.
+        // Wrong credentials or no access to the tree — nothing else will work,
+        // with one exception: see ftpShouldRetryWithoutTls().
         case CURLE_LOGIN_DENIED:
+            if (ftpShouldRetryWithoutTls(_effectiveTls(), _user, true))
+            {
+                // Stock vsftpd: AUTH TLS accepted, the anonymous login then
+                // refused inside it.  Reconnect once without TLS — the handle
+                // keeps this request's options, only USE_SSL changes — and
+                // stay in plaintext for the run, since _prepare() reads
+                // _tlsDropped from here on.  That also makes the check above
+                // say no next time, so this cannot repeat.  Not a transient
+                // failure, so it does not use up one of the three attempts.
+                debugf("FTP: anonymous login refused over TLS on %s:%d; "
+                       "using plaintext for the rest of this run\n",
+                       _host.c_str(), _port);
+                _tlsDropped = true;
+                _curl.setUseSSL(CURLUSESSL_NONE);
+                // The refused session negotiated TLS; never reuse it.
+                _curl.setFreshConnect(true);
+                if (uploadFile != NULL)
+                    rewind(uploadFile);
+                attempt--;
+                continue;
+            }
             printf(CONSOLE_RED "  FATAL: FTP login denied." CONSOLE_RESET "\n");
-            printf("  Check User and Password in 3DSync.ini.\n");
+            if (isAnonymousFtpUser(_user))
+            {
+                // No User= in the INI means "anonymous": telling this user to
+                // check a User and Password they never set says nothing.
+                printf("  The server refused an anonymous login.\n");
+                printf("  Set User and Password if it needs one.\n");
+            }
+            else
+            {
+                printf("  Check User and Password in 3DSync.ini.\n");
+                if (_tls == FTP_TLS_TRY)
+                {
+                    printf("  The server may refuse logins over TLS;\n");
+                    printf("  TLS=none allows plaintext (unencrypted).\n");
+                }
+            }
+            debugf("  curl %d on %s, TLS %s\n", res, _curl.getURL().c_str(),
+                   _tlsDropped ? "dropped" : "as configured");
             _fatalError = true;
             return res;
         case CURLE_REMOTE_ACCESS_DENIED:
@@ -91,7 +135,8 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
             return res;
         case CURLE_USE_SSL_FAILED:
             printf(CONSOLE_RED "  FATAL: the server does not support FTPS." CONSOLE_RESET "\n");
-            printf("  Set TLS=try or TLS=none in 3DSync.ini to allow plaintext.\n");
+            printf("  Set TLS=try or TLS=none in 3DSync.ini\n");
+            printf("  to allow plaintext.\n");
             _fatalError = true;
             return res;
         case CURLE_COULDNT_RESOLVE_HOST:
@@ -351,7 +396,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     outTag = _tagFor(remotePath);
     outId = remotePath;
     if (outTag.empty())
-        printf("FTP: %s uploaded but its timestamp could not be read\n",
+        printf("FTP: could not read the timestamp of\n  %s\n  after uploading it.\n",
                remotePath.c_str());
     return !outTag.empty();
 }

@@ -73,7 +73,8 @@ bool SmbRemote::connect()
         printf(CONSOLE_RED "SMB: cannot connect to \\\\%s\\%s" CONSOLE_RESET "\n",
                _server.c_str(), _share.c_str());
         printf("  %s\n", smb2_get_error(_smb2));
-        printf("  Check the server address, share name and credentials.\n");
+        printf("  Check the server address, share name,\n");
+        printf("  User and Password.\n");
         debugf("smb2_connect_share returned %d\n", res);
         _fatalError = true; // wrong host or credentials — retrying will not help
         return false;

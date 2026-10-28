@@ -268,7 +268,8 @@ bool WebDavRemote::list(const std::string &root,
                    "than depth\n", root.c_str());
             return false; // a real failure, not a depth restriction
         }
-        printf("  Server refuses Depth: infinity, walking one level at a time\n");
+        printf("  Server refuses Depth: infinity;\n");
+        printf("  listing one folder at a time.\n");
     }
     return _listDepthOne(root, "", out);
 }

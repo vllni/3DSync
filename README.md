@@ -157,6 +157,15 @@ Mode=passive              ; passive | active
 and falls back to plaintext when it does not. Use `require` to refuse an
 unencrypted session, or `implicit` for the older `ftps://` on port 990.
 
+An **anonymous** login (no `User=` line, or `User=anonymous` / `User=ftp`)
+with `TLS=try` also falls back to plaintext when the server accepts TLS but
+then refuses the login over it — what a stock vsftpd does
+(`530 Anonymous sessions may not use encryption`). 3DSync reconnects once
+without TLS and stays that way for the rest of the run; a [debug
+run](#debug-mode) says so. A **named user** never falls back, since that would
+send the password unencrypted right after the server refused it over TLS: the
+login fails, and if the server needs plaintext logins, set `TLS=none`.
+
 SFTP is **not** supported: the 3DS build of libcurl has no libssh2.
 
 ### WebDAV
