@@ -496,3 +496,56 @@ TEST(webdavmkcol, a_network_error_is_not_a_status)
     CHECK_EQ(webdavMkcolResult(28, 405), WEBDAV_MKCOL_FAILED);
     CHECK_EQ(webdavMkcolResult(-1, 405), WEBDAV_MKCOL_FAILED);
 }
+
+// ---------------------------------------------------------------------------
+// FTP: moving an upload into place
+// ---------------------------------------------------------------------------
+// Checked against a server with the curl CLI: POSTQUOTE runs after
+// "CWD saves", so "RNFR saves/a.sav.3dstmp" is answered 550 and the upload
+// fails; "RNFR a.sav.3dstmp" works.
+
+TEST(ftpreplace, names_the_file_alone)
+{
+    std::vector<std::string> c =
+        ftpReplaceCommands("saves/Game/a b.sav", "saves/Game/a b.sav.3dstmp");
+    CHECK_EQ(c.size(), (size_t)3);
+    CHECK_STR_EQ(c[0], "*DELE a b.sav");
+    CHECK_STR_EQ(c[1], "RNFR a b.sav.3dstmp");
+    CHECK_STR_EQ(c[2], "RNTO a b.sav");
+}
+
+TEST(ftpreplace, a_file_in_the_login_directory)
+{
+    std::vector<std::string> c = ftpReplaceCommands("a.sav", "a.sav.3dstmp");
+    CHECK_STR_EQ(c[1], "RNFR a.sav.3dstmp");
+    CHECK_STR_EQ(c[2], "RNTO a.sav");
+}
+
+// ---------------------------------------------------------------------------
+// FTP: an upload whose end the server refused
+// ---------------------------------------------------------------------------
+// From a 3DS against vsftpd 3.0.5: "150 Ok to send data", the whole file
+// sent, then "426 Failure reading network stream" (curl 18) on every
+// attempt, with the complete .3dstmp left on the server — with TLS=try on a
+// named login, and in plaintext after the anonymous TLS fallback.
+
+TEST(ftpunclean, a_426_after_the_upload_is_the_refused_end)
+{
+    CHECK(ftpUploadEndedUnclean(true, 426));
+}
+
+TEST(ftpunclean, other_replies_and_errors_are_not_it)
+{
+    CHECK(!ftpUploadEndedUnclean(true, 451));
+    CHECK(!ftpUploadEndedUnclean(false, 426));
+    CHECK(!ftpUploadEndedUnclean(false, 0));
+}
+
+TEST(ftpunclean, only_a_complete_temp_file_is_moved_into_place)
+{
+    CHECK(ftpUploadArrivedIntact(8192, 8192));
+    CHECK(ftpUploadArrivedIntact(0, 0));
+    CHECK(!ftpUploadArrivedIntact(4096, 8192)); // cut short
+    CHECK(!ftpUploadArrivedIntact(-1, 8192));   // gone (delete_failed_uploads) or no SIZE
+    CHECK(!ftpUploadArrivedIntact(-1, -1));     // local size unknown
+}

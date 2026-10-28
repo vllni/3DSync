@@ -132,6 +132,37 @@ enum FtpRefusalOutcome
 // from a directory the server refuses is not a first-sync case, so it stops.
 FtpRefusalOutcome ftpRefusalOutcome(FtpRequest request, FtpPathRefusal refusal);
 
+// The commands that move an uploaded temp file over the real one: DELE (marked
+// '*' so its failure is ignored — the file is absent on a first upload), RNFR,
+// RNTO.  remotePath and tempPath are relative to the login directory; both are
+// in the same directory.
+//
+// They are sent as CURLOPT_POSTQUOTE, which libcurl sends *after* it has CWD'd
+// into the directory of the request's URL, so they name the file alone: a path
+// from the login directory would be looked up below the directory the session
+// is already in, and RNFR fails.  Nor can a path from the login directory be
+// sent before a CWD (CURLOPT_QUOTE): a reused connection starts the request
+// wherever the last one left it.
+std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
+                                            const std::string &tempPath);
+
+// vsftpd answers an upload from the 3DS with "426 Failure reading network
+// stream" after the whole file has been sent and stored — over TLS and in
+// plaintext alike, on every attempt.  Over TLS, devkitPro's libcurl 8.4 never
+// sends a close_notify (its mbedTLS backend has no call to
+// mbedtls_ssl_close_notify), which vsftpd's strict_ssl_read_eof rejects; that
+// it happens in plaintext too points at how the console closes the data
+// socket.  Whether a failed upload is that case: libcurl's "partial file"
+// (CURLE_PARTIAL_FILE) with the final reply 426.  It is not retried — it
+// would fail the same way — and the provider checks what arrived instead.
+bool ftpUploadEndedUnclean(bool partialTransfer, long replyCode);
+
+// Whether the temp file the server kept is the whole upload.  A connection
+// whose end was refused can only have lost bytes off the end, so the length
+// is the check; over TLS every record that arrived is also authenticated.
+// -1 (unknown) on either side is never intact.
+bool ftpUploadArrivedIntact(long long remoteSize, long long localSize);
+
 // Build an FTP URL for a path relative to the login directory.
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);
