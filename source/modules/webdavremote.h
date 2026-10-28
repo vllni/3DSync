@@ -22,6 +22,7 @@ public:
                  const std::string &password);
 
     const char *name() const override { return "WebDAV"; }
+    bool isExperimental() const override { return false; }
     std::string manifestPrefix() const override { return _baseUrl; }
     bool connect() override;
     bool hasFatalError() const override;

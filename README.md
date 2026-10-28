@@ -8,7 +8,7 @@ Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with 
 | Dropbox | bidirectional | stable |
 | SMB2/3 file server (NAS, Windows share) | bidirectional | 🧪 experimental |
 | FTP / FTPS | bidirectional | stable |
-| WebDAV | bidirectional | 🧪 experimental |
+| WebDAV | bidirectional | stable |
 
 > 🧪 **Experimental** backends work but have had far less testing against real
 > servers than the stable ones. Keep a backup of your saves, and please report
@@ -172,8 +172,6 @@ says so.
 SFTP is **not** supported: the 3DS build of libcurl has no libssh2.
 
 ### WebDAV
-
-🧪 Experimental.
 
 ```ini
 [WebDAV]
