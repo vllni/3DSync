@@ -21,6 +21,13 @@ EXTRA_OUTPUT_FILES :=
 # truncated, and the only complaint is a syntax error blamed on the fragment.
 BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=2048
 
+# Link-time hooks into libcurl's mbedTLS teardown so TLS connections end with
+# a close_notify, which libcurl 8.4 never sends and vsftpd requires of a TLS
+# upload; see source/utils/tlsclose.cpp.  The build passes CXX_FLAGS to the
+# link step as well, which is the only way buildtools/make_base offers to add
+# a linker option; the compiler ignores -Wl, when it only compiles.
+BUILD_FLAGS_CXX := -Wl,--wrap=mbedtls_ssl_setup -Wl,--wrap=mbedtls_ssl_config_free
+
 # The version comes from source/version.h, not from `git describe`: the number
 # on screen has to be a property of the source, so a shallow clone or a tarball
 # build shows the same thing a tagged release does.  The release workflow checks
