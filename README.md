@@ -41,7 +41,7 @@ or FBI; see [3ds.hacks.guide](https://3ds.hacks.guide/) if yours does not.
 <img src="https://3dsync.villani-ulm.de/unistore/3dsync-unistore-QR.png" alt="QR code of the 3DSync UniStore" width="200" align="right">
 
 1. In [Universal-Updater](https://github.com/Universal-Team/Universal-Updater),
-   open **Settings → Select UniStore...** and press **Y**.
+   open **Settings → Select a UniStore → +**.
 2. Scan the QR code, or type the store URL:
    `https://3dsync.villani-ulm.de/unistore/3dsync.unistore`
 3. Select the 3DSync store, open the 3DSync entry and pick a download:
