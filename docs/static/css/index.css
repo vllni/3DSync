@@ -318,7 +318,18 @@ main {
     white-space: pre;
 }
 
+/* An invalid field shows its error in place of the hint.  Materialize draws
+   the error as an absolutely placed ::after over a hint it makes transparent,
+   but .white-text keeps the hint visible here, and a hint that wraps would sit
+   under the error.  So: hide the hint's own text and let the error take its
+   place in the flow, wrapping as far as it needs. */
 .input-field input.remote-field.invalid~.helper-text {
+    font-size: 0 !important;
+}
+
+.input-field input.remote-field.invalid~.helper-text::after {
+    position: static;
+    font-size: 12px;
     color: #ff8a80 !important;
 }
 
