@@ -395,3 +395,15 @@ main {
     color: #fff;
     text-decoration: underline;
 }
+
+/* --- Configurator: steps already passed can be reopened ----------------- */
+.stepper > li.step.step-reachable > .step-title {
+    cursor: pointer;
+}
+
+.stepper > li.step.step-reachable > .step-title:hover,
+.stepper > li.step.step-reachable > .step-title:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+}

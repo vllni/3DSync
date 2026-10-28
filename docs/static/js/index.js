@@ -28,8 +28,46 @@ $(function () {
     let stepperInstace = new MStepper(document.querySelector('.stepper'), {
         firstActive: 0,
         autoFormCreation: false,
+        // Its own title navigation would also jump *forward*, past the checks
+        // behind Continue and Confirm; going back is handled below instead.
         stepTitleNavigation: false,
     });
+
+    // --- Step titles: reopen a step already passed ---
+    // Every step before the open one is done, so its title reopens it; the
+    // open step and those after it can only be reached with the buttons.
+    const $steps = $('.stepper > li.step');
+
+    function activeStepIndex() {
+        return $steps.index($steps.filter('.active'));
+    }
+
+    function markReachableSteps() {
+        let active = activeStepIndex();
+        $steps.each(function (i) {
+            let reachable = active >= 0 && i < active;
+            $(this).toggleClass('step-reachable', reachable);
+            let $title = $(this).children('.step-title');
+            if (reachable) $title.attr({ role: 'button', tabindex: '0', title: 'Back to this step' });
+            else $title.removeAttr('role tabindex title');
+        });
+    }
+
+    $steps.children('.step-title').on('click keydown', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        let index = $steps.index($(this).parent());
+        if (index < activeStepIndex()) {
+            e.preventDefault();
+            stepperInstace.openStep(index);
+        }
+    });
+
+    // The stepper marks the open step with "active"; following that class
+    // covers every way of moving — buttons, titles, the OAuth return.
+    new MutationObserver(markReachableSteps).observe(document.querySelector('.stepper'), {
+        subtree: true, attributes: true, attributeFilter: ['class']
+    });
+    markReachableSteps();
 
     // --- OAuth redirect callback ---
     // Both providers use the PKCE authorization-code flow and come back with
