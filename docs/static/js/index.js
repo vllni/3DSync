@@ -807,24 +807,23 @@ $(function () {
         }
     }
 
+    // A few hundred bytes: a Blob and a link with the download attribute is all
+    // it takes, in every current browser.  The file holds passwords and tokens,
+    // so it is built and saved entirely inside this page — never handed to a
+    // third-party helper page or service worker to stream.
     $('#download-config').on('click', function (e) {
         e.preventDefault();
-        let blob = new Blob([getConfigString(false)], { type: "application/octet-stream;charset=utf-8" });
-        const fileStream = streamSaver.createWriteStream('3DSync.ini', {
-            size: blob.size
-        });
-        const readableStream = blob.stream();
-        if (window.WritableStream && readableStream.pipeTo) {
-            return readableStream.pipeTo(fileStream)
-                .then(() => console.log('done writing'));
-        }
-        window.writer = fileStream.getWriter();
-        const reader = readableStream.getReader();
-        const pump = () => reader.read()
-            .then(res => res.done
-                ? writer.close()
-                : writer.write(res.value).then(pump));
-        pump();
+        let blob = new Blob([getConfigString(false)], { type: 'application/octet-stream' });
+        let url = URL.createObjectURL(blob);
+        let link = document.createElement('a');
+        link.href = url;
+        link.download = '3DSync.ini';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Not revoked at once: Firefox may still be reading the URL when
+        // click() returns, and a revoked one fails the download.
+        setTimeout(function () { URL.revokeObjectURL(url); }, 40000);
     });
 
     $('#add-custom-path').on('click', function (e) {
