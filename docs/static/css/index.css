@@ -12,49 +12,238 @@ main {
     font-size: 2rem;
 }
 
-/* --- Configurator: backend picker ------------------------------------- */
-.provider-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+/* --- Configurator: auth method tiles ---------------------------------- */
+/* A tile per backend; clicking one selects it (clicking it again clears the
+   choice) and the settings for the selected one appear below the grid. */
+.auth-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 12px;
     margin-bottom: 20px;
 }
 
-.provider-tab {
-    display: inline-flex;
+.auth-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    text-align: center;
+    gap: 4px;
+    padding: 18px 12px 14px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    background-color: rgba(0, 0, 0, 0.1);
     color: #fff;
-    font-size: 0.95em;
-    line-height: 1.2;
-    transition: background-color 0.15s;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s, transform 0.1s;
 }
 
-.provider-tab:hover,
-.provider-tab:focus {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #fff;
+/* Hover only where there is a pointer that hovers: on a touch screen the
+   last-tapped tile would otherwise stay lit and read as selected. */
+@media (hover: hover) {
+    .auth-tile:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+    }
 }
 
-.provider-tab.active {
-    background-color: #fff;
+.auth-tile:active {
+    transform: scale(0.98);
+}
+
+.auth-tile:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.auth-tile.selected {
     border-color: #fff;
-    color: #1565c0;
+    background-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 0 0 2px #fff;
 }
 
-.provider-tab .material-icons {
-    font-size: 1.15rem;
+.auth-radio {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.6);
 }
 
-.provider-panel {
+.auth-tile.selected .auth-radio {
+    border-color: #fff;
+}
+
+.auth-tile.selected .auth-radio::after {
+    content: "";
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.auth-icon {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    line-height: 1;
+}
+
+.auth-icon .material-icons {
+    font-size: 2.2rem;
+}
+
+.auth-title {
+    font-size: 1.05rem;
+    font-weight: 500;
+}
+
+.auth-subtitle {
+    font-size: 0.8em;
+    opacity: 0.75;
+    line-height: 1.3;
+}
+
+.auth-tile .experimental-badge {
+    margin: 6px 0 0 0;
+}
+
+.auth-status {
+    font-size: 0.8em;
+    color: #b9f6ca;
+    min-height: 0;
+}
+
+.auth-status:empty {
     display: none;
 }
 
-.provider-panel.active {
+/* Phones: a compact list, icon on the left, so the settings below are not
+   five screen-heights away. */
+@media (max-width: 600px) {
+    .auth-tiles {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .auth-tile {
+        display: grid;
+        grid-template-columns: 22px 32px 1fr;
+        grid-template-areas:
+            "radio icon title"
+            "radio icon subtitle"
+            "radio icon badge";
+        align-items: center;
+        text-align: left;
+        column-gap: 10px;
+        row-gap: 0;
+        padding: 10px 12px;
+    }
+
+    .auth-radio {
+        position: relative;
+        top: auto;
+        left: auto;
+        grid-area: radio;
+    }
+
+    .auth-icon {
+        grid-area: icon;
+        height: auto;
+        font-size: 1.5rem;
+    }
+
+    .auth-icon .material-icons {
+        font-size: 1.6rem;
+    }
+
+    .auth-title {
+        grid-area: title;
+    }
+
+    .auth-subtitle {
+        grid-area: subtitle;
+    }
+
+    .auth-tile .experimental-badge {
+        grid-area: badge;
+        justify-self: start;
+        margin-top: 4px;
+    }
+
+    .auth-status {
+        grid-area: badge;
+        justify-self: end;
+    }
+
+    .auth-settings {
+        padding: 14px;
+    }
+
+    /* Materialize buttons are one fixed-height line; let long labels wrap
+       instead of spilling out of the button. */
+    .auth-settings .btn {
+        height: auto;
+        min-height: 36px;
+        line-height: 1.3;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        white-space: normal;
+    }
+}
+
+.auth-empty {
+    opacity: 0.8;
+    margin: 4px 0 16px 0;
+}
+
+.auth-settings {
+    display: none;
+    padding: 20px;
+    border-radius: 10px;
+    background-color: rgba(0, 0, 0, 0.15);
+    margin-bottom: 16px;
+}
+
+.auth-settings.active {
     display: block;
+}
+
+.experimental-notice {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px 18px;
+    margin: 0 0 20px 0;
+    border-radius: 8px;
+    border-left: 4px solid #ff9800;
+    background-color: rgba(230, 81, 0, 0.18);
+    color: #fff;
+    font-size: 0.88em;
+    line-height: 1.5;
+}
+
+.experimental-notice .material-icons {
+    color: #ffb74d;
+    flex: none;
+}
+
+.experimental-notice a {
+    color: #fff;
+    text-decoration: underline;
+}
+
+.auth-continue-hint {
+    margin-left: 12px;
+    font-size: 0.88em;
+}
+
+.auth-continue-hint.warn {
+    color: #ffcc80 !important;
 }
 
 .panel-intro {
@@ -74,24 +263,30 @@ main {
 }
 
 .experimental-badge {
+    display: inline-block;
     background: #e65100;
     color: #fff;
-    border-radius: 3px;
-    padding: 1px 6px;
-    font-size: 0.55em;
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 0.62rem;
+    line-height: 1.3;
     vertical-align: middle;
-    margin-left: 10px;
-    letter-spacing: 0.04em;
+    margin-left: 12px;
+    letter-spacing: 0.06em;
     font-weight: 600;
 }
 
 .select-label {
     display: block;
+    position: static;
     font-size: 0.85em;
-    margin-bottom: 4px;
+    line-height: 1.4;
+    margin: 0 0 6px 0;
 }
 
 .dark-select {
+    display: block;
+    width: 100%;
     color: #fff;
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.5);
@@ -125,4 +320,54 @@ main {
 
 .input-field input.remote-field.invalid~.helper-text {
     color: #ff8a80 !important;
+}
+
+/* --- Configurator: test connection ------------------------------------- */
+.test-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 16px 0 4px 0;
+}
+
+.test-result {
+    font-size: 0.88em;
+    line-height: 1.4;
+    flex: 1 1 240px;
+}
+
+.test-result .material-icons {
+    font-size: 1.1em;
+    vertical-align: -2px;
+    margin-right: 4px;
+}
+
+.test-result.ok {
+    color: #b9f6ca;
+}
+
+.test-result.fail {
+    color: #ff8a80;
+}
+
+.test-result.unknown {
+    color: #ffcc80;
+}
+
+.test-unavailable {
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    padding: 12px 14px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.15);
+    color: #fff;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.test-unavailable .material-icons {
+    flex: none;
+    font-size: 1.3rem;
+    opacity: 0.8;
 }

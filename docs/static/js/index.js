@@ -25,6 +25,8 @@ $(function () {
             exchangeGoogleCode(authCode, codeVerifier).then(function (success) {
                 if (success) {
                     localStorage.setItem('provider', 'googledrive');
+                    selectProvider('googledrive');
+                    $('.auth-tile[data-provider="googledrive"] .auth-status').text('\u2713 Logged in');
                     stepperInstace.nextStep();
                 } else {
                     alert('Google Drive authentication failed. Please try again.');
@@ -38,6 +40,8 @@ $(function () {
             exchangeDropboxCode(authCode, codeVerifier).then(function (success) {
                 if (success) {
                     localStorage.setItem('provider', 'dropbox');
+                    selectProvider('dropbox');
+                    $('.auth-tile[data-provider="dropbox"] .auth-status').text('\u2713 Logged in');
                     stepperInstace.nextStep();
                 } else {
                     alert('Dropbox authentication failed. Please try again.');
@@ -259,27 +263,59 @@ $(function () {
             + '&code_challenge_method=S256';
     });
 
-    // --- Backend picker ---
-    // One remote per generated file.  Dropbox and Drive go through OAuth and
-    // come back on a redirect, so their choice survives in localStorage
-    // ('provider'); SMB, FTP and WebDAV are typed in and kept only in memory
+    // --- Auth method tiles ---
+    // One remote per generated file, chosen by selecting its tile; the
+    // settings for the selected one show below the grid, and clicking the
+    // selected tile again clears the choice.  Dropbox and Drive log in
+    // through OAuth and come back on a redirect, so their login survives in
+    // localStorage; SMB, FTP and WebDAV are typed in and kept only in memory
     // (remoteSection), so their passwords never touch browser storage.
+    let selectedProvider = null;
     let remoteSection = null; // { provider, section, entries: [[key, value], ...] }
 
-    function showProvider(provider) {
-        $('.provider-tab').removeClass('active').attr('aria-selected', 'false');
-        $('.provider-tab[data-provider="' + provider + '"]').addClass('active').attr('aria-selected', 'true');
-        $('.provider-panel').removeClass('active');
-        $('.provider-panel[data-provider="' + provider + '"]').addClass('active');
+    function oauthLoggedIn(provider) {
+        if (provider === 'dropbox')
+            return !!(localStorage.getItem('dropboxRefreshToken') || localStorage.getItem('dropboxToken'));
+        if (provider === 'googledrive')
+            return !!localStorage.getItem('gdriveRefreshToken');
+        return false;
+    }
+
+    function selectProvider(provider) {
+        selectedProvider = provider;
+        $('.auth-tile').each(function () {
+            let on = $(this).data('provider') === provider;
+            $(this).toggleClass('selected', on).attr('aria-checked', on ? 'true' : 'false');
+        });
+        $('.auth-settings').removeClass('active');
+        if (provider) $('#auth-settings-' + provider).addClass('active');
+        $('#auth-empty').toggle(!provider);
+        $('#auth-continue-hint').text('').removeClass('warn');
         M.updateTextFields();
     }
 
-    $('.provider-tab').on('click', function (e) {
-        e.preventDefault();
-        showProvider($(this).data('provider'));
+    function toggleTile($tile) {
+        let provider = $tile.data('provider');
+        selectProvider(selectedProvider === provider ? null : provider);
+    }
+
+    $('.auth-tile').on('click', function () {
+        toggleTile($(this));
+    }).on('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleTile($(this));
+        }
     });
 
-    showProvider(localStorage.getItem('provider') || 'dropbox');
+    ['dropbox', 'googledrive'].forEach(function (provider) {
+        if (oauthLoggedIn(provider))
+            $('.auth-tile[data-provider="' + provider + '"] .auth-status').text('\u2713 Logged in');
+    });
+
+    // Back from an earlier login: start on that backend.
+    let storedProvider = localStorage.getItem('provider');
+    selectProvider(storedProvider && oauthLoggedIn(storedProvider) ? storedProvider : null);
 
     // 3DSync reads the file with inih, which ends a value at a ';' that
     // follows whitespace (an inline comment) and trims spaces at both ends.
@@ -481,17 +517,204 @@ $(function () {
         }
     };
 
-    $('.remote-continue').on('click', function (e) {
+    function continueHint(text) {
+        $('#auth-continue-hint').text(text).addClass('warn');
+    }
+
+    $('#auth-continue').on('click', function (e) {
         e.preventDefault();
-        let provider = $(this).data('provider');
+        let provider = selectedProvider;
+        if (!provider) {
+            continueHint('Pick where to sync first.');
+            return;
+        }
+        if (provider === 'dropbox' || provider === 'googledrive') {
+            if (!oauthLoggedIn(provider)) {
+                continueHint(provider === 'dropbox' ? 'Log in with Dropbox first.'
+                    : 'Log in with Google Drive first.');
+                return;
+            }
+            remoteSection = null;
+            localStorage.setItem('provider', provider);
+            stepperInstace.nextStep();
+            return;
+        }
         let section = remoteForms[provider]();
         if (section === null) {
-            $('.provider-panel.active .invalid').first().focus();
+            continueHint('Check the highlighted fields.');
+            $('#auth-settings-' + provider + ' .invalid').first().focus();
             return;
         }
         section.provider = provider;
         remoteSection = section;
         stepperInstace.nextStep();
+    });
+
+    // --- Test connection ---
+    // Only what a web page can reach: the Dropbox and Google APIs allow
+    // cross-origin requests, and a WebDAV server may.  SMB and FTP are not
+    // HTTP, so their settings say how to test from the 3DS instead.  Each
+    // outcome says which of three things it is: the settings work, they are
+    // wrong, or the browser could not tell (which says nothing about the 3DS).
+    function showTest(provider, kind, text) {
+        let icons = { busy: 'hourglass_empty', ok: 'check_circle', fail: 'error_outline', unknown: 'help_outline' };
+        $('#test-result-' + provider)
+            .removeClass('ok fail unknown')
+            .addClass(kind === 'busy' ? '' : kind)
+            .html('<i class="material-icons">' + icons[kind] + '</i>')
+            .append(document.createTextNode(text));
+    }
+
+    function testError(kind, text) {
+        let e = new Error(text);
+        e.kind = kind;
+        return e;
+    }
+
+    async function postForm(url, fields) {
+        let response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(fields)
+        });
+        let data = {};
+        try { data = await response.json(); } catch (e) { /* not JSON */ }
+        return { status: response.status, data: data };
+    }
+
+    async function testDropbox() {
+        if (!oauthLoggedIn('dropbox')) throw testError('fail', 'Log in with Dropbox first.');
+        let token = localStorage.getItem('dropboxToken');
+        let refresh = localStorage.getItem('dropboxRefreshToken');
+        if (refresh) {
+            // What the 3DS does on every run: trade the refresh token for an
+            // access token.
+            let r = await postForm('https://api.dropbox.com/oauth2/token', {
+                grant_type: 'refresh_token',
+                refresh_token: refresh,
+                client_id: localStorage.getItem('dropboxClientId') || DEFAULT_DROPBOX_CLIENT_ID
+            });
+            if (!r.data.access_token) {
+                throw testError('fail', r.data.error === 'invalid_grant'
+                    ? 'The login has expired or was revoked. Log in with Dropbox again.'
+                    : 'Dropbox refused the login (' + (r.data.error_description || r.data.error || 'HTTP ' + r.status) + ').');
+            }
+            token = r.data.access_token;
+        }
+        let response = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: 'null'
+        });
+        if (response.status === 401) throw testError('fail', 'The login is no longer valid. Log in with Dropbox again.');
+        if (!response.ok) throw testError('fail', 'Dropbox answered HTTP ' + response.status + '.');
+        let account = await response.json();
+        return 'Connected as ' + account.name.display_name + ' (' + account.email + ').';
+    }
+
+    async function testGoogleDrive() {
+        if (!oauthLoggedIn('googledrive')) throw testError('fail', 'Log in with Google Drive first.');
+        let r = await postForm('https://oauth2.googleapis.com/token', {
+            grant_type: 'refresh_token',
+            refresh_token: localStorage.getItem('gdriveRefreshToken'),
+            client_id: localStorage.getItem('gdriveClientId'),
+            client_secret: localStorage.getItem('gdriveClientSecret')
+        });
+        if (!r.data.access_token) {
+            let reason = {
+                invalid_grant: 'The login has expired or was revoked. Log in with Google Drive again.',
+                invalid_client: 'Google does not accept the Client ID / Client Secret pair. Check them, then log in again.'
+            }[r.data.error];
+            throw testError('fail', reason || 'Google refused the login (' + (r.data.error_description || r.data.error || 'HTTP ' + r.status) + ').');
+        }
+        let auth = { headers: { 'Authorization': 'Bearer ' + r.data.access_token } };
+        let about = await fetch('https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress)', auth);
+        if (about.status === 403) throw testError('fail', 'Logged in, but the Drive API is not enabled for this Google Cloud project.');
+        if (!about.ok) throw testError('fail', 'Google Drive answered HTTP ' + about.status + '.');
+        let user = (await about.json()).user;
+        let who = 'Connected as ' + user.displayName + ' (' + user.emailAddress + ')';
+
+        let folderId = localStorage.getItem('gdriveFolderId');
+        if (folderId) {
+            let f = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId)
+                + '?fields=name,mimeType,trashed&supportsAllDrives=true', auth);
+            if (f.status === 404) throw testError('fail', who + ', but the Folder ID was not found in this account.');
+            if (!f.ok) throw testError('fail', who + ', but the folder could not be read (HTTP ' + f.status + ').');
+            let folder = await f.json();
+            if (folder.mimeType !== 'application/vnd.google-apps.folder')
+                throw testError('fail', who + ', but the Folder ID is a file, not a folder.');
+            if (folder.trashed) throw testError('fail', who + ', but the folder "' + folder.name + '" is in the trash.');
+            return who + '; syncing into "' + folder.name + '".';
+        }
+        return who + '.';
+    }
+
+    function base64Utf8(text) {
+        let bytes = new TextEncoder().encode(text);
+        let binary = '';
+        bytes.forEach(function (b) { binary += String.fromCharCode(b); });
+        return btoa(binary);
+    }
+
+    async function testWebdav() {
+        let section = remoteForms.webdav();
+        if (section === null) throw testError('fail', 'Check the highlighted fields first.');
+        let url = $('#webdav-url').val();
+        if (window.location.protocol === 'https:' && /^http:/i.test(url)) {
+            throw testError('unknown', 'Browsers do not let an https page talk to a plain-http server, so this '
+                + 'cannot be checked here. The 3DS is not affected; a debug sync (Y) will test it.');
+        }
+        let headers = { 'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8' };
+        if ($('#webdav-user').val() !== '' || $('#webdav-password').val() !== '')
+            headers['Authorization'] = 'Basic ' + base64Utf8($('#webdav-user').val() + ':' + $('#webdav-password').val());
+        let response;
+        try {
+            response = await fetch(url, {
+                method: 'PROPFIND',
+                headers: headers,
+                body: '<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>',
+                credentials: 'omit',
+                cache: 'no-store'
+            });
+        } catch (e) {
+            // fetch() rejects the same way for "unreachable" and for "the
+            // server does not allow web pages to ask" (CORS), and browsers
+            // will not say which.
+            throw testError('unknown', 'Could not get an answer from this browser. Most WebDAV servers do not '
+                + 'accept requests from web pages (CORS), or the server may only be reachable from your home '
+                + 'network. Neither means the 3DS will fail; a debug sync (Y) will test it.');
+        }
+        let reasons = {
+            401: 'Login refused (401). Check user and password; with two-factor sign-in, use an app password.',
+            403: 'Logged in, but not allowed to use this folder (403).',
+            404: 'No folder at this URL (404). For Nextcloud the URL ends in /remote.php/dav/files/USERNAME/.',
+            405: 'The server does not speak WebDAV at this URL (405).'
+        };
+        if (response.status !== 207) {
+            throw testError('fail', reasons[response.status] || 'The server answered HTTP ' + response.status + '.');
+        }
+        let body = await response.text();
+        if (!/collection/i.test(body)) throw testError('fail', 'Logged in, but this URL is a file, not a folder.');
+        return 'Logged in, and the folder is there.';
+    }
+
+    const connectionTests = { dropbox: testDropbox, googledrive: testGoogleDrive, webdav: testWebdav };
+
+    $('.test-connection').on('click', async function (e) {
+        e.preventDefault();
+        let $button = $(this);
+        if ($button.hasClass('disabled')) return;
+        let provider = $button.data('provider');
+        $button.addClass('disabled');
+        showTest(provider, 'busy', 'Testing…');
+        try {
+            showTest(provider, 'ok', await connectionTests[provider]());
+        } catch (err) {
+            showTest(provider, err.kind || 'unknown', err.kind ? err.message
+                : 'Could not reach the service from this browser (' + err.message + ').');
+        } finally {
+            $button.removeClass('disabled');
+        }
     });
 
     // --- Config generation ---
@@ -505,7 +728,7 @@ $(function () {
     }
 
     function getConfigString(masked) {
-        let provider = localStorage.getItem('provider');
+        let provider = selectedProvider || localStorage.getItem('provider');
         let strPaths = '';
         let strShallowPaths = '';
         let strUploadPaths = '';
@@ -529,9 +752,9 @@ $(function () {
         if (strUploadPaths) pathSections += '\n[UploadPaths]\n' + strUploadPaths;
         if (strUploadShallowPaths) pathSections += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
 
-        // A typed-in remote chosen in this visit wins over an OAuth login
-        // left in localStorage by an earlier one.
-        if (remoteSection !== null) {
+        // The selected tile decides; a typed-in remote is only used while
+        // its own tile is the selected one.
+        if (remoteSection !== null && remoteSection.provider === selectedProvider) {
             return remoteSectionString(masked) + '\n' + pathSections;
         }
 
