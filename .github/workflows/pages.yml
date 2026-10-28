@@ -2,7 +2,7 @@ name: Pages
 
 # Builds the GitHub Pages site from docs/ plus a Universal-Updater feed
 # (UniStore v3) generated from ALL published GitHub releases. Nothing generated
-# is committed, so master stays exactly as tagged. The feed's content is a pure
+# is committed, so main stays exactly as tagged. The feed's content is a pure
 # function of the release list (.github/unistore.jq); only its revision is
 # carried over from the deployed feed, and it moves only when the content does.
 
@@ -11,7 +11,7 @@ on:
     workflows: [Release]
     types: [completed]
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - docs/**
       - meta/icon_3ds.png
@@ -35,18 +35,18 @@ env:
 
 jobs:
   # A release event runs with GITHUB_REF set to the tag, and the github-pages
-  # environment only accepts deployments from master — so the deploy would be
-  # refused. Re-dispatch on master instead; workflow_dispatch is the one event
+  # environment only accepts deployments from main — so the deploy would be
+  # refused. Re-dispatch on main instead; workflow_dispatch is the one event
   # GITHUB_TOKEN is allowed to start.
   redispatch:
-    name: Re-run on master
+    name: Re-run on main
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       actions: write
     steps:
       - name: Dispatch
-        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref master
+        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -65,7 +65,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: master
+          ref: main
 
       - name: Copy site
         run: |

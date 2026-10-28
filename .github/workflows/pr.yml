@@ -2,7 +2,7 @@ name: PR Validation
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # The published image is only rebuilt on pushes to master, so a PR that
+      # The published image is only rebuilt on pushes to main, so a PR that
       # changes the image definition has to build it here — pulling would
       # otherwise succeed and silently test against the old toolchain.
       - name: Prepare build image

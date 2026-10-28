@@ -81,7 +81,7 @@ cmake -S libsmb2 -B build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
 cmake --build build && cmake --install build
 ```
 
-Because the published CI image is only rebuilt on pushes to master, `.github/workflows/pr.yml` builds it locally when a PR touches `docker/*Dockerfile`.
+Because the published CI image is only rebuilt on pushes to main, `.github/workflows/pr.yml` builds it locally when a PR touches `docker/*Dockerfile`.
 
 ```bash
 make          # produces output/3ds-arm/3DSync.cia and .3dsx
@@ -295,7 +295,7 @@ RemoteName=/LocalPath
 - **`revision` must strictly increase** or Universal-Updater never refetches the store. It cannot be derived from the releases (deleting or editing one would leave it flat or move it back), so the workflow reads it from the deployed feed: kept when nothing else changed, otherwise `max(old + 1, now)`. A failed fetch of the deployed feed other than 404 stops the run rather than guess.
 - `.3dsx` paths are `%3DSX%/3DSync.3dsx` with no subfolder: Universal-Updater's "3DSX in folder" option inserts `3DSync/` itself, and a path written with one would be doubled.
 - `title_ids` is `UNIQUE_ID` from the Makefile in decimal; change both together.
-- A `release` event runs on the tag ref, which the `github-pages` environment refuses to deploy, so that trigger only re-dispatches the workflow on master.
+- A `release` event runs on the tag ref, which the `github-pages` environment refuses to deploy, so that trigger only re-dispatches the workflow on main.
 
 ---
 
@@ -308,7 +308,7 @@ RemoteName=/LocalPath
 ## Branch / PR conventions
 
 - Feature branches: `feat/...`, bug fixes: `fix/...` or `fiX/...`
-- PRs target `vllni/3DSync:master` (the fork), **not** `Kyraminol/3DSync:master` (the upstream).
+- PRs target `vllni/3DSync:main` (the fork's default branch), **not** `Kyraminol/3DSync:master` (the upstream, which still uses `master`).
 - Always run `make` and `make -C tests` before committing C++ changes.
 - Commit messages: short imperative subject, blank line, then bullet-point body describing *why*.
 - `.github/CODEOWNERS` assigns `@vllni` as the default reviewer for the whole repo.
