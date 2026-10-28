@@ -135,7 +135,8 @@ int FtpRemote::_performWithRetry(FILE *uploadFile)
             return res;
         case CURLE_USE_SSL_FAILED:
             printf(CONSOLE_RED "  FATAL: the server does not support FTPS." CONSOLE_RESET "\n");
-            printf("  Set TLS=try or TLS=none in 3DSync.ini to allow plaintext.\n");
+            printf("  Set TLS=try or TLS=none in 3DSync.ini\n");
+            printf("  to allow plaintext.\n");
             _fatalError = true;
             return res;
         case CURLE_COULDNT_RESOLVE_HOST:
@@ -395,7 +396,7 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
     outTag = _tagFor(remotePath);
     outId = remotePath;
     if (outTag.empty())
-        printf("FTP: %s uploaded but its timestamp could not be read\n",
+        printf("FTP: could not read the timestamp of\n  %s\n  after uploading it.\n",
                remotePath.c_str());
     return !outTag.empty();
 }

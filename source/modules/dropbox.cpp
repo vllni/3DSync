@@ -220,7 +220,9 @@ int Dropbox::_performWithRetry(FILE *uploadFile, long expectedStatus)
         if (status == 403)
         {
             printf(CONSOLE_RED "  FATAL: Access denied (HTTP 403)." CONSOLE_RESET "\n");
-            printf("  The Dropbox app is missing the required permissions.\n");
+            printf("  The Dropbox app lacks a permission it\n");
+            printf("  needs (files.content.read/write,\n");
+            printf("  files.metadata.read).\n");
             _fatalError = true;
             return -403;
         }
