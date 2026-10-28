@@ -43,22 +43,49 @@
               <li class="step active">
                 <div class="step-title white-text">Choose where to sync</div>
                 <div class="step-content">
-                  <div class="provider-picker" role="tablist">
-                    <a href="#" class="provider-tab" data-provider="dropbox" role="tab"><i class="fa fa-dropbox"></i>
-                      Dropbox</a>
-                    <a href="#" class="provider-tab" data-provider="googledrive" role="tab"><i
-                        class="material-icons">add_to_drive</i> Google Drive</a>
-                    <a href="#" class="provider-tab" data-provider="smb" role="tab"><i
-                        class="material-icons">storage</i> SMB</a>
-                    <a href="#" class="provider-tab" data-provider="ftp" role="tab"><i
-                        class="material-icons">folder_shared</i> FTP</a>
-                    <a href="#" class="provider-tab" data-provider="webdav" role="tab"><i
-                        class="material-icons">cloud_queue</i> WebDAV</a>
+                  <div class="auth-tiles" role="radiogroup" aria-label="Where to sync">
+                    <div class="auth-tile" data-provider="dropbox" role="radio" aria-checked="false" tabindex="0">
+                      <span class="auth-radio" aria-hidden="true"></span>
+                      <span class="auth-icon"><i class="fa fa-dropbox"></i></span>
+                      <span class="auth-title">Dropbox</span>
+                      <span class="auth-subtitle">Log in with your Dropbox account</span>
+                      <span class="auth-status"></span>
+                    </div>
+                    <div class="auth-tile" data-provider="googledrive" role="radio" aria-checked="false" tabindex="0">
+                      <span class="auth-radio" aria-hidden="true"></span>
+                      <span class="auth-icon"><i class="material-icons">add_to_drive</i></span>
+                      <span class="auth-title">Google Drive</span>
+                      <span class="auth-subtitle">Log in with your own Google Cloud app</span>
+                      <span class="auth-status"></span>
+                    </div>
+                    <div class="auth-tile" data-provider="smb" role="radio" aria-checked="false" tabindex="0">
+                      <span class="auth-radio" aria-hidden="true"></span>
+                      <span class="auth-icon"><i class="material-icons">storage</i></span>
+                      <span class="auth-title">SMB file server</span>
+                      <span class="auth-subtitle">NAS or Windows share</span>
+                      <span class="experimental-badge">EXPERIMENTAL</span><span class="auth-status"></span>
+                    </div>
+                    <div class="auth-tile" data-provider="ftp" role="radio" aria-checked="false" tabindex="0">
+                      <span class="auth-radio" aria-hidden="true"></span>
+                      <span class="auth-icon"><i class="material-icons">folder_shared</i></span>
+                      <span class="auth-title">FTP / FTPS</span>
+                      <span class="auth-subtitle">Any FTP server, TLS where offered</span>
+                      <span class="experimental-badge">EXPERIMENTAL</span><span class="auth-status"></span>
+                    </div>
+                    <div class="auth-tile" data-provider="webdav" role="radio" aria-checked="false" tabindex="0">
+                      <span class="auth-radio" aria-hidden="true"></span>
+                      <span class="auth-icon"><i class="material-icons">cloud_queue</i></span>
+                      <span class="auth-title">WebDAV</span>
+                      <span class="auth-subtitle">Nextcloud, ownCloud, NAS</span>
+                      <span class="experimental-badge">EXPERIMENTAL</span><span class="auth-status"></span>
+                    </div>
                   </div>
+                  <p class="white-text auth-empty" id="auth-empty">Pick where 3DSync should sync your saves &mdash;
+                    the settings for it appear here.</p>
 
                   <!-- Dropbox -->
-                  <div class="provider-panel" data-provider="dropbox">
-                    <h5 class="white-text"><i class="fa fa-dropbox left"></i> Dropbox</h5>
+                  <div class="auth-settings" data-provider="dropbox" id="auth-settings-dropbox">
+                    <div>
                       <p class="white-text" style="font-size:0.85em;opacity:0.9;margin:0 0 10px 0">
                         Two-way sync, the same as the Google Drive backend. Please report problems at
                         <a class="white-text" style="text-decoration:underline"
@@ -67,6 +94,11 @@
                       </p>
                       <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login
                         with Dropbox</a>
+                      <div class="test-row">
+                        <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="dropbox"><i
+                            class="material-icons left">network_check</i>Test connection</a>
+                        <span class="test-result" id="test-result-dropbox" role="status" aria-live="polite"></span>
+                      </div>
                       <br><br>
                       <p style="margin:0">
                         <label>
@@ -102,12 +134,12 @@
                           </div>
                         </div>
                       </div>
+                    </div>
                   </div>
 
                   <!-- Google Drive -->
-                  <div class="provider-panel" data-provider="googledrive">
-                      <h5 class="white-text"><i class="material-icons left"
-                          style="vertical-align:middle;font-size:1.4rem">add_to_drive</i> Google Drive</h5>
+                  <div class="auth-settings" data-provider="googledrive" id="auth-settings-googledrive">
+                    <div>
                       <div style="margin-bottom:12px">
                         <label class="btn blue darken-3 btn-small" for="gdrive-json-import" style="cursor:pointer">
                           <i class="material-icons left">upload_file</i> Import client_secret.json
@@ -132,6 +164,11 @@
                       </div>
                       <a href="#" id="gdrive-login" class="btn blue darken-3"><i
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
+                      <div class="test-row">
+                        <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="googledrive"><i
+                            class="material-icons left">network_check</i>Test connection</a>
+                        <span class="test-result" id="test-result-googledrive" role="status" aria-live="polite"></span>
+                      </div>
                       <br><br>
                       <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
                         <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials"
@@ -153,11 +190,19 @@
                           <li>Import the downloaded file with the button above, then disable your old secret</li>
                         </ol>
                       </div>
+                    </div>
                   </div>
 
                   <!-- SMB -->
-                  <div class="provider-panel" data-provider="smb">
-                    <h5 class="white-text"><i class="material-icons left">storage</i> SMB file server<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                  <div class="auth-settings" data-provider="smb" id="auth-settings-smb">
+                    <div>
+                    <div class="experimental-notice">
+                      <i class="material-icons">science</i>
+                      <div><strong>SMB support is experimental.</strong> It works, but has had far less testing
+                        against real servers than Google Drive and Dropbox &mdash; keep a backup of your saves, and
+                        please report anything that goes wrong at <a href="https://github.com/vllni/3DSync/issues"
+                          target="_blank" rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>.</div>
+                    </div>
                     <p class="white-text panel-intro">A NAS or a shared folder on a Windows PC, over SMB2/SMB3 &mdash;
                       what modern NAS boxes and Windows accept by default. SMB1 does not need to be re-enabled.</p>
                     <div class="row">
@@ -206,14 +251,25 @@
                           top of the share</span>
                       </div>
                     </div>
-                    <div class="step-actions">
-                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="smb">Continue</a>
+                    <div class="test-row test-unavailable">
+                      <i class="material-icons">info_outline</i>
+                      <span>A web page cannot open SMB connections, so these settings can only be tried from the
+                        3DS: copy the file over and press <strong>Y</strong> for a debug sync &mdash; it shows the
+                        connection step by step, and you can save it as a log.</span>
+                    </div>
                     </div>
                   </div>
 
                   <!-- FTP -->
-                  <div class="provider-panel" data-provider="ftp">
-                    <h5 class="white-text"><i class="material-icons left">folder_shared</i> FTP / FTPS<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                  <div class="auth-settings" data-provider="ftp" id="auth-settings-ftp">
+                    <div>
+                    <div class="experimental-notice">
+                      <i class="material-icons">science</i>
+                      <div><strong>FTP support is experimental.</strong> It works, but has had far less testing
+                        against real servers than Google Drive and Dropbox &mdash; keep a backup of your saves, and
+                        please report anything that goes wrong at <a href="https://github.com/vllni/3DSync/issues"
+                          target="_blank" rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>.</div>
+                    </div>
                     <p class="white-text panel-intro">Any FTP server, with TLS where the server offers it. SFTP (over
                       SSH) is a different protocol and is <strong>not</strong> supported: the 3DS build of libcurl
                       cannot speak it.</p>
@@ -274,14 +330,25 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="ftp-tls-note"></p>
-                    <div class="step-actions">
-                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="ftp">Continue</a>
+                    <div class="test-row test-unavailable">
+                      <i class="material-icons">info_outline</i>
+                      <span>A web page cannot open FTP connections, so these settings can only be tried from the
+                        3DS: copy the file over and press <strong>Y</strong> for a debug sync &mdash; it shows the
+                        connection step by step, and you can save it as a log.</span>
+                    </div>
                     </div>
                   </div>
 
                   <!-- WebDAV -->
-                  <div class="provider-panel" data-provider="webdav">
-                    <h5 class="white-text"><i class="material-icons left">cloud_queue</i> WebDAV<span class="experimental-badge">EXPERIMENTAL</span></h5>
+                  <div class="auth-settings" data-provider="webdav" id="auth-settings-webdav">
+                    <div>
+                    <div class="experimental-notice">
+                      <i class="material-icons">science</i>
+                      <div><strong>WebDAV support is experimental.</strong> It works, but has had far less testing
+                        against real servers than Google Drive and Dropbox &mdash; keep a backup of your saves, and
+                        please report anything that goes wrong at <a href="https://github.com/vllni/3DSync/issues"
+                          target="_blank" rel="noopener noreferrer">github.com/vllni/3DSync/issues</a>.</div>
+                    </div>
                     <p class="white-text panel-intro">Nextcloud, ownCloud, or any NAS with WebDAV switched on.</p>
                     <div class="row">
                       <div class="input-field col s12">
@@ -308,17 +375,25 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="webdav-url-note"></p>
-                    <div class="step-actions">
-                      <a href="#" class="btn blue darken-3 remote-continue" data-provider="webdav">Continue</a>
+                    <div class="test-row">
+                      <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="webdav"><i
+                          class="material-icons left">network_check</i>Test connection</a>
+                      <span class="test-result" id="test-result-webdav" role="status" aria-live="polite"></span>
+                    </div>
                     </div>
                   </div>
 
                   <div class="card-panel blue darken-4 white-text remote-security-note">
                     <i class="material-icons left">lock_outline</i>
-                    Everything here stays in this browser tab: nothing is sent anywhere, and for SMB, FTP and WebDAV
-                    the password is not even kept between visits. It does end up in <strong>3DSync.ini</strong> in
+                    Everything here stays in this browser tab. Nothing is sent anywhere except, when you press
+                    <strong>Test connection</strong>, straight to the service being tested &mdash; and for SMB, FTP
+                    and WebDAV the password is not even kept between visits. It does end up in <strong>3DSync.ini</strong> in
                     plain text, because that is the only place the 3DS can read it from &mdash; so treat the file
                     like the password, and prefer a separate account or app password for 3DSync.
+                  </div>
+                  <div class="step-actions">
+                    <a href="#" class="btn blue darken-3" id="auth-continue">Continue</a>
+                    <span id="auth-continue-hint" class="white-text auth-continue-hint"></span>
                   </div>
                 </div>
               </li>
