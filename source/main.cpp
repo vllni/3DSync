@@ -231,6 +231,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
         printf(CONSOLE_RED "%s: cannot connect — skipping.\n" CONSOLE_RESET, provider.name());
         debugf("%s: connect() failed, fatal=%d\n", provider.name(),
                provider.hasFatalError() ? 1 : 0);
+        summary.problems.push_back(std::string(provider.name()) + " (not reached)");
         return;
     }
     debugf("%s: connected, manifest prefix \"%s\"\n", provider.name(),
@@ -278,6 +279,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
                 {
                     printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
                            provider.name());
+                    summary.problems.push_back(std::string(provider.name()) + " (stopped by an error)");
                     break;
                 }
                 continue;
@@ -306,6 +308,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
         {
             printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
                    provider.name());
+            summary.problems.push_back(std::string(provider.name()) + " (stopped by an error)");
             break;
         }
     }
@@ -617,19 +620,8 @@ static void runSync(const INIReader &reader)
                "re-examine every file.\n" CONSOLE_RESET);
 
     printf("\n--- Sync Summary ---\n");
-    if (summary.changes.empty())
-    {
-        printf("All %d files up to date.\n", (int)summary.checkedPaths.size());
-    }
-    else
-    {
-        printf("Uploaded: %d  Downloaded: %d  Unchanged: %d\n",
-               summary.uploaded, summary.downloaded,
-               (int)summary.checkedPaths.size());
-        printf("\nChanged files:\n");
-        for (auto &c : summary.changes)
-            printf("  %s: %s\n", c.action.c_str(), c.path.c_str());
-    }
+    for (auto &line : summaryLines(summary))
+        printf("%s\n", line.c_str());
 
     char result[64];
     snprintf(result, sizeof(result), "%d up, %d down", summary.uploaded, summary.downloaded);
@@ -638,12 +630,15 @@ static void runSync(const INIReader &reader)
         printf(CONSOLE_RED "\nSync cancelled. Progress has been saved.\n" CONSOLE_RESET);
         frontend::setLastResult(std::string("cancelled, ") + result, false);
     }
+    else if (summary.hasErrors())
+    {
+        printf(CONSOLE_RED "\nSync finished with errors." CONSOLE_RESET "\n");
+        frontend::setLastResult(summaryResult(summary), false);
+    }
     else
     {
         printf("\nSync complete.\n");
-        frontend::setLastResult(summary.changes.empty() ? std::string("everything up to date")
-                                                        : std::string(result),
-                                true);
+        frontend::setLastResult(summaryResult(summary), true);
     }
 
     offerDebugLogSave();

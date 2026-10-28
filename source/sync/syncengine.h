@@ -71,8 +71,24 @@ struct SyncSummary
         std::string action;
     };
     std::vector<FileAction> changes;
+    // Transfers that failed ("upload" / "download" and the local path).  They
+    // are retried next run, but this run did not do them, and saying "up to
+    // date" over them is how a backup silently stops being one.
+    std::vector<FileAction> failures;
+    // Whole entries or remotes that were not synced: not reached, a folder
+    // that could not be resolved or listed, a run stopped by a fatal error.
+    std::vector<std::string> problems;
     SyncSummary() : uploaded(0), downloaded(0) {}
+
+    bool hasErrors() const { return !failures.empty() || !problems.empty(); }
 };
+
+// The "--- Sync Summary ---" block, one console line per element, colour
+// codes included.  Kept here rather than in main.cpp so it can be tested.
+std::vector<std::string> summaryLines(const SyncSummary &summary);
+
+// The one-line result for the bottom screen, e.g. "2 up, 1 down".
+std::string summaryResult(const SyncSummary &summary);
 
 // ---------------------------------------------------------------------------
 // performSync  — sync one SyncEntry against one remote

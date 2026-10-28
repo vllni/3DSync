@@ -341,6 +341,11 @@ TEST(engine, failed_upload_leaves_no_manifest_entry)
     CHECK(!f.manifest.has(f.key(SAVE)));
     CHECK_EQ(f.summary.uploaded, 0);
     CHECK_EQ(f.summary.changes.size(), (size_t)0);
+    // ...and the summary says so, rather than "up to date".
+    CHECK_EQ(f.summary.failures.size(), (size_t)1);
+    CHECK_STR_EQ(f.summary.failures[0].action, "upload");
+    CHECK_STR_EQ(f.summary.failures[0].path, f.local.path() + SAVE);
+    CHECK(f.summary.hasErrors());
 }
 
 TEST(engine, failed_download_leaves_no_manifest_entry)
@@ -353,6 +358,8 @@ TEST(engine, failed_download_leaves_no_manifest_entry)
     CHECK(f.run());
     CHECK(!f.manifest.has(f.key(SAVE)));
     CHECK_EQ(f.summary.downloaded, 0);
+    CHECK_EQ(f.summary.failures.size(), (size_t)1);
+    CHECK_STR_EQ(f.summary.failures[0].action, "download");
 }
 
 TEST(engine, fatal_provider_error_stops_the_entry)
@@ -378,6 +385,8 @@ TEST(engine, listing_failure_without_fatal_error_skips_the_entry)
     // would upload every local file over whatever is really there.
     CHECK(f.run());
     CHECK_EQ(f.remote.uploaded.size(), (size_t)0);
+    CHECK_EQ(f.summary.problems.size(), (size_t)1);
+    CHECK(f.summary.hasErrors());
 }
 
 TEST(engine, cancellation_stops_before_the_next_file)
@@ -445,4 +454,100 @@ TEST(engine, nested_paths_round_trip)
     CHECK(f.run());
     CHECK(f.local.exists("/TitleA/deep/nested/001.sav"));
     CHECK_EQ(f.local.read("/TitleA/deep/nested/001.sav"), std::string("nested content"));
+}
+
+// ---------------------------------------------------------------------------
+// The end-of-run report
+// ---------------------------------------------------------------------------
+
+static bool hasLine(const std::vector<std::string> &lines, const std::string &needle)
+{
+    for (auto &l : lines)
+        if (l.find(needle) != std::string::npos)
+            return true;
+    return false;
+}
+
+TEST(summary, nothing_changed_is_up_to_date)
+{
+    SyncSummary s;
+    s.checkedPaths.insert("/a");
+    s.checkedPaths.insert("/b");
+    std::vector<std::string> lines = summaryLines(s);
+    CHECK_EQ(lines.size(), (size_t)1);
+    CHECK_STR_EQ(lines[0], "All 2 files up to date.");
+    CHECK_STR_EQ(summaryResult(s), "everything up to date");
+    CHECK(!s.hasErrors());
+}
+
+TEST(summary, nothing_at_all_does_not_claim_zero_files_up_to_date)
+{
+    SyncSummary s;
+    CHECK_STR_EQ(summaryLines(s)[0], "No files to sync.");
+}
+
+TEST(summary, a_failed_upload_is_never_up_to_date)
+{
+    // The 3DS run that prompted this: the only file failed, and the summary
+    // read "All 0 files up to date. Sync complete."
+    SyncSummary s;
+    s.failures.push_back({"/roms/saves/a.sav", "upload"});
+    std::vector<std::string> lines = summaryLines(s);
+    CHECK(!hasLine(lines, "up to date"));
+    CHECK(hasLine(lines, "Failed: 1"));
+    CHECK(hasLine(lines, "upload: /roms/saves/a.sav"));
+    CHECK_STR_EQ(summaryResult(s), "1 failed, 0 up, 0 down");
+}
+
+TEST(summary, successes_and_failures_are_listed_apart)
+{
+    SyncSummary s;
+    s.uploaded = 1;
+    s.changes.push_back({"/ok.sav", "uploaded"});
+    s.failures.push_back({"/bad.sav", "download"});
+    std::vector<std::string> lines = summaryLines(s);
+    CHECK(hasLine(lines, "Uploaded: 1  Downloaded: 0  Unchanged: 0"));
+    CHECK(hasLine(lines, "uploaded: /ok.sav"));
+    CHECK(hasLine(lines, "download: /bad.sav"));
+    CHECK_STR_EQ(summaryResult(s), "1 failed, 1 up, 0 down");
+}
+
+TEST(summary, a_remote_not_reached_is_reported)
+{
+    SyncSummary s;
+    s.checkedPaths.insert("/a");
+    s.problems.push_back("FTP (not reached)");
+    std::vector<std::string> lines = summaryLines(s);
+    CHECK(!hasLine(lines, "up to date"));
+    CHECK(hasLine(lines, "Not synced:"));
+    CHECK(hasLine(lines, "FTP (not reached)"));
+    CHECK_STR_EQ(summaryResult(s), "0 up, 0 down, not all synced");
+}
+
+TEST(summary, lines_fit_the_log)
+{
+    // Everything but the paths, which cannot be helped, stays under 50
+    // columns once the colour codes are gone.
+    SyncSummary s;
+    s.uploaded = 999;
+    s.downloaded = 999;
+    for (int i = 0; i < 999; i++)
+        s.checkedPaths.insert("/" + std::to_string(i));
+    s.failures.push_back({"/x", "download"});
+    s.problems.push_back("WebDAV (stopped by an error)");
+    for (auto &line : summaryLines(s))
+    {
+        std::string plain;
+        for (size_t i = 0; i < line.size(); i++)
+        {
+            if (line[i] == '\x1b')
+            {
+                while (i < line.size() && line[i] != 'm')
+                    i++;
+                continue;
+            }
+            plain += line[i];
+        }
+        CHECK(plain.size() < 50);
+    }
 }
