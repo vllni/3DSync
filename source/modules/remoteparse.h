@@ -29,6 +29,12 @@ struct DavEntry
 void parseDavResponses(const std::string &xml, const std::string &rootHref,
                        std::vector<DavEntry> &out);
 
+// The change tag of the resource a Depth: 0 PROPFIND was sent to — the first
+// <response>, which parseDavResponses() skips as "the root itself".  Computed
+// the same way as a listed entry's tag, so a file read back after its upload
+// matches what the next list() reports.  "" when the body has none.
+std::string davSelfTag(const std::string &xml);
+
 // MKCOL on a collection that already exists answers 405 Method Not Allowed
 // (RFC 4918, 9.3.1).  For a sync that is the ordinary case — every run after
 // the first, and every upload into an existing folder — so the request passes

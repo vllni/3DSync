@@ -125,7 +125,7 @@ bool WebDavRemote::connect()
 }
 
 bool WebDavRemote::_propfind(const std::string &path, const char *depth,
-                             std::vector<DavEntry> &out)
+                             std::vector<DavEntry> &out, std::string *rawBody)
 {
     std::string depthHeader = std::string("Depth: ") + depth;
     struct curl_slist *headers = NULL;
@@ -167,11 +167,14 @@ bool WebDavRemote::_propfind(const std::string &path, const char *depth,
         return false;
     }
 
+    if (rawBody)
+        *rawBody = body;
     size_t before = out.size();
     parseDavResponses(body, rootHref, out);
     // Nothing parsed out of a 207 means the hrefs did not start with the root
     // this code expects, which would otherwise look like an empty remote.
-    if (out.size() == before)
+    // Depth 0 only ever describes the root, which is never listed.
+    if (out.size() == before && strcmp(depth, "0") != 0)
         debugf("PROPFIND on \"%s\" parsed no entries below \"%s\" from %d bytes\n",
                requestPath.c_str(), rootHref.c_str(), (int)body.size());
     return true;
@@ -388,16 +391,19 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
         return false;
     }
 
-    // Read the new ETag back so the manifest records what the server now holds.
+    // Read the new ETag back so the manifest records what the server now
+    // holds.  Depth 0 on a file answers with the file itself, which
+    // parseDavResponses() skips as the listing root, so read it with
+    // davSelfTag() — the same tag list() will report next time.
     std::vector<DavEntry> entries;
+    std::string body;
     outTag = "";
-    if (_propfind(remotePath, "0", entries) && !entries.empty())
-        outTag = entries[0].tag;
+    if (_propfind(remotePath, "0", entries, &body))
+        outTag = davSelfTag(body);
     if (outTag.empty())
     {
-        // Depth 0 on a file reports the file itself, so an empty list means the
-        // server answered oddly; fall back to a local stamp so the next sync
-        // still has something to compare.
+        // The server answered without an ETag, size or date; fall back to a
+        // local stamp so the next sync still has something to compare.
         debugf("no ETag for %s after upload, using a local size:mtime stamp\n",
                remotePath.c_str());
         struct stat st = {};
