@@ -44,7 +44,7 @@ uploaded, use any client against the servers, or e.g.
 
 ## Test matrix for the configurator
 
-The [configurator](https://3dsync.villani-ulm.de/configurator.html) writes
+The [configurator](https://3dsync.vllni.dev/configurator.html) writes
 one remote per file, so each row is one run through it. Replace
 `192.168.1.10` with `HOST_IP` and leave every field not listed empty. An
 empty User leaves the `User=` key out, which is what the anonymous rows rely

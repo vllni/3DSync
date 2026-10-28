@@ -360,7 +360,7 @@ static void drawMenuCard(Canvas &c, const BottomModel &m)
         drawLines(c, kFontBody, CARD_IN, CARD_Y + 38, 17,
                   wrapText(kFontBody, "3DSync.ini could not be read from /3ds/3DSync/. "
                            "Create it with the configurator:", CARD_TEXT_W, 3), C_DIM);
-        c.text(kFontBody, CARD_IN, CARD_Y + 89, "3dsync.villani-ulm.de", C_ACCENT);
+        c.text(kFontBody, CARD_IN, CARD_Y + 89, "3dsync.vllni.dev", C_ACCENT);
         return;
     }
 
