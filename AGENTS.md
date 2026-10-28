@@ -10,7 +10,7 @@
 
 Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, Dropbox, an SMB2/3 file server, FTP/FTPS or WebDAV. Written in C++11, built with devkitPro/devkitARM.
 
-Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.villani-ulm.de/`) generates the INI config file via OAuth and a stepper UI.
+Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.vllni.dev/`) generates the INI config file via OAuth and a stepper UI.
 
 ---
 
@@ -301,7 +301,7 @@ RemoteName=/LocalPath
 - **Test connection** only exists where a browser can reach the service: Dropbox and Drive (token refresh + "who am I", and the Drive folder ID), and WebDAV (`PROPFIND` from the page). SMB and FTP are not HTTP, so their settings point at a debug sync on the 3DS instead — do not add a button that cannot work. A WebDAV test that fails at the network level is reported as "could not check" rather than as wrong settings: browsers give the same error for an unreachable host and for a server that refuses cross-origin requests, and most WebDAV servers do the latter.
 - Every typed value goes through `iniValueProblem()`: inih ends a value at a `;` that follows whitespace and trims both ends, so such a value is refused with a reason rather than silently cut on the 3DS. Optional keys are written only when filled — an empty `User=` overrides the FTP default of `anonymous`, which the app applies only when the key is missing. Pasted forms (`\\nas\share\dir`, `ftps://user@host:port/dir`, a URL without a scheme) are split into the fields on blur.
 - Step 3 previews the file with `getConfigString(true)`, which masks passwords, secrets and tokens; the download uses `getConfigString(false)`.
-- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.villani-ulm.de/`.
+- OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is `https://3dsync.vllni.dev/`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
 - The favicon is `docs/favicon.svg` (the two sync arrows from `meta/icon_3ds.png`, without the lettering, which is unreadable at 16 px). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) are rendered from it; regenerate both when it changes. Every page's `<head>` links all three.
 - INI generation is in `getConfigString()` in `index.js`. It reads `remoteSection` first, then the in-memory OAuth tokens and `localStorage` for the provider, client ID and folder ID.
@@ -311,6 +311,7 @@ RemoteName=/LocalPath
 `.github/workflows/pages.yml` deploys the site (Pages source: **GitHub Actions**, not a branch) as `docs/` plus `unistore/`: a UniStore v3 feed, its `storeInfo`-only `3dsync-info.json`, a `tex3ds` icon sheet from `meta/icon_3ds.png` and a QR code of the store URL. Nothing generated is committed. It runs after every successful `Release`, on pushes touching `docs/`, the icon or the generator, and on release edits/deletions.
 
 - The feed is `.github/unistore.jq` applied to the full release list, so it can be run locally against `gh api repos/vllni/3DSync/releases`. Only releases with both `3DSync-<tag>.cia` and `.3dsx` assets are listed — the asset names `release.yml` uploads are part of the feed's contract. The newest non-prerelease is the unprefixed entry; older ones appear as `[<tag>] …`.
+- **The site's address lives in two places.** Pages is deployed by Actions, which ignores a `CNAME` file: the custom domain is the one set under the repository's Settings → Pages. `docs/CNAME` is read by `pages.yml` only, for the base URL written into the feed (`storeInfo.url`, `infoURL`, `sheetURL`) and the QR code. Change both together, and the hard-coded mentions with them (`git grep 3dsync.` — README, `docs/*.html`, the "no configuration" card in `ui/screens.cpp`). Universal-Updater refreshes a store from the `url` in the copy it already holds and follows redirects, so after a domain move the old one must keep answering with an HTTP redirect until subscribers have picked up a feed pointing at the new one.
 - **`revision` must strictly increase** or Universal-Updater never refetches the store. It cannot be derived from the releases (deleting or editing one would leave it flat or move it back), so the workflow reads it from the deployed feed: kept when nothing else changed, otherwise `max(old + 1, now)`. A failed fetch of the deployed feed other than 404 stops the run rather than guess.
 - `.3dsx` paths are `%3DSX%/3DSync.3dsx` with no subfolder: Universal-Updater's "3DSX in folder" option inserts `3DSync/` itself, and a path written with one would be doubled.
 - `title_ids` is `UNIQUE_ID` from the Makefile in decimal; change both together.

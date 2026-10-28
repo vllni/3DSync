@@ -23,7 +23,7 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 
 ## Quick Start
 
-1. Open the [configurator](https://3dsync.villani-ulm.de/configurator.html) and follow the three steps.
+1. Open the [configurator](https://3dsync.vllni.dev/configurator.html) and follow the three steps.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. [Install 3DSync](#installation), most easily through Universal-Updater.
 4. Launch 3DSync and press **A** (or tap **Sync now**) to sync all configured
@@ -57,12 +57,12 @@ or FBI; see [3ds.hacks.guide](https://3ds.hacks.guide/) if yours does not.
 
 ### Universal-Updater (recommended)
 
-<img src="https://3dsync.villani-ulm.de/unistore/3dsync-unistore-QR.png" alt="QR code of the 3DSync UniStore" width="200" align="right">
+<img src="https://3dsync.vllni.dev/unistore/3dsync-unistore-QR.png" alt="QR code of the 3DSync UniStore" width="200" align="right">
 
 1. In [Universal-Updater](https://github.com/Universal-Team/Universal-Updater),
    open **Settings → Select a UniStore → +**.
 2. Scan the QR code, or type the store URL:
-   `https://3dsync.villani-ulm.de/unistore/3dsync.unistore`
+   `https://3dsync.vllni.dev/unistore/3dsync.unistore`
 3. Select the 3DSync store, open the 3DSync entry and pick a download:
    - **3DSync.cia** installs it to the HOME Menu.
    - **3DSync.3dsx** puts it in the Homebrew Launcher.
@@ -378,8 +378,8 @@ report.
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project, enable the **Google Drive API**.
 3. Create an **OAuth 2.0 Web application** client (Client ID + Client Secret).
-4. Add the redirect URI: `https://3dsync.villani-ulm.de/configurator.html`.
-5. Use the [configurator](https://3dsync.villani-ulm.de/configurator.html) to authenticate; it performs PKCE and stores the refresh token.
+4. Add the redirect URI: `https://3dsync.vllni.dev/configurator.html`.
+5. Use the [configurator](https://3dsync.vllni.dev/configurator.html) to authenticate; it performs PKCE and stores the refresh token.
 
 > **Note:** Apps in *Testing* mode issue refresh tokens that expire after **7 days**. Publish the app or add your Google account as a test user to avoid frequent re-authentication.
 

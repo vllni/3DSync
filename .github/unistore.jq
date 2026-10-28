@@ -9,7 +9,7 @@
 # to come from the feed already deployed, not from the releases (see pages.yml).
 #
 # Run locally:
-#   jq -S --arg base https://3dsync.villani-ulm.de -f .github/unistore.jq releases.json
+#   jq -S --arg base https://3dsync.vllni.dev -f .github/unistore.jq releases.json
 
 def ver: ltrimstr("v") | split(".") | map(tonumber? // 0);
 # Same format Universal-DB uses. Universal-Updater compares it as a string
