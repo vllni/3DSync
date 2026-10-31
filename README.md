@@ -36,7 +36,7 @@ label says which, so either works:
 |---|---|
 | Menu | **A** sync, **Y** sync with debug output, **START** exit |
 | During a sync | **START** stops after the current file |
-| Conflict | **A** keep the first version named, **B** the second, **X** skip, **L** apply the answer to every remaining conflict, **START** stop. With three or more versions (several remotes changed the file), **R** steps through them and **A** keeps the one shown |
+| Conflict | **A** keep the first version named, **B** the second, **X** skip, **L** apply the answer to every remaining conflict, **START** stop. With three or more versions (several remotes changed the file) they are a list: tap a version, or move to it with **R** or **D-pad ↑/↓**, then **A** keeps it; the log still scrolls with ←/→, the Circle Pad and the scroll strip |
 | End of a debug run | **A** save the log, **B** discard it |
 
 The log can be scrolled at any time, including while a sync is running:

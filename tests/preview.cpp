@@ -246,6 +246,14 @@ int main()
     drawBottom(bottom, m, bottomButtons(m));
     save("3c-conflict-four-sides", top, bottom);
 
+    // More than fit: the list follows the highlight, a row is being tapped.
+    m.conflictSides = {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV"};
+    m.conflictPick = 5;
+    m.heldKeys = K_LIST_ROW0 << 1;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3e-conflict-six-sides", top, bottom);
+    m.heldKeys = 0;
+
     m.conflictSides = {"Drive", "WebDAV"};
     m.conflictPick = 0;
     drawBottom(bottom, m, bottomButtons(m));

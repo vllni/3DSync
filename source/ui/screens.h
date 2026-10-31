@@ -43,6 +43,15 @@ const uint32_t K_L = 1u << 9;
 const uint32_t K_X = 1u << 10;
 const uint32_t K_Y = 1u << 11;
 
+// The rows of the conflict list that are not highlighted have no key of their
+// own: tapping one only moves the highlight, which R and the D-pad do as well,
+// so nothing is out of reach without the stylus.  They report these bits,
+// which libctru leaves unused between ZR and the touch screen.  Bit n is the
+// n-th visible row, counted from conflictListFirst().
+const int CONFLICT_LIST_ROWS = 4;
+const uint32_t K_LIST_ROW0 = 1u << 16;
+const uint32_t K_LIST_ROWS = 0xFu << 16;
+
 // The top-screen log: header, then LOG_ROWS rows of the mono font, whose
 // every glyph advances LOG_ADVANCE pixels.  That works out at 54 columns,
 // close to the 50 of the libctru console the app's messages were written for.
@@ -86,8 +95,8 @@ struct BottomModel
     // SCREEN_CONFLICT
     std::string conflictPath;
     // The sides that changed it, "3DS" first when it is one.  With two, A and
-    // B keep one each; with more, R steps conflictPick through them and A
-    // keeps the one shown.
+    // B keep one each.  With more they are a list: conflictPick is the
+    // highlighted one, which A keeps; tapping a row, R and the D-pad move it.
     std::vector<std::string> conflictSides;
     int conflictPick;
     bool applyToAll;
@@ -111,7 +120,8 @@ enum ButtonStyle
     BUTTON_NORMAL,
     BUTTON_PRIMARY,
     BUTTON_DANGER,
-    BUTTON_TOGGLE // drawn lit while BottomModel::applyToAll
+    BUTTON_TOGGLE, // drawn lit while BottomModel::applyToAll
+    BUTTON_ROW     // a row of the conflict list, drawn flat
 };
 
 struct Button
@@ -134,6 +144,13 @@ const Rect STRIP_DOWN = {282, 204, 34, 32};
 
 // Every touch target for this model, the scroll arrows included.
 std::vector<Button> bottomButtons(const BottomModel &m);
+
+// Whether the conflict prompt shows its sides as a list (more than two).
+bool conflictUsesList(const BottomModel &m);
+// conflictPick clamped to the sides, and the first side of the list on screen:
+// the window follows the highlight once there are more than fit.
+int conflictPickClamped(const BottomModel &m);
+int conflictListFirst(const BottomModel &m);
 
 // The button under (x, y), or -1.
 int hitButton(const std::vector<Button> &buttons, int x, int y);

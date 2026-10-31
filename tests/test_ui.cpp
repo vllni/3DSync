@@ -366,12 +366,13 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
 }
 
-TEST(layout, a_conflict_between_more_than_two_steps_with_r)
+TEST(layout, a_conflict_between_two_sides_keeps_a_and_b)
 {
     BottomModel m;
     m.mode = SCREEN_CONFLICT;
     m.conflictSides = {"3DS", "Drive"};
     const uint32_t scroll = K_DUP | K_DDOWN;
+    CHECK(!conflictUsesList(m));
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_X | K_L | K_START | scroll);
     CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep 3DS");
     CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Keep Drive");
@@ -379,11 +380,44 @@ TEST(layout, a_conflict_between_more_than_two_steps_with_r)
     m.conflictSides = {"3DS", "Dropbox"};
     CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "3DS");
     CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Dropbox");
+}
 
+TEST(layout, a_conflict_between_more_sides_is_a_list)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
     m.conflictSides = {"3DS", "Dropbox", "WebDAV"};
-    m.conflictPick = 2;
-    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_R | K_X | K_L | K_START | scroll);
+    m.conflictPick = 1;
+    const uint32_t scroll = K_DUP | K_DDOWN;
+    CHECK(conflictUsesList(m));
+    // The highlighted side is the A button; the other rows only report a row
+    // bit, and there is no B: R and the D-pad move the highlight instead.
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 | (K_LIST_ROW0 << 2) | K_X | K_L |
+                                            K_START | scroll);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep Dropbox");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0).label, "3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0 << 2).label, "WebDAV");
+}
+
+TEST(layout, a_long_conflict_list_follows_the_highlight)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
+    m.conflictSides = {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV"};
+    m.conflictPick = 0;
+    CHECK_EQ(conflictListFirst(m), 0);
+    m.conflictPick = 3;
+    CHECK_EQ(conflictListFirst(m), 0);
+    m.conflictPick = 5;
+    CHECK_EQ(conflictListFirst(m), 2);
+    // Never more rows than fit, and the highlight is always one of them.
     CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep WebDAV");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0).label, "Drive");
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_LIST_ROWS, K_LIST_ROW0 | (K_LIST_ROW0 << 1) |
+                                                         (K_LIST_ROW0 << 2));
+    // A pick out of range (the sides changed under it) reads as the first.
+    m.conflictPick = 9;
+    CHECK_EQ(conflictPickClamped(m), 0);
 }
 
 // Every screen, and the conflict screen with the side counts and name lengths
@@ -453,6 +487,8 @@ TEST(layout, no_label_is_cut_short)
             bool face = b.key == K_A || b.key == K_B || b.key == K_X || b.key == K_Y;
             const char *badgeText = b.key == K_START ? "START" : (b.key == K_R ? "R" : "L");
             int badge = face ? 18 : textWidth(kFontSmall, badgeText) + 12;
+            if (b.key & K_LIST_ROWS)
+                badge = 0; // a list row is a name, no key
             int need = badge + 7 + textWidth(kFontBold, b.label) + 14;
             if (need > b.rect.w)
                 testFail(__FILE__, __LINE__, "label does not fit: " + b.label);

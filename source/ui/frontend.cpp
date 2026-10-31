@@ -19,6 +19,8 @@ static_assert(K_A == KEY_A && K_B == KEY_B && K_X == KEY_X && K_Y == KEY_Y &&
                   K_SELECT == KEY_SELECT && K_DUP == KEY_DUP && K_DDOWN == KEY_DDOWN &&
                   K_DLEFT == KEY_DLEFT && K_DRIGHT == KEY_DRIGHT,
               "ui::Key must match libctru's KEY_* bits");
+static_assert(K_LIST_ROW0 > KEY_ZR && (K_LIST_ROWS & KEY_TOUCH) == 0,
+              "the conflict list's row bits must be ones libctru leaves unused");
 
 namespace frontend
 {
@@ -196,7 +198,11 @@ static bool frame(u32 &pressed)
 
     // The log scrolls in every mode: D-pad Up/Down a row (repeating while
     // held), Left/Right a page, the circle pad smoothly, and the touch strip.
-    u32 scrollKeys = (repeat | t.pressed) & SCROLL_KEYS;
+    // The one exception is a conflict between more than two sides, whose list
+    // takes the D-pad's Up/Down; the strip, Left/Right and the circle pad
+    // still scroll the log there.
+    u32 listKeys = conflictUsesList(m) ? (repeat & (KEY_DUP | KEY_DDOWN)) : 0;
+    u32 scrollKeys = ((repeat & ~listKeys) | t.pressed) & SCROLL_KEYS;
     long rows = 0;
     if (scrollKeys & KEY_DUP)
         rows -= 1;
@@ -236,7 +242,7 @@ static bool frame(u32 &pressed)
     redraw(m, buttons);
     gspWaitForVBlank();
 
-    pressed = (down | t.pressed) & ~SCROLL_KEYS;
+    pressed = ((down | t.pressed) & ~SCROLL_KEYS) | listKeys;
     return true;
 }
 
@@ -356,16 +362,33 @@ static void handleRunKeys(u32 keys)
         break;
     case SCREEN_CONFLICT:
     {
-        // Two sides: A and B.  More: R steps through them, A keeps the one shown.
+        // Two sides: A and B.  More: a list whose highlighted side A keeps;
+        // a tapped row, R (wrapping) and D-pad Up/Down move the highlight.
         int sides = (int)g_shared.conflictSides.size();
-        bool stepping = sides > 2;
+        bool list = conflictUsesList(g_shared);
+        int pick = conflictPickClamped(g_shared);
         if (keys & KEY_L)
             g_shared.applyToAll = !g_shared.applyToAll;
-        else if ((keys & KEY_R) && stepping)
-            g_shared.conflictPick = (g_shared.conflictPick + 1) % sides;
+        else if (list && (keys & K_LIST_ROWS))
+        {
+            for (int i = 0; i < CONFLICT_LIST_ROWS; i++)
+                if (keys & (K_LIST_ROW0 << i))
+                {
+                    int side = conflictListFirst(g_shared) + i;
+                    if (side < sides)
+                        g_shared.conflictPick = side;
+                    break;
+                }
+        }
+        else if (list && (keys & KEY_R))
+            g_shared.conflictPick = (pick + 1) % sides;
+        else if (list && (keys & KEY_DUP))
+            g_shared.conflictPick = pick > 0 ? pick - 1 : 0;
+        else if (list && (keys & KEY_DDOWN))
+            g_shared.conflictPick = pick + 1 < sides ? pick + 1 : pick;
         else if (keys & KEY_A)
-            answerLocked(stepping ? g_shared.conflictPick : 0);
-        else if ((keys & KEY_B) && !stepping)
+            answerLocked(list ? pick : 0);
+        else if ((keys & KEY_B) && !list)
             answerLocked(1);
         else if (keys & KEY_X)
             answerLocked(ANSWER_SKIP);
