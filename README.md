@@ -21,6 +21,7 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 ## Quick Start
 
 1. Open the [configurator](https://3dsync.vllni.dev/configurator.html) and follow the three steps.
+   To change a file you made before, import it in the first step.
 2. Place the downloaded `3DSync.ini` on the SD card at `/3ds/3DSync/3DSync.ini`.
 3. [Install 3DSync](#installation), most easily through Universal-Updater.
 4. Launch 3DSync and press **A** (or tap **Sync now**) to sync all configured
@@ -258,7 +259,11 @@ its own — a copy of the card, a file attached to a bug report — the value is
 useless. The rest of the file stays readable and editable.
 
 - **Changing a password:** type the new one over the sealed value in plain
-  text. It is sealed on the next start.
+  text. It is sealed on the next start. Or import the file into the
+  configurator: sealed values are not shown there and are written back as they
+  were unless you type a new one, so the file can be changed without them. Keep
+  a remote's label when you do: a sealed value only opens in the section it was
+  sealed in.
 - **Another console, an emulator, or after a system transfer:** the sealed
   values cannot be opened there. 3DSync says so and skips that remote rather
   than log in with garbage; paste the plain values back in, or make a new file

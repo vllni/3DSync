@@ -555,3 +555,45 @@ main {
 .folder-filter-row input::placeholder {
     color: rgba(255, 255, 255, 0.45);
 }
+
+/* Step 1: import a file made before. */
+.import-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem 1rem;
+    margin: 0.5rem 0 1.2rem 0;
+}
+
+.import-button {
+    font-size: inherit;
+    text-transform: none;
+}
+
+.import-intro {
+    flex: 1 1 18rem;
+    font-size: 0.9em;
+    opacity: 0.85;
+}
+
+.import-status {
+    flex: 1 1 100%;
+    font-size: 0.9em;
+}
+
+.import-status:empty {
+    display: none;
+}
+
+.import-status ul {
+    margin: 0.3rem 0 0 0;
+}
+
+.import-status li {
+    list-style: disc;
+    margin-left: 1.2rem;
+}
+
+.import-status.warn li.problem {
+    color: #ffcc80;
+}

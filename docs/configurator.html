@@ -48,6 +48,15 @@
                 <div class="step-content">
                   <p class="white-text panel-intro">Add every place 3DSync should sync with. With more than one, a
                     save changed in one place reaches all the others in the same sync.</p>
+                  <div class="import-box">
+                    <label class="btn white blue-text text-darken-3 import-button">
+                      <i class="material-icons left">upload_file</i>Import a 3DSync.ini
+                      <input type="file" id="import-file" accept=".ini,text/plain" hidden>
+                    </label>
+                    <span class="white-text import-intro">To change a file you made before: its remotes, folders
+                      and file types fill this page. The file is read here and never leaves your browser.</span>
+                    <div class="white-text import-status" id="import-status" role="status" aria-live="polite"></div>
+                  </div>
                   <h6 class="white-text remotes-heading">Your remotes</h6>
                   <div id="remote-list" class="remote-list"></div>
                   <p class="white-text auth-empty" id="remote-list-empty">None yet &mdash; add one below.</p>
@@ -550,6 +559,7 @@
   <script src="static/libs/jquery-3.4.1.min.js"></script>
   <script src="static/libs/materializecss/materialize.min.js"></script>
   <script src="static/libs/materialize-stepper/mstepper.min.js"></script>
+  <script src="static/js/inifile.js"></script>
   <script src="static/js/index.js"></script>
 </body>
 

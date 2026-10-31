@@ -29,6 +29,11 @@ jobs:
       - name: Run tests
         run: make -C tests
 
+      # The configurator's INI reading and writing (docs/static/js/inifile.js),
+      # which is kept free of the page for this.
+      - name: Run configurator tests
+        run: node --test tests/configurator/*.test.js
+
   build:
     name: Build
     runs-on: ubuntu-latest
