@@ -16,8 +16,11 @@ address — no NAT between the 3DS and passive or active FTP.
 
 Everything except the anonymous servers uses user `3dsync`, password
 `3dsync` (change both in `.env`).
-TLS certificates are self-signed and generated on first start; 3DSync does
-not verify peers, so they are accepted as they are.
+TLS certificates are self-signed and generated on first start. 3DSync checks
+certificates, so every FTPS and HTTPS case here needs `VerifyTLS=false` in
+its section ("The server uses its own certificate" in the configurator).
+Without it the remote stops with "the server's certificate could not be
+verified" — which is itself worth testing once.
 
 ## Starting
 
@@ -120,6 +123,7 @@ User=3dsync
 Password=3dsync
 TLS=try                   ; none | try | require
 Mode=passive              ; or active
+VerifyTLS=false           ; the certificates here are self-signed
 ; Port=2990 with TLS=implicit for ftps-implicit
 ; Port=2122 for ftp-plain
 
@@ -129,6 +133,7 @@ Url=http://192.168.1.10:8080/dav/
 ; Url=https://192.168.1.10:8443/dav-nodepth/
 User=3dsync
 Password=3dsync
+VerifyTLS=false           ; for the https:// ones: self-signed
 ```
 
 ### Anonymous
