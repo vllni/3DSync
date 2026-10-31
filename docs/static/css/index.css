@@ -541,3 +541,17 @@ main {
 .routing-empty {
     opacity: 0.75;
 }
+
+/* Step 2: a file type list per folder. */
+.folder-filters-section .panel-intro {
+    margin-bottom: 1.8rem;
+}
+
+.folder-filter-row {
+    margin-top: 0;
+    margin-bottom: 1.6rem;
+}
+
+.folder-filter-row input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+}

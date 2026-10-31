@@ -82,7 +82,7 @@ struct BottomModel
     bool configLoaded;
     std::string remotes; // "Dropbox, SMB"
     int pathCount;
-    std::string fileFilter; // "all files" or ".sav .bin"; "" reads as all
+    std::string fileFilter; // "all files", ".sav .bin" or "per path"; "" reads as all
     std::string lastResult; // "" before the first run
     bool lastResultOk;
     int configIssueCount; // the header says "Check config" while non-zero

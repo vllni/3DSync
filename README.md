@@ -232,7 +232,8 @@ that remote as new, so its first sync compares every file again.
 On startup 3DSync checks the file, and if something is wrong it lists every
 problem, with what to do, before the main menu: a remote missing a setting
 (`[SMB]` without `Share=`), a remote with no login, a misspelled remote type, a
-`Role=` or `Only=` that does not make sense, a password sealed on another
+`Role=` or `Only=` that does not make sense, a `[Filter]` line naming no
+configured path, a password sealed on another
 console, or a line the file cannot be read at. Press **A** to continue anyway
 or **START** to exit and fix the file. A remote that cannot be used is left out
 of every sync, listed under "Not synced" in the summary, and the menu shows
@@ -310,17 +311,21 @@ Backup=/3ds/MyGame
 
 ### File type filter
 
-By default every file under a sync path is synced. To sync only certain file types, list their extensions under `[Filter]`:
+By default every file under a sync path is synced. To sync only certain file types, list their extensions under `[Filter]`: `Extensions=` for every path, or a path's name from `[Paths]` (or the other path sections) for that path alone:
 
 ```ini
 [Filter]
-Extensions=sav, bin, dat
+Extensions=sav, bin, dat   ; every path without a line of its own
+roms/nds/saves=dsv         ; only .dsv in this one
+screenshots=*              ; every file in this one
 ```
 
 - Separate extensions with commas, spaces or both — `sav,bin`, `sav, bin` and `sav, bin,srm` all work (not `;`, which starts a comment). `sav`, `.sav` and `*.sav` all mean the same, and case does not matter.
 - A file is synced only if its name ends in one of them; a longer ending such as `tar.gz` works too. Leave `Extensions=` empty, leave it out, or write `*` to sync all files.
-- The filter applies to every sync path and to both directions: a filtered-out file is neither uploaded nor downloaded, and its manifest entry is kept, so loosening the filter later picks up where it left off.
-- The main menu shows the active filter next to **FILES**, and a sync prints it once before the first transfer.
+- A path's own line replaces `Extensions=` for that path; it does not add to it. A path named `Extensions` cannot have a line of its own, because that key is the list for every path.
+- A line naming a path that is not configured is reported when 3DSync starts, and that path keeps the list for every path.
+- Filters apply in both directions: a filtered-out file is neither uploaded nor downloaded, and its manifest entry is kept, so loosening the filter later picks up where it left off.
+- The main menu shows the filter next to **FILES** (`per path` once a path has its own), and a sync prints it under each path it applies to.
 
 ---
 

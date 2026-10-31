@@ -134,17 +134,18 @@ static std::vector<std::string> configuredEntryNames(const INIReader &reader)
     return names;
 }
 
-// [Filter] Extensions=, shared by every entry.  Missing or empty: all files.
-static ExtensionFilter configuredFilter(const INIReader &reader)
+// [Filter]: Extensions= for every entry, "<name>=" for one.  Missing or
+// empty: all files.
+static PathFilters configuredFilters(const INIReader &reader)
 {
-    return ExtensionFilter::parse(reader.Get("Filter", "extensions", ""));
+    return parsePathFilters(reader.GetValues(), configuredEntryNames(reader));
 }
 
 static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
 {
     std::vector<SyncEntry> entries;
     std::map<std::string, std::string> values = reader.GetValues();
-    ExtensionFilter filter = configuredFilter(reader);
+    PathFilters filters = configuredFilters(reader);
 
     for (auto &kv : values)
     {
@@ -158,7 +159,8 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         entry.localBase = kv.second;
         entry.remoteName = kv.first.substr(prefix.size());
         entry.direction = dir;
-        entry.filter = filter;
+        entry.filter = filters.forEntry(entry.remoteName);
+        const ExtensionFilter &filter = entry.filter;
         // Filtered here as well as in performSync(): a provider's
         // legacyUpload() is handed this list and nothing else.
         std::vector<std::string> found = recurse_dir(kv.second, "", recursive);
@@ -360,6 +362,10 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
             names += (names.empty() ? "" : ", ") + r->name;
         frontend::setActivity(names, entry.localBase);
         printf("\n%s [%s]\n", uploadOnly ? "Uploading" : "Syncing", entry.localBase.c_str());
+        // A filter leaves files out without a word, and the summary would
+        // otherwise not explain why a file never moved.
+        if (!entry.filter.allowsAll())
+            printf("  Only files ending in\n    %s\n", entry.filter.describe().c_str());
 
         std::vector<Participant> participants;
         for (const ActiveRemote *r : taking)
@@ -607,6 +613,18 @@ static std::vector<ConfigIssue> configIssues(const INIReader &reader,
     }
     issues.insert(issues.end(), g_sealIssues.begin(), g_sealIssues.end());
     issues.insert(issues.end(), remotes.issues.begin(), remotes.issues.end());
+    for (auto &name : configuredFilters(reader).unknown)
+    {
+        // Most likely a typo in a path's name: that path then syncs with the
+        // default, which is not what the line asked for.
+        ConfigIssue issue;
+        issue.section = "filter";
+        issue.brief = "[Filter] names no path";
+        issue.lines = {"[Filter] has a line for a path that is not", "configured:", "  " + name,
+                       "  Use a name from [Paths], or Extensions=", "  for every path."};
+        issue.leftOut = false;
+        issues.push_back(issue);
+    }
     return issues;
 }
 
@@ -659,12 +677,6 @@ static void runSync(const INIReader &reader)
         frontend::setLastResult("no sync paths configured", false);
         return;
     }
-
-    // Said once, up front: a filter leaves files out without a word, and the
-    // summary would otherwise not explain why a file never moved.
-    ExtensionFilter filter = configuredFilter(reader);
-    if (!filter.allowsAll())
-        printf("Only syncing files ending in\n  %s\n", filter.describe().c_str());
 
     Manifest manifest("/3ds/3DSync/manifest.json");
     manifest.load();
@@ -843,7 +855,7 @@ int main(int argc, char **argv)
     std::vector<ConfigIssue> issues =
         reader.ParseError() >= 0 ? configIssues(reader, remotes) : std::vector<ConfigIssue>();
     frontend::setMenuInfo(reader.ParseError() >= 0, remoteNames(remotes.remotes),
-                          countSyncPaths(reader), configuredFilter(reader).describe(),
+                          countSyncPaths(reader), configuredFilters(reader).describe(),
                           (int)issues.size());
 
     // Said once, before the menu: a remote that is set up wrongly is left out

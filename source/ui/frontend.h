@@ -27,7 +27,7 @@ bool init();
 void exit();
 
 // What the idle screen says about the configuration.  fileFilter is
-// ExtensionFilter::describe(): "all files" or ".sav .bin".
+// PathFilters::describe(): "all files", ".sav .bin" or "per path".
 // configIssueCount: problems found in 3DSync.ini, for the menu's header.
 void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
                  const std::string &fileFilter, int configIssueCount);
