@@ -573,3 +573,32 @@ TEST(webdav_selftag, nothing_to_read_is_empty)
     CHECK_STR_EQ(davSelfTag("<multistatus/>"), "");
     CHECK_STR_EQ(davSelfTag("<multistatus><response><href>/x</href></response></multistatus>"), "");
 }
+
+// ---------------------------------------------------------------------------
+// SMB session probing
+// ---------------------------------------------------------------------------
+
+TEST(smbprobe, a_busy_session_is_not_probed)
+{
+    CHECK(!smbShouldProbe(1000, 1000, false));
+    CHECK(!smbShouldProbe(1000, 1000 + SMB_IDLE_PROBE_SECONDS - 1, false));
+}
+
+TEST(smbprobe, an_idle_session_is_probed)
+{
+    // A conflict prompt left for a minute, or a long turn of another remote.
+    CHECK(smbShouldProbe(1000, 1000 + SMB_IDLE_PROBE_SECONDS, false));
+    CHECK(smbShouldProbe(1000, 1000 + 3600, false));
+}
+
+TEST(smbprobe, a_failed_request_is_followed_by_a_probe)
+{
+    // A connection that broke mid-transfer fails that file; the next request
+    // finds out whether the session is still there before relying on it.
+    CHECK(smbShouldProbe(1000, 1000, true));
+}
+
+TEST(smbprobe, a_clock_set_backwards_counts_as_idle)
+{
+    CHECK(smbShouldProbe(1000, 400, false));
+}

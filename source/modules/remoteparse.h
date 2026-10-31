@@ -101,6 +101,18 @@ bool isAnonymousFtpUser(const std::string &user);
 // currently in effect, so once TLS has been dropped this says no again.
 bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied);
 
+// An SMB session goes quiet while the 3DS waits on the user (a conflict prompt),
+// works on another remote, or sleeps with the lid shut, and a server or the
+// network in between may drop it meanwhile.  libsmb2 has no reconnect and
+// answers a dead socket with the same -1 as a refusal, so the provider asks the
+// server instead: an ECHO before the next request, when the session has been
+// idle at least this long or the last request failed.  Seconds.
+const long SMB_IDLE_PROBE_SECONDS = 30;
+
+// Whether to ECHO before the next request.  A clock that went backwards (the
+// 3DS's was set mid-run) counts as idle: the gap cannot be known.
+bool smbShouldProbe(long long lastActivity, long long now, bool lastRequestFailed);
+
 // What an FTP request was for, as far as a refusal is concerned.
 enum FtpRequest
 {
