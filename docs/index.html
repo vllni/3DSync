@@ -148,7 +148,8 @@
       <div class="container hero">
         <h1 class="white-text">3DSync</h1>
         <p class="white-text subtitle">
-          Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with cloud storage.<br>
+          Homebrew for the Nintendo 3DS/2DS family that synchronises saves and files with cloud storage or a
+          server on your own network.<br>
           Bidirectional sync with <strong>Google Drive</strong>, <strong>Dropbox</strong>, an
           <strong>SMB2/3 file server</strong>, <strong>FTP/FTPS</strong> and <strong>WebDAV</strong>.
         </p>
@@ -315,6 +316,12 @@ Password=&lt;app password&gt;</code></pre>
           same sync. <code>Role=backup</code> makes a remote only receive copies, and <code>Only=saves, gba</code>
           limits it to those folders. The configurator writes all of them into one file.
         </p>
+        <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">
+          On startup 3DSync checks the file. If a remote is missing a setting or a login, a section has a
+          misspelled type, or <code>Role=</code> or <code>Only=</code> make no sense, it lists every problem with
+          what to do, before the main menu. Press <strong>A</strong> to continue anyway or <strong>START</strong>
+          to exit and fix the file.
+        </p>
       </div>
 
       <hr class="divider-line">
@@ -362,13 +369,13 @@ roms/nds/saves=/roms/nds/saves
 [UploadPaths]
 Backup=/3ds/MyGame</code></pre>
         <ul class="readme-bullets" style="margin-top:0.75rem">
-          <li><strong>RemoteName</strong> is the Drive folder path (use <code>/</code> for nesting, e.g.
-            <code>roms/nds</code>).
+          <li><strong>RemoteName</strong> is the folder on the remote (use <code>/</code> for nesting, e.g.
+            <code>roms/nds</code>). It is also the name <code>Only=</code> refers to.
           </li>
           <li><strong>LocalPath</strong> is the absolute path on the SD card.</li>
           <li>Bidirectional entries use a <strong>manifest</strong> (<code>/3ds/3DSync/manifest.json</code>) to detect
             which side changed.</li>
-          <li>Upload-only entries always push the local file to Drive and never download.</li>
+          <li>Upload-only entries push the local file to every remote taking part and never download.</li>
         </ul>
         <h5>File type filter</h5>
         <p>By default every file under a sync path is synced. To sync only certain file types, list their
@@ -394,14 +401,35 @@ Extensions=sav, bin, dat</code></pre>
       <div class="card-panel blue darken-2 white-text section-card">
         <h4>Bidirectional Sync Logic</h4>
         <p>
-          Bidirectional paths (<code>[Paths]</code> / <code>[ShallowPaths]</code>) compare each file against
-          the local mtime, the Drive MD5 checksum, and the manifest from the last successful sync.
+          Bidirectional paths (<code>[Paths]</code> / <code>[ShallowPaths]</code>) compare each file's local
+          modification time and size, and each remote's change tag, against the manifest from the last sync.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Remote</th>
+              <th>Change tag</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Google Drive</td><td>MD5 checksum from the Drive API</td></tr>
+            <tr><td>Dropbox</td><td><code>content_hash</code> (SHA-256 over per-4&nbsp;MiB-block SHA-256)</td></tr>
+            <tr><td>WebDAV</td><td><code>ETag</code>, falling back to size + <code>Last-Modified</code></td></tr>
+            <tr><td>SMB</td><td>size + modification time</td></tr>
+            <tr><td>FTP</td><td>size + <code>MDTM</code></td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:0.75rem">
+          With several remotes configured, every file is decided once with all of them in view. The side that
+          changed wins and its version is copied to all the others in the same run, whichever order the remotes
+          are in. A remote that was unreachable while the file changed is simply brought up to date the next
+          time.
         </p>
         <table>
           <thead>
             <tr>
               <th>Local changed?</th>
-              <th>Drive changed?</th>
+              <th>Remote changed?</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -414,29 +442,31 @@ Extensions=sav, bin, dat</code></pre>
             <tr>
               <td>Yes</td>
               <td>No</td>
-              <td>Upload local → Drive, update manifest</td>
+              <td>Upload local → remote, update manifest</td>
             </tr>
             <tr>
               <td>No</td>
               <td>Yes</td>
-              <td>Download from Drive → local, update manifest</td>
+              <td>Download from remote → local, update manifest</td>
             </tr>
             <tr>
               <td>Yes</td>
               <td>Yes</td>
-              <td><strong>Conflict</strong> — press <strong>A</strong> to keep 3DS version (upload) or
-                <strong>B</strong> to keep Drive version (download)
+              <td><strong>Conflict</strong> — the 3DS lists every side that changed. <strong>A</strong> keeps the
+                highlighted one (tap a version, or move with <strong>R</strong> or <strong>D-pad ↑/↓</strong>),
+                <strong>X</strong> skips the file, <strong>L</strong> applies the answer to every remaining
+                conflict, <strong>START</strong> stops. The version kept is copied to the others.
               </td>
             </tr>
             <tr>
               <td>Local missing</td>
-              <td>Drive exists</td>
-              <td>Download from Drive</td>
+              <td>Remote exists</td>
+              <td>Download from remote</td>
             </tr>
             <tr>
               <td>Local exists</td>
-              <td>Drive missing</td>
-              <td>Upload to Drive</td>
+              <td>Remote missing</td>
+              <td>Upload to remote</td>
             </tr>
             <tr>
               <td>Both missing</td>
@@ -446,18 +476,22 @@ Extensions=sav, bin, dat</code></pre>
           </tbody>
         </table>
         <p style="margin-top:0.75rem;font-size:0.9em;opacity:0.85">
-          "Changed" means the mtime (local) or MD5 (Drive) differs from the last manifest entry.
-          On first run (no manifest entry yet), the local file is uploaded and the manifest is initialised.
+          "Changed" means the local mtime/size, or the remote tag, differs from the last manifest entry.
+          On the first sync of a file, a file on one side only is copied to the others; a file already on both
+          is a conflict, unless Google Drive or Dropbox can prove it holds the same bytes as the 3DS. They can
+          check contents on the 3DS, so they also catch a save whose modification time never moves; on SMB, FTP
+          and WebDAV an unchanged time and size is taken as unchanged.
         </p>
 
         <h5 class="white-text" style="margin-top:1.25rem">Manifest file</h5>
         <p style="font-size:0.9em">
-          <code>/3ds/3DSync/manifest.json</code> is stored only on the SD card.
-          Delete it to force a full re-upload on the next run.
+          <code>/3ds/3DSync/manifest.json</code> is stored only on the SD card. It records the 3DS's copy and each
+          remote's tag per file. Deleting it makes the next sync a first sync again: every file that exists both on
+          the 3DS and on a remote becomes a conflict, unless Drive or Dropbox can prove the two are identical.
         </p>
         <pre><code>{
-  "/3ds/Checkpoint/saves/TitleA/001.sav": {"mtime": 1716905520, "md5": "abc123", "id": "driveFileId"},
-  "/roms/nds/saves/game.sav":             {"mtime": 1716910000, "md5": "def456", "id": "anotherFileId"}
+  "drive|/3ds/Checkpoint/saves/TitleA/001.sav": {"mtime": 1716905520, "size": 512, "tag": "abc123", "id": "driveFileId"},
+  "local|/3ds/Checkpoint/saves/TitleA/001.sav": {"mtime": 1716905520, "size": 512, "tag": "", "id": "", "gen": 1}
 }</code></pre>
       </div>
 

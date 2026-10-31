@@ -183,7 +183,10 @@ password rather than your account password where the server offers one.
 
 Configure as many remotes as you like. Every file is decided once across all
 of them (see [Bidirectional Sync Logic](#bidirectional-sync-logic)), and each
-keeps its own state in the manifest.
+keeps its own state in the manifest. The
+[configurator](https://3dsync.vllni.dev/configurator.html) writes all of the
+below: add several remotes in its first step, and choose which folders each one
+syncs in the second.
 
 For a second remote of the same type, give its section a label after a colon,
 like `[SMB:Backup]`. It takes the same keys as the unnamed one. Two keys work in
@@ -293,10 +296,10 @@ roms/nds/saves=/roms/nds/saves
 Backup=/3ds/MyGame
 ```
 
-- **RemoteName** is the Drive folder path (use `/` for nesting, e.g. `roms/nds`).
+- **RemoteName** is the folder on the remote (use `/` for nesting, e.g. `roms/nds`). It is also the name `Only=` refers to.
 - **LocalPath** is the absolute path on the SD card.
 - Bidirectional entries use a **manifest** (`/3ds/3DSync/manifest.json`) to detect which side changed.
-- Upload-only entries always push the local file to Drive and never download.
+- Upload-only entries push the local file to every remote taking part and never download.
 
 ### File type filter
 
@@ -348,7 +351,9 @@ If more than one side changed the file, one prompt lists them all.
 | Both missing | — | Remove stale manifest entry |
 
 "Changed" means the local mtime/size, or the remote tag, differs from the last manifest entry.  
-On first run (no manifest entry yet), the local file is uploaded and the manifest is initialised.
+On the first sync of a file (no manifest entry yet), a file on one side only is copied to the
+others. A file already on both is a conflict, unless Google Drive or Dropbox can prove it holds
+the same bytes as the 3DS.
 
 Google Drive and Dropbox can verify a local file by content — their tags are an
 MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
@@ -385,7 +390,8 @@ written by older versions (bare local paths, an `md5` field, no `local|` entries
 or `gen`) are read and upgraded automatically, and an older 3DSync can still
 read a newer manifest.
 
-Delete this file to force a full re-upload on the next run.
+Deleting it makes the next sync a first sync again: every file that exists both on the 3DS and
+on a remote becomes a conflict, unless Drive or Dropbox can prove the two are identical.
 
 ---
 
