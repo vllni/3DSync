@@ -16,9 +16,12 @@ Manifest::Manifest(const std::string &path) : _path(path) {}
 // Parses the JSON file produced by save().  The format is:
 //   {
 //     "drive|/full/path/file.sav":
-//         {"mtime": 1234567890, "size": 512, "tag": "abc", "id": "xyz"},
+//         {"mtime": 1234567890, "size": 512, "tag": "abc", "id": "xyz", "gen": 3},
 //     ...
 //   }
+// "gen" is left out while it is 0, so a manifest that never met the n-way
+// engine is written back byte for byte.  An older 3DSync reading a newer file
+// ignores "gen" and keeps the "local|" entries as keys it never asks for.
 // Manifests written before multi-provider support used a bare local path as the
 // key and called the tag "md5"; both are still read, and such keys are migrated
 // to the "drive|" prefix so the first sync after an upgrade is not treated as a
@@ -118,6 +121,8 @@ bool Manifest::load()
             entry.localMtime = (time_t)number;
         if (jsonInt(valueStr, "size", number))
             entry.localSize = number;
+        if (jsonInt(valueStr, "gen", number))
+            entry.generation = number;
 
         entry.remoteTag = jsonString(valueStr, "tag");
         if (entry.remoteTag.empty())
@@ -156,12 +161,15 @@ bool Manifest::save() const
         if (!first) fputs(",\n", fp);
         first = false;
 
-        fprintf(fp, "  \"%s\": {\"mtime\": %lld, \"size\": %lld, \"tag\": \"%s\", \"id\": \"%s\"}",
+        fprintf(fp, "  \"%s\": {\"mtime\": %lld, \"size\": %lld, \"tag\": \"%s\", \"id\": \"%s\"",
                 jsonEscape(kv.first).c_str(),
                 (long long)kv.second.localMtime,
                 kv.second.localSize,
                 jsonEscape(kv.second.remoteTag).c_str(),
                 jsonEscape(kv.second.remoteId).c_str());
+        if (kv.second.generation != 0)
+            fprintf(fp, ", \"gen\": %lld", kv.second.generation);
+        fputc('}', fp);
     }
     fputs("\n}\n", fp);
 

@@ -139,14 +139,15 @@ static void fillLog(LogBuffer &log, bool debug, int extra)
         "  It has seen far less testing than Drive, so\n  please keep a backup of your saves.\n"
         "  Bugs and feedback are very welcome at\n"
         CONSOLE_CYAN "  github.com/vllni/3DSync/issues" CONSOLE_RESET "\n\n"
-        "\nSyncing [/3ds/Checkpoint/saves] <-> Dropbox:Checkpoint/saves\n"
-        "Listing Dropbox:Checkpoint/saves\n";
+        "\nSyncing [/3ds/Checkpoint/saves]\n"
+        "Listing Dropbox:Checkpoint/saves\n"
+        "Listing SMB:Checkpoint/saves\n";
     if (debug)
         s += CONSOLE_MAGENTA "dbg: " "POST https://api.dropboxapi.com/2/files/list_folder -> 200 in 412 ms, 2318 bytes of response body" CONSOLE_RESET "\n";
     for (int i = 0; i < extra; i++)
         s += CONSOLE_MAGENTA "dbg: " "Pok\xC3\xA9mon Y/main: local unchanged, remote unchanged \xE2\x80\x94 skip" CONSOLE_RESET "\n";
-    s += "\n  *** CONFLICT: /3ds/Checkpoint/saves/0x0055D Pok\xC3\xA9mon Y/main\n\n"
-         "  A: keep 3DS version  B: keep remote version\n  X: skip  START: cancel  L: apply all\n\n";
+    s += "\n  *** CONFLICT:\n  /3ds/Checkpoint/saves/0x0055D Pok\xC3\xA9mon Y/main\n"
+         "  Changed on 3DS and Dropbox.\n\n";
     log.append(s.data(), s.size());
 }
 
@@ -225,6 +226,7 @@ int main()
     syncLog();
     m.mode = SCREEN_CONFLICT;
     m.conflictPath = "/3ds/Checkpoint/saves/0x0055D Pok\xC3\xA9mon Y/main";
+    m.conflictSides = {"3DS", "Dropbox"};
     m.heldKeys = K_DUP;
     drawTop(top, tm, log, scroll);
     drawBottom(bottom, m, bottomButtons(m));
@@ -237,6 +239,25 @@ int main()
     drawTop(top, tm, log, scroll);
     drawBottom(bottom, m, bottomButtons(m));
     save("3b-conflict-apply-all", top, bottom);
+
+    m.applyToAll = false;
+    m.conflictSides = {"3DS", "Dropbox", "SMB", "WebDAV"};
+    m.conflictPick = 2;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3c-conflict-four-sides", top, bottom);
+
+    // More than fit: the list follows the highlight, a row is being tapped.
+    m.conflictSides = {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV"};
+    m.conflictPick = 5;
+    m.heldKeys = K_LIST_ROW0 << 1;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3e-conflict-six-sides", top, bottom);
+    m.heldKeys = 0;
+
+    m.conflictSides = {"Drive", "WebDAV"};
+    m.conflictPick = 0;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3d-conflict-two-remotes", top, bottom);
 
     tm.busy = false;
     m.mode = SCREEN_SAVE_LOG;

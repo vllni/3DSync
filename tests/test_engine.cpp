@@ -36,7 +36,7 @@ struct Fixture
     // Record the state a previous successful sync would have left behind.
     void seedManifest(const std::string &relPath, const std::string &remoteTag)
     {
-        ManifestEntry record;
+        ManifestEntry record = ManifestEntry();
         record.localMtime = (time_t)local.mtimeOf(relPath);
         record.localSize = (long long)local.read(relPath).size();
         record.remoteTag = remoteTag;
@@ -225,7 +225,7 @@ TEST(engine, extension_filter_keeps_the_manifest_of_files_it_hides)
 TEST(engine, both_sides_gone_clears_the_manifest_entry)
 {
     Fixture f;
-    ManifestEntry stale;
+    ManifestEntry stale = ManifestEntry();
     stale.localMtime = 1700000000;
     stale.localSize = 4;
     stale.remoteTag = "whatever";
@@ -247,7 +247,7 @@ TEST(engine, first_sync_with_both_sides_present_is_a_conflict)
     f.local.write(SAVE, "local", 1700000000);
     f.remote.setRemote(SAVE, "remote");
     f.localFiles({SAVE});
-    f.ui.answers = {CONFLICT_KEEP_LOCAL};
+    f.ui.answers = {"3DS"};
 
     CHECK(f.run());
     CHECK_EQ(f.ui.conflictsRaised.size(), (size_t)1);
@@ -264,7 +264,7 @@ TEST(engine, conflict_keep_local_uploads)
 
     f.local.write(SAVE, "local wins", 1700000900);
     f.remote.setRemote(SAVE, "remote version");
-    f.ui.answers = {CONFLICT_KEEP_LOCAL};
+    f.ui.answers = {"3DS"};
 
     CHECK(f.run());
     CHECK_EQ(f.ui.conflictsRaised.size(), (size_t)1);
@@ -282,7 +282,7 @@ TEST(engine, conflict_keep_remote_downloads)
 
     f.local.write(SAVE, "local version", 1700000900);
     f.remote.setRemote(SAVE, "remote wins");
-    f.ui.answers = {CONFLICT_KEEP_REMOTE};
+    f.ui.answers = {"Mock"};
 
     CHECK(f.run());
     CHECK_EQ(f.local.read(SAVE), std::string("remote wins"));
@@ -299,7 +299,7 @@ TEST(engine, conflict_skip_touches_nothing)
 
     f.local.write(SAVE, "local version", 1700000900);
     f.remote.setRemote(SAVE, "remote version");
-    f.ui.answers = {CONFLICT_SKIP};
+    f.ui.answers = {"skip"};
 
     CHECK(f.run());
     CHECK_EQ(f.remote.uploaded.size(), (size_t)0);
@@ -319,7 +319,7 @@ TEST(engine, conflict_cancel_stops_the_sync)
 
     f.local.write(SAVE, "local version", 1700000900);
     f.remote.setRemote(SAVE, "remote version");
-    f.ui.answers = {CONFLICT_CANCEL};
+    f.ui.answers = {"cancel"};
 
     CHECK(!f.run());
     CHECK(f.ui.cancelled); // the caller must see the cancellation too
@@ -440,7 +440,8 @@ TEST(engine, cancellation_stops_before_the_next_file)
     f.local.write("/b.sav", "b", 1700000000);
     f.local.write("/c.sav", "c", 1700000000);
     f.localFiles({"/a.sav", "/b.sav", "/c.sav"});
-    f.ui.cancelAfterPolls = 1; // stop once the first file is done
+    // One poll before listing, one before the first file: stop after that one.
+    f.ui.cancelAfterPolls = 2;
 
     CHECK(!f.run());
     CHECK_EQ(f.remote.uploaded.size(), (size_t)1);
@@ -478,7 +479,7 @@ TEST(engine, legacy_manifest_entry_without_a_size_does_not_reupload)
 
     // Manifests written before the size field carried mtime only; a zero must
     // mean "unknown", not "zero bytes", or every file would look changed.
-    ManifestEntry legacy;
+    ManifestEntry legacy = ManifestEntry();
     legacy.localMtime = (time_t)f.local.mtimeOf(SAVE);
     legacy.localSize = 0;
     legacy.remoteTag = f.remote.tagOf(SAVE);
@@ -535,7 +536,7 @@ TEST(summary, a_failed_upload_is_never_up_to_date)
     // The 3DS run that prompted this: the only file failed, and the summary
     // read "All 0 files up to date. Sync complete."
     SyncSummary s;
-    s.failures.push_back({"/roms/saves/a.sav", "upload"});
+    s.failures.push_back({"/roms/saves/a.sav", "upload", ""});
     std::vector<std::string> lines = summaryLines(s);
     CHECK(!hasLine(lines, "up to date"));
     CHECK(hasLine(lines, "Failed: 1"));
@@ -547,8 +548,8 @@ TEST(summary, successes_and_failures_are_listed_apart)
 {
     SyncSummary s;
     s.uploaded = 1;
-    s.changes.push_back({"/ok.sav", "uploaded"});
-    s.failures.push_back({"/bad.sav", "download"});
+    s.changes.push_back({"/ok.sav", "uploaded", ""});
+    s.failures.push_back({"/bad.sav", "download", ""});
     std::vector<std::string> lines = summaryLines(s);
     CHECK(hasLine(lines, "Uploaded: 1  Downloaded: 0  Unchanged: 0"));
     CHECK(hasLine(lines, "uploaded: /ok.sav"));
@@ -577,7 +578,7 @@ TEST(summary, lines_fit_the_log)
     s.downloaded = 999;
     for (int i = 0; i < 999; i++)
         s.checkedPaths.insert("/" + std::to_string(i));
-    s.failures.push_back({"/x", "download"});
+    s.failures.push_back({"/x", "download", ""});
     s.problems.push_back("WebDAV (stopped by an error)");
     for (auto &line : summaryLines(s))
     {

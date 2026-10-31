@@ -44,7 +44,7 @@ static const Color kLogColors[] = {
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
       lastResultOk(true), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      applyToAll(false), logKilobytes(0), logTrimmed(false), heldKeys(0), logFirst(0),
+      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -93,7 +93,7 @@ static int contentWidth(const Button &b)
 static const int COL_X = 6, COL_W = 270;
 static const int ROW1_Y = 160, ROW2_Y = 200, BTN_H = 34, GAP = 6;
 
-static Button makeButton(int x, int y, int w, uint32_t key, const char *label,
+static Button makeButton(int x, int y, int w, uint32_t key, const std::string &label,
                          ButtonStyle style = BUTTON_NORMAL, bool enabled = true)
 {
     Button b;
@@ -112,6 +112,43 @@ static Button makeButton(int x, int y, int w, uint32_t key, const char *label,
 // n equal buttons across the column at height y, starting at slot `from`.
 static int slotX(int i, int n) { return COL_X + i * (COL_W + GAP) / n; }
 static int slotW(int n) { return (COL_W - (n - 1) * GAP) / n; }
+
+// The conflict list: under a short card, down to the last row of buttons.
+static const int LIST_Y = 74, LIST_ROW_H = 30;
+
+bool conflictUsesList(const BottomModel &m)
+{
+    return m.mode == SCREEN_CONFLICT;
+}
+
+int conflictPickClamped(const BottomModel &m)
+{
+    int n = (int)m.conflictSides.size();
+    return m.conflictPick >= 0 && m.conflictPick < n ? m.conflictPick : 0;
+}
+
+int conflictListFirst(const BottomModel &m)
+{
+    int n = (int)m.conflictSides.size();
+    if (n <= CONFLICT_LIST_ROWS)
+        return 0;
+    int first = conflictPickClamped(m) - (CONFLICT_LIST_ROWS - 1);
+    if (first < 0)
+        first = 0;
+    if (first > n - CONFLICT_LIST_ROWS)
+        first = n - CONFLICT_LIST_ROWS;
+    return first;
+}
+
+// "Keep Dropbox", or just "Dropbox" where that would not fit with a little
+// padding either side.
+static std::string keepLabel(uint32_t key, const std::string &side, int width)
+{
+    Button b = makeButton(0, 0, width, key, "Keep " + side);
+    if (contentWidth(b) + 14 > width)
+        b.label = side;
+    return b.label;
+}
 
 std::vector<Button> bottomButtons(const BottomModel &m)
 {
@@ -132,9 +169,27 @@ std::vector<Button> bottomButtons(const BottomModel &m)
                                BUTTON_DANGER, !m.cancelling));
         break;
     case SCREEN_CONFLICT:
-        b.push_back(makeButton(slotX(0, 2), ROW1_Y, slotW(2), K_A, "Keep 3DS", BUTTON_PRIMARY));
-        b.push_back(makeButton(slotX(1, 2), ROW1_Y, slotW(2), K_B, "Keep remote",
-                               BUTTON_PRIMARY));
+        {
+            // The sides as a list in the space of the card and the first row:
+            // the highlighted side is the A button, the others only highlight
+            // themselves when tapped.
+            int pick = conflictPickClamped(m), first = conflictListFirst(m);
+            int shown = (int)m.conflictSides.size() - first;
+            if (shown > CONFLICT_LIST_ROWS)
+                shown = CONFLICT_LIST_ROWS;
+            for (int i = 0; i < shown; i++)
+            {
+                int side = first + i, y = LIST_Y + i * LIST_ROW_H;
+                const std::string &name = m.conflictSides[side];
+                Button row = side == pick ? makeButton(COL_X, y, COL_W, K_A,
+                                                       keepLabel(K_A, name, COL_W),
+                                                       BUTTON_PRIMARY)
+                                          : makeButton(COL_X, y, COL_W, K_LIST_ROW0 << i, name,
+                                                       BUTTON_ROW);
+                row.rect.h = LIST_ROW_H; // stacked like a list, not spaced like buttons
+                b.push_back(row);
+            }
+        }
         {
             // Three to a row is too tight for equal thirds once START's badge
             // is in one of them, so each gets its content plus a share of
@@ -201,8 +256,24 @@ static int drawKeyBadge(Canvas &c, int x, int cy, uint32_t key, Color bg, Color 
     return w;
 }
 
+// A row of the conflict list: flat on the list's panel, a line above it.
+static void drawListRow(Canvas &c, const Button &b, const BottomModel &m)
+{
+    const Rect &r = b.rect;
+    if (m.heldKeys & b.key)
+        c.roundRect(r.x, r.y, r.w, r.h, 9, C_PRESSED);
+    else if (r.y > LIST_Y)
+        c.fill(r.x + 12, r.y, r.w - 24, 1, C_LINE);
+    c.textMiddle(kFontBold, r.x + 14, r.y, r.h, b.label, C_TEXT, r.w - 28);
+}
+
 static void drawButton(Canvas &c, const Button &b, const BottomModel &m)
 {
+    if (b.style == BUTTON_ROW)
+    {
+        drawListRow(c, b, m);
+        return;
+    }
     bool down = b.enabled && (m.heldKeys & b.key);
     bool lit = b.style == BUTTON_TOGGLE && m.applyToAll;
     Color bg, fg = C_TEXT, badgeBg = C_BG, badgeFg = C_TEXT;
@@ -420,18 +491,47 @@ static void drawRunningCard(Canvas &c, const BottomModel &m)
     c.text(kFontSmall, CARD_IN, ROW2_Y - GAP - 22, hint, C_DIM, CARD_TEXT_W);
 }
 
+// A short card above the list of sides, which takes the rest.
 static void drawConflictCard(Canvas &c, const BottomModel &m)
 {
-    c.roundRect(CARD_X, CARD_Y, CARD_W, ROW1_Y - GAP - CARD_Y, 12, C_PANEL);
-    c.fill(CARD_X, CARD_Y + 12, 3, ROW1_Y - GAP - CARD_Y - 24, C_WARN);
-    c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Conflict", C_WARN);
-    c.text(kFontSmall, CARD_IN, CARD_Y + 33, "Both sides changed since the last sync.", C_DIM, CARD_TEXT_W);
-    drawLines(c, kFontBody, CARD_IN, CARD_Y + 52, 17,
-              wrapText(kFontBody, m.conflictPath, CARD_TEXT_W, 3), C_TEXT);
-    if (m.applyToAll)
-        c.text(kFontSmall, CARD_IN, ROW1_Y - GAP - 20,
-               "Applies to every remaining conflict.", C_ACCENT, CARD_TEXT_W);
+    int cardH = LIST_Y - 4 - CARD_Y;
+    c.roundRect(CARD_X, CARD_Y, CARD_W, cardH, 10, C_PANEL);
+    c.fill(CARD_X, CARD_Y + 7, 3, cardH - 14, C_WARN);
+    // The sides by name when they fit the line, which two or three usually
+    // do; the list below names them anyway.
+    const std::vector<std::string> &s = m.conflictSides;
+    std::string who = "Changed on ";
+    for (size_t i = 0; i < s.size(); i++)
+        who += (i == 0 ? "" : (i + 1 == s.size() ? " and " : ", ")) + s[i];
+    who += ". Keep which?";
+    if (s.empty() || textWidth(kFontSmall, who) > CARD_TEXT_W)
+    {
+        char count[64];
+        snprintf(count, sizeof(count), "Changed on %d sides. Keep which?", (int)s.size());
+        who = s.size() > 1 ? count : "Changed on both sides. Keep which?";
+    }
+    c.text(kFontSmall, CARD_IN, CARD_Y + 3, who, C_WARN, CARD_TEXT_W);
+    std::vector<std::string> path = wrapText(kFontSmall, m.conflictPath, CARD_TEXT_W, 1);
+    if (!path.empty())
+        c.text(kFontSmall, CARD_IN, CARD_Y + 18, path[0], C_TEXT, CARD_TEXT_W);
+
+    // As tall as the rows it holds, so two sides are not a half-empty box.
+    int rows = (int)s.size() < CONFLICT_LIST_ROWS ? (int)s.size() : CONFLICT_LIST_ROWS;
+    if (rows > 0)
+        c.roundRect(COL_X, LIST_Y, COL_W, rows * LIST_ROW_H, 10, C_PANEL);
 }
+
+// Sides scrolled out of the list, above or below: a small arrow at that end.
+static void drawConflictListMarks(Canvas &c, const BottomModel &m)
+{
+    int first = conflictListFirst(m), n = (int)m.conflictSides.size();
+    int cx = COL_X + COL_W - 12;
+    if (first > 0)
+        c.triangle(cx, LIST_Y + 6, 5, -1, C_DIM);
+    if (first + CONFLICT_LIST_ROWS < n)
+        c.triangle(cx, LIST_Y + CONFLICT_LIST_ROWS * LIST_ROW_H - 6, 5, 1, C_DIM);
+}
+
 
 static void drawSaveLogCard(Canvas &c, const BottomModel &m)
 {
@@ -471,6 +571,8 @@ void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &butt
         else
             drawButton(c, b, m);
     }
+    if (conflictUsesList(m))
+        drawConflictListMarks(c, m);
 }
 
 // ---------------------------------------------------------------------------

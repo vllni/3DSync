@@ -65,7 +65,7 @@ private:
 ManifestEntry makeEntry(long long mtime, long long size, const std::string &tag,
                         const std::string &id)
 {
-    ManifestEntry entry;
+    ManifestEntry entry = ManifestEntry();
     entry.localMtime = (time_t)mtime;
     entry.localSize = size;
     entry.remoteTag = tag;
@@ -120,6 +120,39 @@ TEST(manifest, round_trips_several_remotes_for_one_path)
     CHECK_STR_EQ(reloaded.get("drive|/3ds/001.sav").remoteTag, "md5");
     CHECK_STR_EQ(reloaded.get("smb://nas/3ds|/3ds/001.sav").remoteTag, "20:2");
     CHECK_STR_EQ(reloaded.get("dropbox|/3ds/001.sav").remoteId, "rev:abc");
+}
+
+TEST(manifest, round_trips_a_generation)
+{
+    ManifestFile file;
+    {
+        Manifest manifest(file.path());
+        ManifestEntry entry = makeEntry(5, 50, "tag", "id");
+        entry.generation = 7;
+        manifest.set("local|/3ds/001.sav", entry);
+        CHECK(manifest.save());
+    }
+
+    Manifest reloaded(file.path());
+    CHECK(reloaded.load());
+    CHECK_EQ(reloaded.get("local|/3ds/001.sav").generation, (long long)7);
+}
+
+TEST(manifest, an_unnumbered_entry_is_written_as_before)
+{
+    // A manifest that never met the n-way engine round-trips byte for byte,
+    // so going back to an older 3DSync reads exactly what it wrote.
+    ManifestFile file;
+    file.writeRaw("{\n  \"drive|/a.sav\": {\"mtime\": 1, \"size\": 2, \"tag\": \"t\", "
+                  "\"id\": \"i\"}\n}\n");
+    std::string before = file.readRaw();
+    {
+        Manifest manifest(file.path());
+        CHECK(manifest.load());
+        CHECK_EQ(manifest.get("drive|/a.sav").generation, (long long)0);
+        CHECK(manifest.save());
+    }
+    CHECK_STR_EQ(file.readRaw(), before);
 }
 
 TEST(manifest, migrates_a_pre_provider_manifest)

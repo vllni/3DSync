@@ -19,6 +19,8 @@ static_assert(K_A == KEY_A && K_B == KEY_B && K_X == KEY_X && K_Y == KEY_Y &&
                   K_SELECT == KEY_SELECT && K_DUP == KEY_DUP && K_DDOWN == KEY_DDOWN &&
                   K_DLEFT == KEY_DLEFT && K_DRIGHT == KEY_DRIGHT,
               "ui::Key must match libctru's KEY_* bits");
+static_assert(K_LIST_ROW0 > KEY_ZR && (K_LIST_ROWS & KEY_TOUCH) == 0,
+              "the conflict list's row bits must be ones libctru leaves unused");
 
 namespace frontend
 {
@@ -111,13 +113,16 @@ static std::string g_drawnBottom;
 static std::string signature(const BottomModel &m)
 {
     char buf[160];
-    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%d|%lx|%u|%u|%u|%d|%d", m.mode,
+    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%d|%lx|%u|%u|%u|%d|%d|%d", m.mode,
              m.debugRun, m.starting, m.configLoaded, m.pathCount, m.elapsedSeconds, m.spinnerFrame,
              m.cancelling, m.applyToAll, m.logKilobytes, m.logTrimmed,
              (unsigned long)m.heldKeys, (unsigned)m.logFirst, (unsigned)m.logEnd,
-             (unsigned)m.logTop, m.lastResultOk, m.logVisible);
+             (unsigned)m.logTop, m.lastResultOk, m.logVisible, m.conflictPick);
+    std::string sides;
+    for (auto &side : m.conflictSides)
+        sides += side + "|";
     return std::string(buf) + m.remotes + "|" + m.lastResult + "|" + m.provider + "|" +
-           m.entry + "|" + m.conflictPath + "|" + m.fileFilter;
+           m.entry + "|" + m.conflictPath + "|" + m.fileFilter + "|" + sides;
 }
 
 static void redraw(const BottomModel &m, const std::vector<Button> &buttons)
@@ -193,7 +198,11 @@ static bool frame(u32 &pressed)
 
     // The log scrolls in every mode: D-pad Up/Down a row (repeating while
     // held), Left/Right a page, the circle pad smoothly, and the touch strip.
-    u32 scrollKeys = (repeat | t.pressed) & SCROLL_KEYS;
+    // The one exception is a conflict, whose list of sides takes the D-pad's
+    // Up/Down; the strip, Left/Right and the circle pad still scroll the log
+    // there.
+    u32 listKeys = conflictUsesList(m) ? (repeat & (KEY_DUP | KEY_DDOWN)) : 0;
+    u32 scrollKeys = ((repeat & ~listKeys) | t.pressed) & SCROLL_KEYS;
     long rows = 0;
     if (scrollKeys & KEY_DUP)
         rows -= 1;
@@ -233,7 +242,7 @@ static bool frame(u32 &pressed)
     redraw(m, buttons);
     gspWaitForVBlank();
 
-    pressed = (down | t.pressed) & ~SCROLL_KEYS;
+    pressed = ((down | t.pressed) & ~SCROLL_KEYS) | listKeys;
     return true;
 }
 
@@ -324,6 +333,11 @@ static int ask(ScreenMode mode)
     return answer;
 }
 
+// A conflict's answer is the index of the side kept, or one of these.  -1 is
+// what ask() returns when the app is closing, which also stops the run.
+static const int ANSWER_CANCEL = -2;
+static const int ANSWER_SKIP = -3;
+
 // Call with g_stateLock held.
 static void answerLocked(int answer)
 {
@@ -347,21 +361,42 @@ static void handleRunKeys(u32 keys)
         }
         break;
     case SCREEN_CONFLICT:
+    {
+        // A list whose highlighted side A keeps; a tapped row, R (wrapping)
+        // and D-pad Up/Down move the highlight.
+        int sides = (int)g_shared.conflictSides.size();
+        int pick = conflictPickClamped(g_shared);
         if (keys & KEY_L)
             g_shared.applyToAll = !g_shared.applyToAll;
+        else if (keys & K_LIST_ROWS)
+        {
+            for (int i = 0; i < CONFLICT_LIST_ROWS; i++)
+                if (keys & (K_LIST_ROW0 << i))
+                {
+                    int side = conflictListFirst(g_shared) + i;
+                    if (side < sides)
+                        g_shared.conflictPick = side;
+                    break;
+                }
+        }
+        else if ((keys & KEY_R) && sides > 0)
+            g_shared.conflictPick = (pick + 1) % sides;
+        else if (keys & KEY_DUP)
+            g_shared.conflictPick = pick > 0 ? pick - 1 : 0;
+        else if (keys & KEY_DDOWN)
+            g_shared.conflictPick = pick + 1 < sides ? pick + 1 : pick;
         else if (keys & KEY_A)
-            answerLocked(CONFLICT_KEEP_LOCAL);
-        else if (keys & KEY_B)
-            answerLocked(CONFLICT_KEEP_REMOTE);
+            answerLocked(pick);
         else if (keys & KEY_X)
-            answerLocked(CONFLICT_SKIP);
+            answerLocked(ANSWER_SKIP);
         else if (keys & KEY_START)
         {
             g_cancel = true;
             g_shared.cancelling = true;
-            answerLocked(CONFLICT_CANCEL);
+            answerLocked(ANSWER_CANCEL);
         }
         break;
+    }
     case SCREEN_SAVE_LOG:
         if (keys & KEY_A)
             answerLocked(1);
@@ -481,7 +516,7 @@ bool askSaveDebugLog(unsigned kilobytes, bool trimmed)
 // ---------------------------------------------------------------------------
 // WorkerSyncUi
 // ---------------------------------------------------------------------------
-WorkerSyncUi::WorkerSyncUi() : _cancelled(false), _announced(false), _applyAllChoice(-1) {}
+WorkerSyncUi::WorkerSyncUi() : _cancelled(false), _announced(false), _applyAllSkip(false) {}
 
 bool WorkerSyncUi::cancelRequested()
 {
@@ -508,31 +543,44 @@ void WorkerSyncUi::requestCancel()
     LightLock_Unlock(&g_stateLock);
 }
 
-ConflictChoice WorkerSyncUi::resolveConflict(const std::string &localPath)
+ConflictChoice WorkerSyncUi::resolveConflict(const std::string &localPath,
+                                             const std::vector<std::string> &sides)
 {
-    if (_applyAllChoice >= 0)
-        return (ConflictChoice)_applyAllChoice;
+    // "For all" remembers a side by name, so it answers every later conflict
+    // that side is part of; one it is not part of is asked again.
+    if (_applyAllSkip)
+        return ConflictChoice::skip();
+    for (size_t i = 0; i < sides.size() && !_applyAllSide.empty(); i++)
+        if (sides[i] == _applyAllSide)
+            return ConflictChoice::keep((int)i);
 
     LightLock_Lock(&g_stateLock);
     g_shared.conflictPath = localPath;
+    g_shared.conflictSides = sides;
+    g_shared.conflictPick = 0;
     g_shared.applyToAll = false;
     LightLock_Unlock(&g_stateLock);
 
     int answer = ask(SCREEN_CONFLICT);
-    if (answer < 0 || answer == CONFLICT_CANCEL)
+    if (answer != ANSWER_SKIP && (answer < 0 || answer >= (int)sides.size()))
     {
         // The engine says "Sync cancelled" itself; announcing the request
         // as well would print the same thing twice.
         _cancelled = _announced = true;
-        return CONFLICT_CANCEL;
+        return ConflictChoice::cancel();
     }
 
     LightLock_Lock(&g_stateLock);
     bool forAll = g_shared.applyToAll;
     LightLock_Unlock(&g_stateLock);
+    if (answer == ANSWER_SKIP)
+    {
+        _applyAllSkip = forAll;
+        return ConflictChoice::skip();
+    }
     if (forAll)
-        _applyAllChoice = answer;
-    return (ConflictChoice)answer;
+        _applyAllSide = sides[answer];
+    return ConflictChoice::keep(answer);
 }
 
 } // namespace frontend

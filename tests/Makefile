@@ -37,7 +37,8 @@ UI_UNITS := ../source/ui/canvas.cpp ../source/ui/fontdata.cpp \
 	../source/ui/logbuffer.cpp ../source/ui/screens.cpp
 
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
-	test_debug.cpp test_engine.cpp test_extfilter.cpp test_json.cpp test_manifest.cpp test_path.cpp \
+	test_debug.cpp test_engine.cpp test_extfilter.cpp test_json.cpp test_manifest.cpp test_nway.cpp \
+	test_path.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
 	test_ui.cpp
 

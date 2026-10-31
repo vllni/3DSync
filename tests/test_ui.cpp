@@ -361,18 +361,97 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     m.mode = SCREEN_RUNNING;
     CHECK_EQ(keysOf(bottomButtons(m)), K_START | scroll);
     m.mode = SCREEN_CONFLICT;
-    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_X | K_L | K_START | scroll);
+    m.conflictSides = {"3DS", "Dropbox"};
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 << 1 | K_X | K_L | K_START | scroll);
     m.mode = SCREEN_SAVE_LOG;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
 }
 
-TEST(layout, buttons_are_on_screen_apart_and_big_enough)
+TEST(layout, a_two_sided_conflict_is_a_list_starting_on_the_3ds)
 {
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
+    m.conflictSides = {"3DS", "Dropbox"};
+    CHECK(conflictUsesList(m));
+    // A alone keeps the 3DS's version, as it did when the prompt had A and B.
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep 3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0 << 1).label, "Dropbox");
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_B, 0u);
+    m.conflictPick = 1;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep Dropbox");
+}
+
+TEST(layout, a_conflict_between_more_sides_is_a_list)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
+    m.conflictSides = {"3DS", "Dropbox", "WebDAV"};
+    m.conflictPick = 1;
+    const uint32_t scroll = K_DUP | K_DDOWN;
+    CHECK(conflictUsesList(m));
+    // The highlighted side is the A button; the other rows only report a row
+    // bit, and there is no B: R and the D-pad move the highlight instead.
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 | (K_LIST_ROW0 << 2) | K_X | K_L |
+                                            K_START | scroll);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep Dropbox");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0).label, "3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0 << 2).label, "WebDAV");
+}
+
+TEST(layout, a_long_conflict_list_follows_the_highlight)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
+    m.conflictSides = {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV"};
+    m.conflictPick = 0;
+    CHECK_EQ(conflictListFirst(m), 0);
+    m.conflictPick = 3;
+    CHECK_EQ(conflictListFirst(m), 0);
+    m.conflictPick = 5;
+    CHECK_EQ(conflictListFirst(m), 2);
+    // Never more rows than fit, and the highlight is always one of them.
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep WebDAV");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0).label, "Drive");
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_LIST_ROWS, K_LIST_ROW0 | (K_LIST_ROW0 << 1) |
+                                                         (K_LIST_ROW0 << 2));
+    // A pick out of range (the sides changed under it) reads as the first.
+    m.conflictPick = 9;
+    CHECK_EQ(conflictPickClamped(m), 0);
+}
+
+// Every screen, and the conflict screen with the side counts and name lengths
+// it can be given.
+static std::vector<BottomModel> everyLayout()
+{
+    std::vector<BottomModel> out;
     ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG};
     for (ScreenMode mode : modes)
     {
         BottomModel m;
         m.mode = mode;
+        out.push_back(m);
+    }
+    std::vector<std::vector<std::string> > sides = {
+        {"3DS", "Dropbox"},
+        {"Dropbox", "WebDAV"},
+        {"3DS", "SMB (a long label here)"},
+        {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV (a long label here)"}};
+    for (auto &s : sides)
+        for (int pick = 0; pick < (int)s.size(); pick++)
+        {
+            BottomModel m;
+            m.mode = SCREEN_CONFLICT;
+            m.conflictSides = s;
+            m.conflictPick = pick;
+            out.push_back(m);
+        }
+    return out;
+}
+
+TEST(layout, buttons_are_on_screen_apart_and_big_enough)
+{
+    for (const BottomModel &m : everyLayout())
+    {
         std::vector<Button> b = bottomButtons(m);
         for (size_t i = 0; i < b.size(); i++)
         {
@@ -394,17 +473,21 @@ TEST(layout, no_label_is_cut_short)
 {
     // The key badge, a gap and the label, with a little padding either side,
     // must fit — otherwise the label ends in "…" and says nothing.
-    ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG};
-    for (ScreenMode mode : modes)
+    for (const BottomModel &m : everyLayout())
     {
-        BottomModel m;
-        m.mode = mode;
         for (auto &b : bottomButtons(m))
         {
             if (b.label.empty())
                 continue;
+            // A side's own name is the one label that cannot be made to fit
+            // in every case; it is clipped, and "Keep" is dropped first.
+            if (b.label.find("a long label") != std::string::npos)
+                continue;
             bool face = b.key == K_A || b.key == K_B || b.key == K_X || b.key == K_Y;
-            int badge = face ? 18 : textWidth(kFontSmall, b.key == K_START ? "START" : "L") + 12;
+            const char *badgeText = b.key == K_START ? "START" : (b.key == K_R ? "R" : "L");
+            int badge = face ? 18 : textWidth(kFontSmall, badgeText) + 12;
+            if (b.key & K_LIST_ROWS)
+                badge = 0; // a list row is a name, no key
             int need = badge + 7 + textWidth(kFontBold, b.label) + 14;
             if (need > b.rect.w)
                 testFail(__FILE__, __LINE__, "label does not fit: " + b.label);
