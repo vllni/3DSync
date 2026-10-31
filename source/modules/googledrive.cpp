@@ -855,10 +855,10 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
     int res = _performWithRetry();
     _curl.clearDownloadFile();
     curl_slist_free_all(headers);
-    fclose(fp);
 
     if (res != 0)
     {
+        fclose(fp);
         printf("downloadFile failed for %s\n", localPath.c_str());
         debugf("download of Drive id %s returned %d (HTTP %ld)\n", file.id.c_str(),
                res, _curl.getStatusCode());
@@ -868,7 +868,11 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
         return false;
     }
 
-    return replaceLocalFile(tmpPath, localPath);
+    DownloadCheck check;
+    check.received = _curl.downloadedBytes();
+    check.hashOf = computeMd5Hex;
+    check.expectedHash = file.md5;
+    return finishDownload(fp, tmpPath, localPath, check);
 }
 
 std::string GoogleDrive::getServerTime() const

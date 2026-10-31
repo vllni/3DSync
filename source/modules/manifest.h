@@ -29,7 +29,12 @@ public:
     explicit Manifest(const std::string &path);
     // Returns true on success or if the file does not yet exist (first run).
     bool load();
-    bool save() const;
+    // Writes the whole file, atomically: see save() in manifest.cpp.
+    bool save();
+    // save(), but only when set() or remove() changed something since the
+    // last save or load.  runSync() calls it after every entry, so a crash
+    // loses at most the entry it happened in.
+    bool saveIfChanged();
     bool has(const std::string &key) const;
     ManifestEntry get(const std::string &key) const;
     void set(const std::string &key, const ManifestEntry &entry);
@@ -38,6 +43,7 @@ public:
 private:
     std::string _path;
     std::map<std::string, ManifestEntry> _entries;
+    bool _dirty;
 };
 
 #endif
