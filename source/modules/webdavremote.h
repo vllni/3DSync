@@ -1,6 +1,7 @@
 #ifndef MODULES_WEBDAVREMOTE_H
 #define MODULES_WEBDAVREMOTE_H
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -42,10 +43,20 @@ private:
     std::string _password;
     bool _fatalError;
     bool _noInfiniteDepth; // set once a server rejects Depth: infinity
+    // CURLAUTH_ANY until the server's first 401 says which methods it takes;
+    // CURLAUTH_BASIC from then on if Basic is the only one, so the
+    // credentials go with the first request instead of after a challenge.
+    long _authMethods;
     std::string _lastServerTime;
+    // Collections known to exist, as normalizeRemotePath() spells them: made
+    // or found by MKCOL, or seen in a listing.  Every upload makes sure of its
+    // parent, and without this each one cost an MKCOL per level.
+    std::set<std::string> _collections;
     Curl _curl;
 
     void _prepare();
+    // After a request, settles _authMethods from what the server offered.
+    void _learnAuthMethods();
     std::string _urlFor(const std::string &path) const;
     // perform() with back-off; maps HTTP status to fatal / transient / per-file.
     //

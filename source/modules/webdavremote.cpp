@@ -22,7 +22,7 @@ static const char *PROPFIND_BODY =
 WebDavRemote::WebDavRemote(const std::string &baseUrl, const std::string &user,
                            const std::string &password)
     : _baseUrl(baseUrl), _user(user), _password(password), _fatalError(false),
-      _noInfiniteDepth(false)
+      _noInfiniteDepth(false), _authMethods(CURLAUTH_ANY)
 {
     if (_baseUrl.empty() || _baseUrl[_baseUrl.size() - 1] != '/')
         _baseUrl += '/';
@@ -47,7 +47,27 @@ void WebDavRemote::_prepare()
 {
     _curl.reset();
     if (!_user.empty())
-        _curl.setUserPassword(_user, _password);
+        _curl.setUserPassword(_user, _password, _authMethods);
+}
+
+void WebDavRemote::_learnAuthMethods()
+{
+    if (_user.empty() || _authMethods != (long)CURLAUTH_ANY)
+        return;
+    // CURLAUTH_ANY probes every request without credentials, and _prepare()
+    // resets the handle, so libcurl never remembers the answer: every request
+    // went out twice, a PUT with its whole body.  Only plain Basic is taken
+    // as settled.  Picking it while the server also offers Digest would send
+    // the password in the clear where it was never asked for.
+    long offered = _curl.getAuthOffered();
+    if (offered == CURLAUTH_BASIC)
+    {
+        debugf("WebDAV: server takes Basic only, sending it unasked from now on\n");
+        _authMethods = CURLAUTH_BASIC;
+    }
+    else if (offered != 0)
+        debugf("WebDAV: server offers auth methods 0x%lx, keeps the challenge\n",
+               offered);
 }
 
 int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
@@ -62,6 +82,7 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
 
         int curlRes = _curl.perform();
         long status = _curl.getStatusCode();
+        _learnAuthMethods();
 
         if (curlRes != 0)
         {
@@ -192,10 +213,12 @@ bool WebDavRemote::_mkcol(const std::string &path)
     switch (webdavMkcolResult(res, status))
     {
     case WEBDAV_MKCOL_CREATED:
+        _collections.insert(path);
         return true;
     case WEBDAV_MKCOL_EXISTS:
         // Already there, which is exactly what was wanted.
         debugf("MKCOL \"%s\": already exists\n", path.c_str());
+        _collections.insert(path);
         return true;
     case WEBDAV_MKCOL_FAILED:
     default:
@@ -218,6 +241,8 @@ std::string WebDavRemote::ensureRoot(const std::string &remoteName)
     {
         pos = root.find('/', pos + 1);
         std::string part = (pos == std::string::npos) ? root : root.substr(0, pos);
+        if (_collections.count(part))
+            continue;
         if (!_mkcol(part))
             return "";
     }
@@ -238,6 +263,7 @@ bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &pre
 
         if (entry.isCollection)
         {
+            _collections.insert(normalizeRemotePath(childPath));
             if (!_listDepthOne(childPath, childRel, out))
                 return false;
             continue;
@@ -266,7 +292,10 @@ bool WebDavRemote::list(const std::string &root,
             for (auto &entry : entries)
             {
                 if (entry.isCollection)
+                {
+                    _collections.insert(normalizeRemotePath(root + entry.relPath));
                     continue;
+                }
                 if (isTempTransferName(entry.relPath))
                     continue;
 
