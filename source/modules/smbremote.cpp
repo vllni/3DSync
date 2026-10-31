@@ -1,5 +1,6 @@
 #include "smbremote.h"
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -43,6 +44,16 @@ std::string SmbRemote::manifestPrefix() const
 
 bool SmbRemote::hasFatalError() const { return _fatalError; }
 
+const char *SmbRemote::_error()
+{
+    // libsmb2 ends some messages with a newline ("smb2_service failed with :
+    // …\n"), which would split every line that quotes one.
+    _lastError = smb2_get_error(_smb2);
+    while (!_lastError.empty() && isspace((unsigned char)_lastError[_lastError.size() - 1]))
+        _lastError.erase(_lastError.size() - 1);
+    return _lastError.c_str();
+}
+
 bool SmbRemote::_openSession(std::string &error)
 {
     _smb2 = smb2_init_context();
@@ -65,7 +76,7 @@ bool SmbRemote::_openSession(std::string &error)
                                  _user.empty() ? NULL : _user.c_str());
     if (res != 0)
     {
-        error = smb2_get_error(_smb2);
+        error = _error();
         debugf("smb2_connect_share returned %d\n", res);
         _closeSession(false);
         return false;
@@ -125,7 +136,7 @@ bool SmbRemote::_ensureSession()
 
     // libsmb2 cannot resume a session whose socket died, and requests may
     // still be pending in the context: start over with a fresh one.
-    debugf("SMB: echo failed (%d): %s — reconnecting\n", rc, smb2_get_error(_smb2));
+    debugf("SMB: echo failed (%d): %s — reconnecting\n", rc, _error());
     _closeSession(false);
     std::string error;
     if (!_openSession(error))
@@ -177,10 +188,10 @@ bool SmbRemote::_mkdirs(const std::string &dirPath)
                 st.smb2_type == SMB2_TYPE_DIRECTORY)
             {
                 debugf("%s already existed when creating it: %s\n", part.c_str(),
-                       smb2_get_error(_smb2));
+                       _error());
                 continue;
             }
-            printf("SMB: cannot create %s: %s\n", part.c_str(), smb2_get_error(_smb2));
+            printf("SMB: cannot create %s: %s\n", part.c_str(), _error());
             return false;
         }
     }
@@ -204,7 +215,7 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
     struct smb2dir *dir = smb2_opendir(_smb2, dirPath.c_str());
     if (!dir)
     {
-        printf("SMB: cannot list %s: %s\n", dirPath.c_str(), smb2_get_error(_smb2));
+        printf("SMB: cannot list %s: %s\n", dirPath.c_str(), _error());
         return false;
     }
 
@@ -287,7 +298,7 @@ bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPa
     struct smb2fh *fh = smb2_open(_smb2, file.id.c_str(), O_RDONLY);
     if (!fh)
     {
-        printf("SMB: cannot open %s: %s\n", file.id.c_str(), smb2_get_error(_smb2));
+        printf("SMB: cannot open %s: %s\n", file.id.c_str(), _error());
         return false;
     }
 
@@ -314,7 +325,7 @@ bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPa
             break; // EOF
         if (n < 0)
         {
-            printf("SMB: read failed on %s: %s\n", file.id.c_str(), smb2_get_error(_smb2));
+            printf("SMB: read failed on %s: %s\n", file.id.c_str(), _error());
             ok = false;
             break;
         }
@@ -363,7 +374,7 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
     struct smb2fh *fh = smb2_open(_smb2, tmpRemote.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
     if (!fh)
     {
-        printf("SMB: cannot create %s: %s\n", tmpRemote.c_str(), smb2_get_error(_smb2));
+        printf("SMB: cannot create %s: %s\n", tmpRemote.c_str(), _error());
         fclose(fp);
         return false;
     }
@@ -387,7 +398,7 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
             if (w <= 0)
             {
                 printf("SMB: write failed on %s: %s\n", tmpRemote.c_str(),
-                       smb2_get_error(_smb2));
+                       _error());
                 ok = false;
                 break;
             }
@@ -405,7 +416,7 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
     {
         if (smb2_unlink(_smb2, tmpRemote.c_str()) != 0)
             debugf("could not clean up %s: %s\n", tmpRemote.c_str(),
-                   smb2_get_error(_smb2));
+                   _error());
         return false;
     }
 
@@ -415,14 +426,14 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
     // is what actually reports it.
     if (smb2_unlink(_smb2, remotePath.c_str()) != 0)
         debugf("no %s to replace: %s\n", remotePath.c_str(),
-               smb2_get_error(_smb2));
+               _error());
     if (smb2_rename(_smb2, tmpRemote.c_str(), remotePath.c_str()) != 0)
     {
         printf("SMB: cannot rename %s into place: %s\n", tmpRemote.c_str(),
-               smb2_get_error(_smb2));
+               _error());
         if (smb2_unlink(_smb2, tmpRemote.c_str()) != 0)
             debugf("and %s is left behind: %s\n", tmpRemote.c_str(),
-                   smb2_get_error(_smb2));
+                   _error());
         return false;
     }
 

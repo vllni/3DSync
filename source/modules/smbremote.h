@@ -62,6 +62,10 @@ private:
     bool _ensureSession();
     // Note how a request ended, for the next _ensureSession().
     void _settle(bool ok);
+    // libsmb2's last error, without the trailing newline it sometimes has.
+    // Valid until the next call.
+    const char *_error();
+    std::string _lastError;
 
     bool _download(const RemoteFileInfo &file, const std::string &localPath);
     bool _upload(const std::string &root, const std::string &relPath,
