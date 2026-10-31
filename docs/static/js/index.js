@@ -1,28 +1,57 @@
 $(function () {
     const DEFAULT_DROPBOX_CLIENT_ID = 'y88zxdudhuoo41q';
+    const LOGIN_CHANNEL = '3dsync-login';
 
-    // --- Secrets live in memory ---
-    // The Google client secret has to cross the redirect to Google and back,
-    // so it is put in localStorage just before leaving; the tokens are fetched
-    // on the page that comes back and never need to be stored at all.  Every
-    // load moves whatever is there into memory and deletes it, so closing the
-    // tab forgets them — including what older versions of this page left
-    // behind for good.
-    const SECRET_KEYS = ['gdriveClientSecret', 'gdriveRefreshToken', 'dropboxRefreshToken', 'dropboxToken'];
-    const secrets = {};
-    SECRET_KEYS.forEach(function (k) {
-        let v = localStorage.getItem(k);
-        if (v !== null) secrets[k] = v;
+    // --- Nothing secret in browser storage ---
+    // Earlier versions of this page carried the Google client secret, the
+    // OAuth tokens and the PKCE verifiers across a full-page redirect in
+    // localStorage.  Logins now happen in a popup (below) and everything stays
+    // in this tab's memory, so whatever such a version left behind is deleted
+    // unread.  Only the Dropbox expert app key is remembered: it is not secret.
+    ['gdriveClientSecret', 'gdriveRefreshToken', 'dropboxRefreshToken', 'dropboxToken', 'gdriveState',
+        'gdriveCodeVerifier', 'dropboxState', 'dropboxCodeVerifier', 'gdriveClientId', 'gdriveFolderId',
+        'provider'].forEach(function (k) {
         localStorage.removeItem(k);
     });
 
-    function secret(k) {
-        return secrets[k] || null;
+    // --- Back from a login: this page is the popup ---
+    // Both providers redirect to this page with ?code=&state= (or ?error=).
+    // Loaded like that, the page is the login popup: it hands the answer to
+    // the tab that opened it over a BroadcastChannel and closes.
+    // window.opener would be the obvious route, but the providers' login
+    // pages send Cross-Origin-Opener-Policy headers that may cut the popup
+    // off from its opener for good; a same-origin channel does not depend on
+    // it.  The opening tab alone holds the PKCE verifier, so a code is
+    // worthless to anything else listening.
+    let queryParams = new URLSearchParams(window.location.search);
+    if (queryParams.has('state') && (queryParams.has('code') || queryParams.has('error'))) {
+        history.replaceState(null, '', window.location.pathname);
+        runAsLoginPopup(queryParams);
+        return;
     }
 
-    let queryParams = new URLSearchParams(window.location.search);
-    let authCode = queryParams.get('code');
-    let authState = queryParams.get('state');
+    function runAsLoginPopup(params) {
+        let result = { type: 'result', state: params.get('state'), code: params.get('code'), error: params.get('error') };
+        let $note = $('<div class="card-panel blue darken-2 white-text"></div>')
+            .text('Passing the login back to the configurator…');
+        $('main > .container').empty().append($('<div class="row"></div>').append($note));
+        let answered = false;
+        let channel = new BroadcastChannel(LOGIN_CHANNEL);
+        channel.onmessage = function (e) {
+            if (!e.data || e.data.type !== 'ack' || e.data.state !== result.state) return;
+            answered = true;
+            $note.text('Done — this window can be closed.');
+            window.close();
+        };
+        channel.postMessage(result);
+        setTimeout(function () {
+            if (!answered) {
+                $note.text('No configurator tab took this login. Go back to the configurator and press its '
+                    + 'login button again; this window can be closed.');
+            }
+        }, 3000);
+    }
+
     let paths = [];
 
     let stepperInstace = new MStepper(document.querySelector('.stepper'), {
@@ -63,48 +92,366 @@ $(function () {
     });
 
     // The stepper marks the open step with "active"; following that class
-    // covers every way of moving — buttons, titles, the OAuth return.
+    // covers every way of moving — buttons and titles.
     new MutationObserver(markReachableSteps).observe(document.querySelector('.stepper'), {
         subtree: true, attributes: true, attributeFilter: ['class']
     });
     markReachableSteps();
 
-    // --- OAuth redirect callback ---
-    // Both providers use the PKCE authorization-code flow and come back with
-    // ?code=&state=, so the stored state decides which one is answering.
-    if (authCode !== null && authState !== null) {
-        if (authState === localStorage.getItem('gdriveState')) {
-            let codeVerifier = localStorage.getItem('gdriveCodeVerifier');
-            localStorage.removeItem('gdriveState');
-            localStorage.removeItem('gdriveCodeVerifier');
-            // Clean the auth code from the URL to avoid reuse on refresh
-            history.replaceState(null, '', window.location.pathname);
-            exchangeGoogleCode(authCode, codeVerifier).then(function (success) {
-                if (success) {
-                    localStorage.setItem('provider', 'googledrive');
-                    selectProvider('googledrive');
-                    $('.auth-tile[data-provider="googledrive"] .auth-status').text('\u2713 Logged in');
-                    stepperInstace.nextStep();
-                } else {
-                    alert('Google Drive authentication failed. Please try again.');
-                }
-            });
-        } else if (authState === localStorage.getItem('dropboxState')) {
-            let codeVerifier = localStorage.getItem('dropboxCodeVerifier');
-            localStorage.removeItem('dropboxState');
-            localStorage.removeItem('dropboxCodeVerifier');
-            history.replaceState(null, '', window.location.pathname);
-            exchangeDropboxCode(authCode, codeVerifier).then(function (success) {
-                if (success) {
-                    localStorage.setItem('provider', 'dropbox');
-                    selectProvider('dropbox');
-                    $('.auth-tile[data-provider="dropbox"] .auth-status').text('\u2713 Logged in');
-                    stepperInstace.nextStep();
-                } else {
-                    alert('Dropbox authentication failed. Please try again.');
-                }
-            });
+    // --- Remotes ---
+    // remotes holds every saved remote, in the order they were added; draft
+    // is the one open in the editor, a copy until it is saved.  All of it,
+    // passwords and tokens included, lives in this tab only, and a reload
+    // forgets it.
+    const TYPES = {
+        dropbox: { section: 'Dropbox', name: 'Dropbox', icon: '<i class="fa fa-dropbox"></i>' },
+        googledrive: { section: 'GoogleDrive', name: 'Drive', icon: '<i class="material-icons">add_to_drive</i>' },
+        smb: { section: 'SMB', name: 'SMB', icon: '<i class="material-icons">storage</i>' },
+        ftp: { section: 'FTP', name: 'FTP', icon: '<i class="material-icons">folder_shared</i>' },
+        webdav: { section: 'WebDAV', name: 'WebDAV', icon: '<i class="material-icons">cloud_queue</i>' }
+    };
+
+    // The inputs of each form, saved with the remote so it can be edited again.
+    const FORM_FIELDS = {
+        dropbox: ['dropbox-expert-mode', 'dropbox-client-id'],
+        googledrive: ['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'],
+        smb: ['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
+        ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode'],
+        webdav: ['webdav-url', 'webdav-user', 'webdav-password']
+    };
+
+    let remotes = []; // { uid, type, label, role, fields, auth, entries }
+    let excluded = {}; // uid -> { lowercased folder name: true } it does not sync
+    let draft = null;
+    let draftSnapshot = '';
+    let nextUid = 1;
+
+    // What the 3DS calls it: "SMB", or "SMB (backup)" for a labelled one.
+    function displayName(remote) {
+        let name = TYPES[remote.type].name;
+        return remote.label ? name + ' (' + remote.label + ')' : name;
+    }
+
+    function sectionName(remote) {
+        return TYPES[remote.type].section + (remote.label ? ':' + remote.label : '');
+    }
+
+    function remoteDetail(remote) {
+        let f = remote.fields;
+        switch (remote.type) {
+            case 'dropbox': return 'Logged in';
+            case 'googledrive': return f['gdrive-folder-id'] ? 'Folder ' + f['gdrive-folder-id'] : 'My Drive';
+            case 'smb': return '\\\\' + f['smb-server'] + '\\' + f['smb-share']
+                + (f['smb-path'] ? '\\' + f['smb-path'].replace(/\//g, '\\') : '');
+            case 'ftp': return f['ftp-host'] + (f['ftp-port'] ? ':' + f['ftp-port'] : '')
+                + (f['ftp-path'] ? ' — ' + f['ftp-path'] : '');
+            case 'webdav': return f['webdav-url'];
         }
+        return '';
+    }
+
+    function renderRemotes() {
+        let $list = $('#remote-list').empty();
+        remotes.forEach(function (remote) {
+            let $row = $('<div class="remote-row"></div>').toggleClass('editing', !!draft && draft.uid === remote.uid);
+            $row.append($('<span class="remote-row-icon" aria-hidden="true"></span>').html(TYPES[remote.type].icon));
+            let $text = $('<span class="remote-row-text"></span>');
+            let $name = $('<span class="remote-row-name"></span>').text(displayName(remote));
+            if (remote.role === 'backup') $name.append($('<span class="role-badge">backup</span>'));
+            $text.append($name, $('<span class="remote-row-detail"></span>').text(remoteDetail(remote)));
+            $row.append($text);
+            let $edit = $('<a href="#" class="btn-flat white-text remote-row-button" title="Edit"><i class="material-icons">edit</i></a>')
+                .attr('aria-label', 'Edit ' + displayName(remote));
+            let $remove = $('<a href="#" class="btn-flat white-text remote-row-button" title="Remove"><i class="material-icons">delete</i></a>')
+                .attr('aria-label', 'Remove ' + displayName(remote));
+            $edit.on('click', function (e) {
+                e.preventDefault();
+                openEditor(remote.type, remote);
+            });
+            $remove.on('click', function (e) {
+                e.preventDefault();
+                if (draft && draft.uid === remote.uid) closeEditor();
+                remotes = remotes.filter(function (r) { return r.uid !== remote.uid; });
+                delete excluded[remote.uid];
+                renderRemotes();
+            });
+            $row.append($edit, $remove);
+            $list.append($row);
+        });
+        $('#remote-list-empty').toggle(remotes.length === 0);
+    }
+
+    function editorState() {
+        return JSON.stringify({
+            fields: draft ? captureFields(draft.type) : null,
+            label: $('#remote-label').val(),
+            role: $('#remote-role').val(),
+            auth: draft ? draft.auth : null
+        });
+    }
+
+    function editorDirty() {
+        return draft !== null && editorState() !== draftSnapshot;
+    }
+
+    function captureFields(type) {
+        let fields = {};
+        FORM_FIELDS[type].forEach(function (id) {
+            let $input = $('#' + id);
+            fields[id] = $input.is(':checkbox') ? $input.prop('checked') : $input.val();
+        });
+        return fields;
+    }
+
+    function resetForm(type) {
+        FORM_FIELDS[type].forEach(function (id) {
+            let $input = $('#' + id);
+            if ($input.is(':checkbox')) $input.prop('checked', false);
+            else if ($input.is('select')) $input.val($input.find('option[selected]').val());
+            else $input.val('');
+            setFieldError($input, null);
+        });
+        $('#test-result-' + type).removeClass('ok fail unknown').empty();
+        $('#login-status-' + type).removeClass('ok fail unknown').empty();
+        $('#gdrive-json-status').empty();
+    }
+
+    function loadFields(type, fields) {
+        FORM_FIELDS[type].forEach(function (id) {
+            if (!(id in fields)) return;
+            let $input = $('#' + id);
+            if ($input.is(':checkbox')) $input.prop('checked', fields[id]);
+            else $input.val(fields[id]);
+        });
+    }
+
+    function openEditor(type, remote) {
+        if (editorDirty() && !confirm('Discard the changes to ' + $('#remote-editor-title').text() + '?')) return;
+        draft = remote ? $.extend(true, {}, remote)
+            : { uid: nextUid++, type: type, label: '', role: 'sync', fields: {}, auth: null, isNew: true };
+        resetForm(type);
+        if (remote) {
+            loadFields(type, remote.fields);
+        } else if (type === 'dropbox') {
+            // Expert mode is remembered for the next Dropbox remote.
+            let storedClientId = localStorage.getItem('dropboxClientId');
+            if (storedClientId && storedClientId !== DEFAULT_DROPBOX_CLIENT_ID) {
+                $('#dropbox-client-id').val(storedClientId);
+                $('#dropbox-expert-mode').prop('checked', true);
+            }
+        }
+        $('#dropbox-expert-panel').toggle($('#dropbox-expert-mode').prop('checked'));
+        $('#remote-label').val(draft.label);
+        setFieldError($('#remote-label'), null);
+        $('#remote-role').val(draft.role);
+        updateRoleNote();
+        updateLabelHint();
+        updateFtpNote();
+        updateWebdavNote();
+        renderLoginStatus();
+
+        $('#remote-editor-title').text(remote ? 'Edit ' + displayName(remote) : 'New ' + TYPES[type].name + ' remote');
+        $('.auth-settings[data-provider]').removeClass('active');
+        $('#auth-settings-' + type).addClass('active');
+        $('.auth-tile').removeClass('selected');
+        $('.auth-tile[data-provider="' + type + '"]').addClass('selected');
+        $('#remote-editor').addClass('open');
+        $('#remote-editor-hint, #auth-continue-hint').text('').removeClass('warn');
+        M.updateTextFields();
+        draftSnapshot = editorState();
+        renderRemotes();
+    }
+
+    function closeEditor() {
+        draft = null;
+        draftSnapshot = '';
+        $('#remote-editor').removeClass('open');
+        $('.auth-tile').removeClass('selected');
+        renderRemotes();
+    }
+
+    function addTile($tile) {
+        openEditor($tile.data('provider'), null);
+        document.getElementById('remote-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    $('.auth-tile').on('click', function () {
+        addTile($(this));
+    }).on('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            addTile($(this));
+        }
+    });
+
+    function sameType() {
+        return remotes.filter(function (r) { return r.type === draft.type && r.uid !== draft.uid; });
+    }
+
+    // Two remotes of one type are told apart by the label; the 3DS lowercases
+    // section names, so labels differing only in case would be the same one.
+    function labelProblem(label) {
+        if (label !== '' && !/^[A-Za-z0-9_-]+$/.test(label)) return 'Letters, digits, - and _ only';
+        let name = TYPES[draft.type].name;
+        let taken = sameType().some(function (r) { return r.label.toLowerCase() === label.toLowerCase(); });
+        if (taken && label === '') return 'Your other ' + name + ' remote has no label, so this one needs one, e.g. backup';
+        if (taken) return 'Your other ' + name + ' remote already has this label';
+        return null;
+    }
+
+    function updateLabelHint() {
+        let name = TYPES[draft.type].name;
+        $('#remote-label-hint').html(sameType().length
+            ? 'Tells it apart from your other ' + name + ' remote, e.g. <strong>backup</strong>'
+            : 'Optional. Leave blank for your first ' + name + ' remote: a 3DS that already syncs with one '
+            + 'then picks up where it left off.');
+    }
+
+    function updateRoleNote() {
+        $('#remote-role-note').text($('#remote-role').val() === 'backup'
+            ? 'The 3DS only ever sends to it: nothing is downloaded from it, a change made there is never '
+            + 'asked about, and files only it has are left alone.'
+            : '');
+    }
+
+    $('#remote-role').on('change', updateRoleNote);
+    $('#remote-label').on('blur', function () {
+        $(this).val($(this).val().trim());
+    });
+
+    function editorHint(text) {
+        $('#remote-editor-hint').text(text).addClass('warn');
+    }
+
+    // Validates the editor and stores the remote; false when something has
+    // to be fixed first, with the fields marked and a hint beside Save.
+    function saveDraft() {
+        let entries = remoteForms[draft.type]();
+        let label = $('#remote-label').val().trim();
+        $('#remote-label').val(label);
+        let problem = labelProblem(label);
+        setFieldError($('#remote-label'), problem);
+        if (typeof entries === 'string') {
+            editorHint(entries);
+            return false;
+        }
+        if (entries === null || problem) {
+            editorHint('Check the highlighted fields.');
+            $('#remote-editor .invalid').first().focus();
+            return false;
+        }
+        draft.label = label;
+        draft.role = $('#remote-role').val();
+        draft.fields = captureFields(draft.type);
+        draft.entries = entries;
+        delete draft.isNew;
+        let saved = draft;
+        let at = remotes.findIndex(function (r) { return r.uid === saved.uid; });
+        if (at >= 0) remotes[at] = saved;
+        else remotes.push(saved);
+        closeEditor();
+        return true;
+    }
+
+    $('#remote-save').on('click', function (e) {
+        e.preventDefault();
+        saveDraft();
+    });
+
+    $('#remote-cancel').on('click', function (e) {
+        e.preventDefault();
+        closeEditor();
+    });
+
+    $('#auth-continue').on('click', function (e) {
+        e.preventDefault();
+        // An editor left open with nothing changed is simply closed; one with
+        // changes is saved, as if Save had been pressed.
+        if (draft !== null) {
+            if (!editorDirty()) closeEditor();
+            else if (!saveDraft()) {
+                continueHint('Save or cancel the remote you are editing first.');
+                return;
+            }
+        }
+        if (remotes.length === 0) {
+            continueHint('Add a remote first.');
+            return;
+        }
+        $('#auth-continue-hint').text('').removeClass('warn');
+        stepperInstace.nextStep();
+        renderRouting();
+    });
+
+    function continueHint(text) {
+        $('#auth-continue-hint').text(text).addClass('warn');
+    }
+
+    renderRemotes();
+
+    // --- Logins (Dropbox, Google Drive) ---
+    // In a popup, so the remotes already added survive: a full-page redirect
+    // would reload this page and forget them.  The popup comes back to this
+    // page, which passes the answer on (runAsLoginPopup() above).
+    const pendingLogins = {}; // state -> { provider, uid, verifier, clientId, clientSecret }
+    const loginChannel = new BroadcastChannel(LOGIN_CHANNEL);
+    loginChannel.onmessage = function (e) {
+        let msg = e.data;
+        if (!msg || msg.type !== 'result' || !Object.prototype.hasOwnProperty.call(pendingLogins, msg.state)) return;
+        let login = pendingLogins[msg.state];
+        delete pendingLogins[msg.state];
+        loginChannel.postMessage({ type: 'ack', state: msg.state });
+        finishLogin(login, msg);
+    };
+
+    function showLogin(provider, kind, text) {
+        let icons = { busy: 'hourglass_empty', ok: 'check_circle', fail: 'error_outline' };
+        $('#login-status-' + provider)
+            .removeClass('ok fail unknown')
+            .addClass(kind === 'busy' ? '' : kind)
+            .html('<i class="material-icons">' + icons[kind] + '</i>')
+            .append(document.createTextNode(text));
+    }
+
+    function renderLoginStatus() {
+        if (draft && draft.auth) showLogin(draft.type, 'ok', 'Logged in');
+    }
+
+    // Opened straight from the click, before anything is awaited: browsers
+    // block a popup opened later.  Its address is set once the PKCE challenge
+    // is ready.
+    function openLoginPopup(provider) {
+        let w = 520, h = 680;
+        let popup = window.open('about:blank', '3dsync-login', 'popup,width=' + w + ',height=' + h
+            + ',left=' + Math.max(0, window.screenX + (window.outerWidth - w) / 2)
+            + ',top=' + Math.max(0, window.screenY + (window.outerHeight - h) / 2));
+        if (!popup) {
+            showLogin(provider, 'fail', 'The browser blocked the login window. Allow pop-ups for this site, '
+                + 'then press the button again.');
+        }
+        return popup;
+    }
+
+    async function finishLogin(login, msg) {
+        let stillOpen = function () { return draft !== null && draft.uid === login.uid; };
+        if (msg.error || !msg.code) {
+            if (stillOpen()) showLogin(login.provider, 'fail', msg.error === 'access_denied'
+                ? 'Login cancelled.' : 'Login failed (' + (msg.error || 'no code') + ').');
+            return;
+        }
+        if (stillOpen()) showLogin(login.provider, 'busy', 'Finishing the login…');
+        let refreshToken = login.provider === 'dropbox'
+            ? await exchangeDropboxCode(msg.code, login) : await exchangeGoogleCode(msg.code, login);
+        // The editor may have moved on to another remote meanwhile; the token
+        // is then dropped with the draft it belonged to.
+        if (!stillOpen()) return;
+        if (!refreshToken) {
+            showLogin(login.provider, 'fail', 'Login failed. Please try again.');
+            return;
+        }
+        draft.auth = { clientId: login.clientId, clientSecret: login.clientSecret || '', refreshToken: refreshToken };
+        renderLoginStatus();
+        $('#remote-editor-hint').text('').removeClass('warn');
     }
 
     // --- PKCE helpers ---
@@ -127,38 +474,36 @@ $(function () {
         return base64urlEncode(digest);
     }
 
-    async function exchangeGoogleCode(code, codeVerifier) {
-        let clientId = localStorage.getItem('gdriveClientId');
-        let clientSecret = secret('gdriveClientSecret');
-        let redirectUri = window.location.origin + window.location.pathname;
+    // Both providers send the login back to this very page.
+    function redirectUri() {
+        return window.location.origin + window.location.pathname;
+    }
+
+    async function exchangeGoogleCode(code, login) {
         try {
             let response = await fetch('https://oauth2.googleapis.com/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
                     code: code,
-                    client_id: clientId,
-                    client_secret: clientSecret,
-                    redirect_uri: redirectUri,
-                    code_verifier: codeVerifier,
+                    client_id: login.clientId,
+                    client_secret: login.clientSecret,
+                    redirect_uri: redirectUri(),
+                    code_verifier: login.verifier,
                     grant_type: 'authorization_code'
                 })
             });
             let data = await response.json();
-            if (data.refresh_token) {
-                secrets.gdriveRefreshToken = data.refresh_token;
-                return true;
-            }
+            if (data.refresh_token) return data.refresh_token;
             console.error('No refresh_token in response:', data);
-            return false;
+            return null;
         } catch (e) {
             console.error('Token exchange failed:', e);
-            return false;
+            return null;
         }
     }
 
-    async function exchangeDropboxCode(code, codeVerifier) {
-        let clientId = localStorage.getItem('dropboxClientId');
+    async function exchangeDropboxCode(code, login) {
         try {
             let response = await fetch('https://api.dropbox.com/oauth2/token', {
                 method: 'POST',
@@ -166,82 +511,74 @@ $(function () {
                 body: new URLSearchParams({
                     code: code,
                     grant_type: 'authorization_code',
-                    client_id: clientId,
-                    redirect_uri: dropboxRedirectUri(),
-                    code_verifier: codeVerifier
+                    client_id: login.clientId,
+                    redirect_uri: redirectUri(),
+                    code_verifier: login.verifier
                 })
             });
             let data = await response.json();
             // token_access_type=offline is what makes Dropbox return this; a
             // bare access token would expire after about four hours.
-            if (data.refresh_token) {
-                secrets.dropboxRefreshToken = data.refresh_token;
-                delete secrets.dropboxToken;
-                return true;
-            }
+            if (data.refresh_token) return data.refresh_token;
             console.error('No refresh_token in response:', data);
-            return false;
+            return null;
         } catch (e) {
             console.error('Dropbox token exchange failed:', e);
-            return false;
+            return null;
         }
     }
 
     // --- Dropbox expert mode: bring your own app key ---
-    // Same value the authorize request sends, so the hint can never drift from it
-    function dropboxRedirectUri() {
-        return window.location.origin + window.location.pathname;
-    }
-
-    $('#dropbox-redirect-uri').text(dropboxRedirectUri());
+    $('#dropbox-redirect-uri').text(redirectUri());
 
     $('#dropbox-copy-redirect-uri').on('click', function (e) {
         e.preventDefault();
         let $status = $('#dropbox-copy-status');
-        navigator.clipboard.writeText(dropboxRedirectUri()).then(function () {
+        navigator.clipboard.writeText(redirectUri()).then(function () {
             $status.html('<span class="green-text"><i class="material-icons" style="font-size:1em;vertical-align:middle">check_circle</i></span>');
         }, function () {
             $status.html('<span class="red-text">Copy failed</span>');
         });
     });
 
-    let storedDropboxClientId = localStorage.getItem('dropboxClientId');
-    if (storedDropboxClientId && storedDropboxClientId !== DEFAULT_DROPBOX_CLIENT_ID) {
-        $('#dropbox-client-id').val(storedDropboxClientId);
-        $('#dropbox-expert-mode').prop('checked', true);
-        $('#dropbox-expert-panel').show();
-        M.updateTextFields();
-    }
-
     $('#dropbox-expert-mode').on('change', function () {
         $('#dropbox-expert-panel').toggle(this.checked);
         M.updateTextFields();
     });
 
-    // --- Login button handlers ---
+    // The app key a login now would use.
+    function dropboxClientId() {
+        if (!$('#dropbox-expert-mode').prop('checked')) return DEFAULT_DROPBOX_CLIENT_ID;
+        return $('#dropbox-client-id').val().trim() || DEFAULT_DROPBOX_CLIENT_ID;
+    }
+
     $('#dropbox-login').on('click', async function (e) {
         e.preventDefault();
-        let clientId = DEFAULT_DROPBOX_CLIENT_ID;
-        if ($('#dropbox-expert-mode').prop('checked')) {
-            clientId = $('#dropbox-client-id').val().trim() || DEFAULT_DROPBOX_CLIENT_ID;
-        }
+        if (!draft) return;
+        let popup = openLoginPopup('dropbox');
+        if (!popup) return;
+        let clientId = dropboxClientId();
         localStorage.setItem('dropboxClientId', clientId);
 
         let state = generateCodeVerifier();
         let codeVerifier = generateCodeVerifier();
+        pendingLogins[state] = { provider: 'dropbox', uid: draft.uid, verifier: codeVerifier, clientId: clientId };
+        // A second Dropbox remote is normally a second account; without this
+        // Dropbox logs straight in to the one the browser is signed in to.
+        let another = sameType().length > 0;
         let codeChallenge = await generateCodeChallenge(codeVerifier);
-        localStorage.setItem('dropboxState', state);
-        localStorage.setItem('dropboxCodeVerifier', codeVerifier);
+        showLogin('dropbox', 'busy', 'Log in in the window that opened…');
 
         // PKCE + token_access_type=offline yields a refresh token, so the 3DS
         // can sync without re-authenticating every four hours.
-        window.location.href = 'https://www.dropbox.com/oauth2/authorize?client_id=' + encodeURIComponent(clientId)
+        popup.location.href = 'https://www.dropbox.com/oauth2/authorize?client_id=' + encodeURIComponent(clientId)
             + '&response_type=code'
-            + '&redirect_uri=' + encodeURIComponent(dropboxRedirectUri())
+            + '&redirect_uri=' + encodeURIComponent(redirectUri())
             + '&token_access_type=offline'
             + '&state=' + encodeURIComponent(state)
             + '&code_challenge=' + codeChallenge
-            + '&code_challenge_method=S256';
+            + '&code_challenge_method=S256'
+            + (another ? '&force_reauthentication=true' : '');
     });
 
     // Auto-extract folder ID when user pastes a full Google Drive URL
@@ -283,96 +620,36 @@ $(function () {
 
     $('#gdrive-login').on('click', async function (e) {
         e.preventDefault();
+        if (!draft) return;
         let clientId = $('#gdrive-client-id').val().trim();
         let clientSecret = $('#gdrive-client-secret').val().trim();
-        if (!clientId) {
-            $('#gdrive-client-id').addClass('invalid');
-            return;
-        }
-        if (!clientSecret) {
-            $('#gdrive-client-secret').addClass('invalid');
-            return;
-        }
-        $('#gdrive-client-id').removeClass('invalid');
-        $('#gdrive-client-secret').removeClass('invalid');
+        setFieldError($('#gdrive-client-id'), clientId ? null : 'Required');
+        setFieldError($('#gdrive-client-secret'), clientSecret ? null : 'Required');
+        if (!clientId || !clientSecret) return;
 
-        let folderId = $('#gdrive-folder-id').val().trim();
-        let state = [...Array(40)].map(i => (~~(Math.random() * 36)).toString(36)).join('');
+        let popup = openLoginPopup('googledrive');
+        if (!popup) return;
+        let state = generateCodeVerifier();
         let codeVerifier = generateCodeVerifier();
+        pendingLogins[state] = {
+            provider: 'googledrive', uid: draft.uid, verifier: codeVerifier,
+            clientId: clientId, clientSecret: clientSecret
+        };
         let codeChallenge = await generateCodeChallenge(codeVerifier);
+        showLogin('googledrive', 'busy', 'Log in in the window that opened…');
 
-        localStorage.setItem('gdriveState', state);
-        localStorage.setItem('gdriveCodeVerifier', codeVerifier);
-        localStorage.setItem('gdriveClientId', clientId);
-        localStorage.setItem('gdriveClientSecret', clientSecret);
-        localStorage.setItem('gdriveFolderId', folderId);
-
-        let redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-        window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth'
+        // select_account: a second Drive remote is normally a second account.
+        popup.location.href = 'https://accounts.google.com/o/oauth2/v2/auth'
             + '?client_id=' + encodeURIComponent(clientId)
-            + '&redirect_uri=' + redirectUri
+            + '&redirect_uri=' + encodeURIComponent(redirectUri())
             + '&response_type=code'
             + '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/drive')
             + '&access_type=offline'
-            + '&prompt=consent'
-            + '&state=' + state
+            + '&prompt=' + encodeURIComponent('select_account consent')
+            + '&state=' + encodeURIComponent(state)
             + '&code_challenge=' + codeChallenge
             + '&code_challenge_method=S256';
     });
-
-    // --- Auth method tiles ---
-    // One remote per generated file, chosen by selecting its tile; the
-    // settings for the selected one show below the grid, and clicking the
-    // selected tile again clears the choice.  Dropbox and Drive log in
-    // through OAuth and come back on a redirect, so their login survives in
-    // localStorage; SMB, FTP and WebDAV are typed in and kept only in memory
-    // (remoteSection), so their passwords never touch browser storage.
-    let selectedProvider = null;
-    let remoteSection = null; // { provider, section, entries: [[key, value], ...] }
-
-    function oauthLoggedIn(provider) {
-        if (provider === 'dropbox')
-            return !!(secret('dropboxRefreshToken') || secret('dropboxToken'));
-        if (provider === 'googledrive')
-            return !!secret('gdriveRefreshToken');
-        return false;
-    }
-
-    function selectProvider(provider) {
-        selectedProvider = provider;
-        $('.auth-tile').each(function () {
-            let on = $(this).data('provider') === provider;
-            $(this).toggleClass('selected', on).attr('aria-checked', on ? 'true' : 'false');
-        });
-        $('.auth-settings').removeClass('active');
-        if (provider) $('#auth-settings-' + provider).addClass('active');
-        $('#auth-empty').toggle(!provider);
-        $('#auth-continue-hint').text('').removeClass('warn');
-        M.updateTextFields();
-    }
-
-    function toggleTile($tile) {
-        let provider = $tile.data('provider');
-        selectProvider(selectedProvider === provider ? null : provider);
-    }
-
-    $('.auth-tile').on('click', function () {
-        toggleTile($(this));
-    }).on('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            toggleTile($(this));
-        }
-    });
-
-    ['dropbox', 'googledrive'].forEach(function (provider) {
-        if (oauthLoggedIn(provider))
-            $('.auth-tile[data-provider="' + provider + '"] .auth-status').text('\u2713 Logged in');
-    });
-
-    // Back from an earlier login: start on that backend.
-    let storedProvider = localStorage.getItem('provider');
-    selectProvider(storedProvider && oauthLoggedIn(storedProvider) ? storedProvider : null);
 
     // 3DSync reads the file with inih, which ends a value at a ';' that
     // follows whitespace (an inline comment) and trims spaces at both ends.
@@ -502,6 +779,7 @@ $(function () {
     $('#ftp-host').on('blur', normalizeFtp);
     $('#webdav-url').on('blur', normalizeWebdav);
 
+
     // Only the keys that have a value are written: an empty "User=" would
     // override the app's defaults (FTP falls back to anonymous only when the
     // key is missing altogether).
@@ -509,23 +787,43 @@ $(function () {
         return pairs.filter(function (p) { return p[1] !== ''; });
     }
 
+    // One per type: validates the open form and returns the section's
+    // entries, null when a field is marked, or a string saying what to do.
     const remoteForms = {
+        dropbox: function () {
+            let name = TYPES.dropbox.name;
+            if (!draft.auth) return 'Log in with ' + name + ' first.';
+            if (draft.auth.clientId !== dropboxClientId())
+                return 'The app key changed since the login. Log in with ' + name + ' again.';
+            return [['AppKey', draft.auth.clientId], ['RefreshToken', draft.auth.refreshToken]];
+        },
+        googledrive: function () {
+            ['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'].forEach(trimField);
+            if (!checkFields(['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'], [])) return null;
+            if (!draft.auth) return 'Log in with Google Drive first.';
+            if (draft.auth.clientId !== $('#gdrive-client-id').val() ||
+                draft.auth.clientSecret !== $('#gdrive-client-secret').val())
+                return 'The Client ID or Secret changed since the login. Log in with Google Drive again.';
+            return entriesFrom([
+                ['ClientId', draft.auth.clientId],
+                ['ClientSecret', draft.auth.clientSecret],
+                ['RefreshToken', draft.auth.refreshToken],
+                ['FolderId', $('#gdrive-folder-id').val()]
+            ]);
+        },
         smb: function () {
             ['smb-server', 'smb-share', 'smb-user', 'smb-domain', 'smb-path'].forEach(trimField);
             normalizeSmb();
             if (!checkFields(['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
                 ['smb-server', 'smb-share'])) return null;
-            return {
-                section: 'SMB',
-                entries: entriesFrom([
-                    ['Server', $('#smb-server').val()],
-                    ['Share', $('#smb-share').val()],
-                    ['User', $('#smb-user').val()],
-                    ['Password', $('#smb-password').val()],
-                    ['Domain', $('#smb-domain').val()],
-                    ['Path', $('#smb-path').val()]
-                ])
-            };
+            return entriesFrom([
+                ['Server', $('#smb-server').val()],
+                ['Share', $('#smb-share').val()],
+                ['User', $('#smb-user').val()],
+                ['Password', $('#smb-password').val()],
+                ['Domain', $('#smb-domain').val()],
+                ['Path', $('#smb-path').val()]
+            ]);
         },
         ftp: function () {
             ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-path'].forEach(trimField);
@@ -552,18 +850,15 @@ $(function () {
                 ok = false;
             }
             if (!ok) return null;
-            return {
-                section: 'FTP',
-                entries: entriesFrom([
-                    ['Host', $('#ftp-host').val()],
-                    ['Port', port],
-                    ['User', $('#ftp-user').val()],
-                    ['Password', $('#ftp-password').val()],
-                    ['Path', $('#ftp-path').val()],
-                    ['TLS', $('#ftp-tls').val()],
-                    ['Mode', $('#ftp-mode').val()]
-                ])
-            };
+            return entriesFrom([
+                ['Host', $('#ftp-host').val()],
+                ['Port', port],
+                ['User', $('#ftp-user').val()],
+                ['Password', $('#ftp-password').val()],
+                ['Path', $('#ftp-path').val()],
+                ['TLS', $('#ftp-tls').val()],
+                ['Mode', $('#ftp-mode').val()]
+            ]);
         },
         webdav: function () {
             ['webdav-url', 'webdav-user'].forEach(trimField);
@@ -574,49 +869,13 @@ $(function () {
                 ok = false;
             }
             if (!ok) return null;
-            return {
-                section: 'WebDAV',
-                entries: entriesFrom([
-                    ['Url', $('#webdav-url').val()],
-                    ['User', $('#webdav-user').val()],
-                    ['Password', $('#webdav-password').val()]
-                ])
-            };
+            return entriesFrom([
+                ['Url', $('#webdav-url').val()],
+                ['User', $('#webdav-user').val()],
+                ['Password', $('#webdav-password').val()]
+            ]);
         }
     };
-
-    function continueHint(text) {
-        $('#auth-continue-hint').text(text).addClass('warn');
-    }
-
-    $('#auth-continue').on('click', function (e) {
-        e.preventDefault();
-        let provider = selectedProvider;
-        if (!provider) {
-            continueHint('Pick where to sync first.');
-            return;
-        }
-        if (provider === 'dropbox' || provider === 'googledrive') {
-            if (!oauthLoggedIn(provider)) {
-                continueHint(provider === 'dropbox' ? 'Log in with Dropbox first.'
-                    : 'Log in with Google Drive first.');
-                return;
-            }
-            remoteSection = null;
-            localStorage.setItem('provider', provider);
-            stepperInstace.nextStep();
-            return;
-        }
-        let section = remoteForms[provider]();
-        if (section === null) {
-            continueHint('Check the highlighted fields.');
-            $('#auth-settings-' + provider + ' .invalid').first().focus();
-            return;
-        }
-        section.provider = provider;
-        remoteSection = section;
-        stepperInstace.nextStep();
-    });
 
     // --- Test connection ---
     // Only what a web page can reach: the Dropbox and Google APIs allow
@@ -624,6 +883,7 @@ $(function () {
     // HTTP, so their settings say how to test from the 3DS instead.  Each
     // outcome says which of three things it is: the settings work, they are
     // wrong, or the browser could not tell (which says nothing about the 3DS).
+    // A test always tries the remote open in the editor.
     function showTest(provider, kind, text) {
         let icons = { busy: 'hourglass_empty', ok: 'check_circle', fail: 'error_outline', unknown: 'help_outline' };
         $('#test-result-' + provider)
@@ -651,27 +911,22 @@ $(function () {
     }
 
     async function testDropbox() {
-        if (!oauthLoggedIn('dropbox')) throw testError('fail', 'Log in with Dropbox first.');
-        let token = secret('dropboxToken');
-        let refresh = secret('dropboxRefreshToken');
-        if (refresh) {
-            // What the 3DS does on every run: trade the refresh token for an
-            // access token.
-            let r = await postForm('https://api.dropbox.com/oauth2/token', {
-                grant_type: 'refresh_token',
-                refresh_token: refresh,
-                client_id: localStorage.getItem('dropboxClientId') || DEFAULT_DROPBOX_CLIENT_ID
-            });
-            if (!r.data.access_token) {
-                throw testError('fail', r.data.error === 'invalid_grant'
-                    ? 'The login has expired or was revoked. Log in with Dropbox again.'
-                    : 'Dropbox refused the login (' + (r.data.error_description || r.data.error || 'HTTP ' + r.status) + ').');
-            }
-            token = r.data.access_token;
+        if (!draft.auth) throw testError('fail', 'Log in with Dropbox first.');
+        // What the 3DS does on every run: trade the refresh token for an
+        // access token.
+        let r = await postForm('https://api.dropbox.com/oauth2/token', {
+            grant_type: 'refresh_token',
+            refresh_token: draft.auth.refreshToken,
+            client_id: draft.auth.clientId
+        });
+        if (!r.data.access_token) {
+            throw testError('fail', r.data.error === 'invalid_grant'
+                ? 'The login has expired or was revoked. Log in with Dropbox again.'
+                : 'Dropbox refused the login (' + (r.data.error_description || r.data.error || 'HTTP ' + r.status) + ').');
         }
         let response = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': 'Bearer ' + r.data.access_token, 'Content-Type': 'application/json' },
             body: 'null'
         });
         if (response.status === 401) throw testError('fail', 'The login is no longer valid. Log in with Dropbox again.');
@@ -681,12 +936,12 @@ $(function () {
     }
 
     async function testGoogleDrive() {
-        if (!oauthLoggedIn('googledrive')) throw testError('fail', 'Log in with Google Drive first.');
+        if (!draft.auth) throw testError('fail', 'Log in with Google Drive first.');
         let r = await postForm('https://oauth2.googleapis.com/token', {
             grant_type: 'refresh_token',
-            refresh_token: secret('gdriveRefreshToken'),
-            client_id: localStorage.getItem('gdriveClientId'),
-            client_secret: secret('gdriveClientSecret')
+            refresh_token: draft.auth.refreshToken,
+            client_id: draft.auth.clientId,
+            client_secret: draft.auth.clientSecret
         });
         if (!r.data.access_token) {
             let reason = {
@@ -702,7 +957,7 @@ $(function () {
         let user = (await about.json()).user;
         let who = 'Connected as ' + user.displayName + ' (' + user.emailAddress + ')';
 
-        let folderId = localStorage.getItem('gdriveFolderId');
+        let folderId = $('#gdrive-folder-id').val().trim();
         if (folderId) {
             let f = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId)
                 + '?fields=name,mimeType,trashed&supportsAllDrives=true', auth);
@@ -725,8 +980,7 @@ $(function () {
     }
 
     async function testWebdav() {
-        let section = remoteForms.webdav();
-        if (section === null) throw testError('fail', 'Check the highlighted fields first.');
+        if (remoteForms.webdav() === null) throw testError('fail', 'Check the highlighted fields first.');
         let url = $('#webdav-url').val();
         if (window.location.protocol === 'https:' && /^http:/i.test(url)) {
             throw testError('unknown', 'Browsers do not let an https page talk to a plain-http server, so this '
@@ -771,7 +1025,7 @@ $(function () {
     $('.test-connection').on('click', async function (e) {
         e.preventDefault();
         let $button = $(this);
-        if ($button.hasClass('disabled')) return;
+        if ($button.hasClass('disabled') || !draft) return;
         let provider = $button.data('provider');
         $button.addClass('disabled');
         showTest(provider, 'busy', 'Testing…');
@@ -785,18 +1039,109 @@ $(function () {
         }
     });
 
-    // --- Config generation ---
-    function remoteSectionString(masked) {
-        let secret = /^(password|clientsecret|appsecret|refreshtoken|token)$/i;
-        let lines = ['[' + remoteSection.section + ']'];
-        remoteSection.entries.forEach(function (kv) {
-            lines.push(kv[0] + '=' + (masked && secret.test(kv[0]) ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : kv[1]));
+    // --- Remotes per folder ---
+    // With two remotes or more, a table of folder by remote, all ticked to
+    // begin with.  What is stored is what was unticked, by folder name, so a
+    // folder added later is synced everywhere until told otherwise.  It
+    // becomes Only= on the remotes that leave a folder out.
+
+    // The names of the folders chosen in this step right now, as typed.
+    function currentFolderNames() {
+        let names = [];
+        $('#paths-presets input:checked').each(function () {
+            names.push($(this).next().text());
         });
-        return lines.join('\n');
+        $('#paths-custom input.path-custom').each(function () {
+            let name = $('#' + $(this).attr('id') + '-n').val().trim();
+            if (name !== '') names.push(name);
+        });
+        return names.filter(function (name, i) {
+            return names.findIndex(function (n) { return n.toLowerCase() === name.toLowerCase(); }) === i;
+        });
+    }
+
+    function syncsFolder(remote, name) {
+        return remotes.length < 2 || !(excluded[remote.uid] || {})[name.toLowerCase()];
+    }
+
+    function renderRouting() {
+        let names = currentFolderNames();
+        $('#routing-section').toggle(remotes.length > 1);
+        let $table = $('<table></table>');
+        let $head = $('<tr></tr>').append($('<th>Folder</th>'));
+        remotes.forEach(function (remote) {
+            $head.append($('<th></th>').text(displayName(remote)));
+        });
+        $table.append($('<thead></thead>').append($head));
+        let $body = $('<tbody></tbody>');
+        names.forEach(function (name) {
+            let $row = $('<tr></tr>').append($('<td></td>').text(name));
+            remotes.forEach(function (remote) {
+                let $box = $('<input type="checkbox" class="filled-in">')
+                    .prop('checked', syncsFolder(remote, name))
+                    .attr('aria-label', name + ' on ' + displayName(remote))
+                    .on('change', function () {
+                        let set = excluded[remote.uid] = excluded[remote.uid] || {};
+                        if (this.checked) delete set[name.toLowerCase()];
+                        else set[name.toLowerCase()] = true;
+                        $('#routing-note').text('').removeClass('warn');
+                    });
+                $row.append($('<td></td>').append($('<label></label>').append($box, '<span></span>')));
+            });
+            $body.append($row);
+        });
+        if (names.length === 0)
+            $body.append($('<tr><td class="routing-empty">Choose a folder above first.</td></tr>'));
+        $('#routing-table').empty().append($table.append($body));
+    }
+
+    $('#paths-presets, #paths-custom').on('input change', 'input', renderRouting);
+
+    // The folders a remote is limited to, or null when it syncs all of them.
+    function onlyFolders(remote) {
+        let names = paths.map(function (p) { return p[0]; });
+        let kept = names.filter(function (name) { return syncsFolder(remote, name); });
+        return kept.length === names.length ? null : kept;
+    }
+
+    // What keeps the routing from being written, or null.
+    function routingProblem() {
+        if (remotes.length < 2) return null;
+        for (let i = 0; i < paths.length; i++) {
+            let name = paths[i][0];
+            if (!remotes.some(function (r) { return syncsFolder(r, name); }))
+                return 'No remote syncs "' + name + '". Tick at least one.';
+        }
+        for (let i = 0; i < remotes.length; i++) {
+            let only = onlyFolders(remotes[i]);
+            if (only === null) continue;
+            // A remote with nothing ticked would get an empty Only=, which the
+            // 3DS reads as "every folder".
+            if (only.length === 0)
+                return displayName(remotes[i]) + ' syncs no folder. Tick one, or remove it in step 1.';
+            // Only= is a list split on commas and spaces.
+            let bad = only.find(function (name) { return /[\s,;]/.test(name); });
+            if (bad !== undefined)
+                return '"' + bad + '" cannot be listed for ' + displayName(remotes[i]) + ': rename the folder '
+                    + 'without spaces or commas, or tick it for every remote.';
+        }
+        return null;
+    }
+
+    // --- Config generation ---
+    function remoteSectionString(remote, masked) {
+        let secret = /^(password|clientsecret|appsecret|refreshtoken|token)$/i;
+        let lines = ['[' + sectionName(remote) + ']'];
+        remote.entries.forEach(function (kv) {
+            lines.push(kv[0] + '=' + (masked && secret.test(kv[0]) ? '••••••••' : kv[1]));
+        });
+        if (remote.role === 'backup') lines.push('Role=backup');
+        let only = onlyFolders(remote);
+        if (only !== null) lines.push('Only=' + only.join(', '));
+        return lines.join('\n') + '\n';
     }
 
     function getConfigString(masked) {
-        let provider = selectedProvider || localStorage.getItem('provider');
         let strPaths = '';
         let strShallowPaths = '';
         let strUploadPaths = '';
@@ -823,40 +1168,8 @@ $(function () {
         let fileFilter = $('#file-filter').val().trim();
         if (fileFilter) pathSections += '\n[Filter]\nExtensions=' + fileFilter + '\n';
 
-        // The selected tile decides; a typed-in remote is only used while
-        // its own tile is the selected one.
-        if (remoteSection !== null && remoteSection.provider === selectedProvider) {
-            return remoteSectionString(masked) + '\n' + pathSections;
-        }
-
-        let hide = function (value) {
-            return masked ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : value;
-        };
-        if (provider === 'googledrive') {
-            let clientId = localStorage.getItem('gdriveClientId');
-            let clientSecret = secret('gdriveClientSecret');
-            let refreshToken = secret('gdriveRefreshToken');
-            let folderId = localStorage.getItem('gdriveFolderId');
-            let config = '[GoogleDrive]\nClientId=' + clientId
-                + '\nClientSecret=' + hide(clientSecret)
-                + '\nRefreshToken=' + hide(refreshToken);
-            if (folderId) {
-                config += '\nFolderId=' + folderId;
-            }
-            return config + '\n' + pathSections;
-        } else {
-            let refreshToken = secret('dropboxRefreshToken');
-            let config;
-            if (refreshToken) {
-                config = '[Dropbox]\nAppKey=' + localStorage.getItem('dropboxClientId')
-                    + '\nRefreshToken=' + hide(refreshToken);
-            } else {
-                // Only reachable for a session that authenticated before the
-                // refresh-token flow; such a token expires in about 4 hours.
-                config = '[Dropbox]\nToken=' + hide(secret('dropboxToken'));
-            }
-            return config + '\n' + pathSections;
-        }
+        return remotes.map(function (remote) { return remoteSectionString(remote, masked); }).join('\n')
+            + pathSections;
     }
 
     // A few hundred bytes: a Blob and a link with the download attribute is all
@@ -890,8 +1203,10 @@ $(function () {
         $input.find('.remove-custom-path').on('click', function (e) {
             e.preventDefault();
             $(this).parent().parent().remove();
+            renderRouting();
         });
         $(this).before($input);
+        renderRouting();
     });
 
     const pathRegex = /^(\/?|)([\s\S]*?)((?:\.{1,2}|[^\/]+?|)(\.[^.\/]*|))(?:[\/]*)$/;
@@ -968,6 +1283,10 @@ $(function () {
             ? 'Separate extensions with commas or spaces' : iniValueProblem($filter.val());
         setFieldError($filter, filterProblem);
         if (filterProblem) error = true;
+        renderRouting();
+        let routing = error ? null : routingProblem();
+        $('#routing-note').text(routing || '').toggleClass('warn', !!routing);
+        if (routing) error = true;
         if (error === false) {
             $('#config-preview').text(getConfigString(true));
             stepperInstace.nextStep();
