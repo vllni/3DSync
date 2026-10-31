@@ -440,16 +440,16 @@ $(function () {
             return;
         }
         if (stillOpen()) showLogin(login.provider, 'busy', 'Finishing the login…');
-        let refreshToken = login.provider === 'dropbox'
+        let result = login.provider === 'dropbox'
             ? await exchangeDropboxCode(msg.code, login) : await exchangeGoogleCode(msg.code, login);
         // The editor may have moved on to another remote meanwhile; the token
         // is then dropped with the draft it belonged to.
         if (!stillOpen()) return;
-        if (!refreshToken) {
-            showLogin(login.provider, 'fail', 'Login failed. Please try again.');
+        if (result.error) {
+            showLogin(login.provider, 'fail', result.error);
             return;
         }
-        draft.auth = { clientId: login.clientId, clientSecret: login.clientSecret || '', refreshToken: refreshToken };
+        draft.auth = { clientId: login.clientId, clientSecret: login.clientSecret || '', refreshToken: result.token };
         renderLoginStatus();
         $('#remote-editor-hint').text('').removeClass('warn');
     }
@@ -494,12 +494,16 @@ $(function () {
                 })
             });
             let data = await response.json();
-            if (data.refresh_token) return data.refresh_token;
+            if (data.refresh_token) return { token: data.refresh_token };
             console.error('No refresh_token in response:', data);
-            return null;
+            if (data.error === 'invalid_client') {
+                return { error: 'Google does not accept this Client Secret for this Client ID. Check that it is '
+                    + 'the current secret (not one you have disabled), then log in again.' };
+            }
+            return { error: 'Google refused the login (' + (data.error_description || data.error) + ').' };
         } catch (e) {
             console.error('Token exchange failed:', e);
-            return null;
+            return { error: 'Could not reach Google to finish the login. Please try again.' };
         }
     }
 
@@ -519,12 +523,12 @@ $(function () {
             let data = await response.json();
             // token_access_type=offline is what makes Dropbox return this; a
             // bare access token would expire after about four hours.
-            if (data.refresh_token) return data.refresh_token;
+            if (data.refresh_token) return { token: data.refresh_token };
             console.error('No refresh_token in response:', data);
-            return null;
+            return { error: 'Dropbox refused the login (' + (data.error_description || data.error) + ').' };
         } catch (e) {
             console.error('Dropbox token exchange failed:', e);
-            return null;
+            return { error: 'Could not reach Dropbox to finish the login. Please try again.' };
         }
     }
 
