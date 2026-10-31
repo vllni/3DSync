@@ -194,7 +194,13 @@ any remote section:
 
 - `Role=backup` makes a remote only ever receive. It is never the source of a
   change and is never part of a conflict prompt, and files that exist only on
-  it are left alone. The default is `Role=sync`.
+  it are left alone.
+- `Role=source` is the reverse: 3DSync never writes to the remote. A change
+  made there reaches the 3DS and every other remote, but a change made
+  anywhere else never reaches it. A source takes no part in upload-only paths.
+  If the 3DS changed a file and the source later changes its own older copy,
+  that is a conflict, as it would be with any other remote.
+- The default is `Role=sync`, which syncs both ways.
 - `Only=` lists the sync paths, by their names in `[Paths]`, that the remote
   takes part in. Leave it out to sync every path. Separate names with commas
   or spaces.
@@ -300,6 +306,7 @@ Backup=/3ds/MyGame
 - **LocalPath** is the absolute path on the SD card.
 - Bidirectional entries use a **manifest** (`/3ds/3DSync/manifest.json`) to detect which side changed.
 - Upload-only entries push the local file to every remote taking part and never download.
+  A `Role=source` remote is left out of them: 3DSync never writes to it.
 
 ### File type filter
 

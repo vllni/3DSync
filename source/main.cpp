@@ -280,7 +280,9 @@ static bool connectRemote(const ActiveRemote &remote, SyncSummary &summary)
     }
     debugf("%s: connected, manifest prefix \"%s\"%s\n", name,
            manifestScope(remote.config, provider.manifestPrefix()).c_str(),
-           remote.config.role == ROLE_BACKUP ? ", backup only" : "");
+           remote.config.role == ROLE_BACKUP   ? ", backup only"
+           : remote.config.role == ROLE_SOURCE ? ", read only"
+                                               : "");
 
     // A wrong 3DS clock makes every mtime comparison suspect, so say so once.
     std::string serverTimeStr = provider.serverTime();
@@ -364,14 +366,16 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
         {
             // Providers that shipped their own one-way upload keep using it so
             // the remote layout their users already have does not change.
-            if (uploadOnly && r->provider->legacyUpload(entry.localBase, entry.remoteName,
+            bool readOnly = r->config.role == ROLE_SOURCE;
+            if (uploadOnly && !readOnly && r->provider->legacyUpload(entry.localBase, entry.remoteName,
                                                         entry.localFiles, ui))
                 continue;
-            // A backup only ever receives, whatever the entry.
+            // A backup only ever receives and a source is never written to,
+            // whatever the entry.
             participants.push_back(
                 Participant(*r->provider, r->name,
                             manifestScope(r->config, r->provider->manifestPrefix()),
-                            r->config.role == ROLE_BACKUP));
+                            r->config.role == ROLE_BACKUP, readOnly));
         }
 
         if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))

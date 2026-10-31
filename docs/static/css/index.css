@@ -533,6 +533,11 @@ main {
     height: 20px;
 }
 
+.routing-table td.routing-na {
+    opacity: 0.6;
+    cursor: help;
+}
+
 .routing-empty {
     opacity: 0.75;
 }

@@ -398,6 +398,7 @@
                         <select id="remote-role" class="browser-default dark-select">
                           <option value="sync" selected>Sync &mdash; both ways</option>
                           <option value="backup">Backup &mdash; only receives copies</option>
+                          <option value="source">Source &mdash; only sends copies</option>
                         </select>
                       </div>
                     </div>
@@ -462,6 +463,7 @@
                       copy, then uploads, downloads, or prompts for conflict resolution as needed.
                       <br><strong>Upload only</strong> — one-way: the 3DS copy is uploaded and nothing is ever
                       downloaded. Useful for backups.
+                      A remote with the Source role is left out: 3DSync never writes to it.
                     </p>
                     <p style="margin:0">If Name is left empty the files go directly into the top of the remote (the
                       Drive Folder ID, the SMB folder, the FTP base directory, the WebDAV URL).</p>
