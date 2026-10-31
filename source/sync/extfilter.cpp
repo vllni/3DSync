@@ -1,6 +1,7 @@
 #include "extfilter.h"
 
 #include <ctype.h>
+#include <set>
 
 static std::string lower(const std::string &s)
 {
@@ -77,4 +78,42 @@ std::string ExtensionFilter::describe() const
     for (auto &ext : _extensions)
         out += (out.empty() ? "." : " .") + ext;
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// PathFilters
+// ---------------------------------------------------------------------------
+const ExtensionFilter &PathFilters::forEntry(const std::string &entryName) const
+{
+    auto it = perPath.find(lower(entryName));
+    return it != perPath.end() ? it->second : defaults;
+}
+
+std::string PathFilters::describe() const
+{
+    return perPath.empty() ? defaults.describe() : "per path";
+}
+
+PathFilters parsePathFilters(const std::map<std::string, std::string> &values,
+                             const std::vector<std::string> &entryNames)
+{
+    static const std::string SECTION = "filter=";
+    std::set<std::string> known;
+    for (auto &name : entryNames)
+        known.insert(lower(name));
+
+    PathFilters filters;
+    for (auto &kv : values)
+    {
+        if (kv.first.compare(0, SECTION.size(), SECTION) != 0)
+            continue;
+        std::string key = lower(kv.first.substr(SECTION.size()));
+        if (key == "extensions")
+            filters.defaults = ExtensionFilter::parse(kv.second);
+        else if (known.count(key))
+            filters.perPath[key] = ExtensionFilter::parse(kv.second);
+        else
+            filters.unknown.push_back(key);
+    }
+    return filters;
 }

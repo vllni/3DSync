@@ -1,13 +1,15 @@
 #ifndef SYNC_EXTFILTER_H
 #define SYNC_EXTFILTER_H
 
+#include <map>
 #include <string>
 #include <vector>
 
 // ---------------------------------------------------------------------------
 // ExtensionFilter  — which files a sync considers, by file name ending
 // ---------------------------------------------------------------------------
-// Read from "[Filter] Extensions=" in 3DSync.ini.  Empty (the default) lets
+// One per sync path, from [Filter] in 3DSync.ini (see PathFilters).  Empty
+// (the default) lets
 // every file through.  Otherwise a file is synced only when its name ends in
 // one of the listed extensions, compared without regard to case, so
 // "sav, BIN" matches 001.sav and data.bin.  A listed "tar.gz" matches by the
@@ -43,5 +45,36 @@ public:
 private:
     std::vector<std::string> _extensions;
 };
+
+// ---------------------------------------------------------------------------
+// PathFilters  — the [Filter] section as a whole
+// ---------------------------------------------------------------------------
+//   [Filter]
+//   Extensions=sav, bin    every path that has no line of its own
+//   roms/nds/saves=dsv     this path only, by its name in [Paths] & co.
+//   screenshots=*          every file in this one, whatever the default
+//
+// A path's own line replaces the default rather than adding to it.  Names
+// are compared lowercased, as INIReader keys them, which also means a path
+// named "Extensions" cannot have one: that key is the default.
+// ---------------------------------------------------------------------------
+struct PathFilters
+{
+    ExtensionFilter defaults;
+    std::map<std::string, ExtensionFilter> perPath; // by lowercased path name
+    // [Filter] keys that name no configured path, lowercased.
+    std::vector<std::string> unknown;
+
+    const ExtensionFilter &forEntry(const std::string &entryName) const;
+
+    // For the menu card: the default's describe(), or "per path" once any
+    // path has its own.
+    std::string describe() const;
+};
+
+// values: INIReader::GetValues(), keyed "section=key".  entryNames: the
+// configured sync paths' names, to tell a typo from a path.
+PathFilters parsePathFilters(const std::map<std::string, std::string> &values,
+                             const std::vector<std::string> &entryNames);
 
 #endif

@@ -1077,6 +1077,54 @@ $(function () {
         return direction;
     }
 
+    // A folder's own [Filter] line, by lowercased name; missing or '' means it
+    // takes the list for every folder.
+    let folderFilters = {};
+
+    function renderFolderFilters() {
+        let names = currentFolderNames();
+        $('#folder-filters-section').toggle(names.length > 0);
+        let fallback = $('#file-filter').val().trim() || 'all files';
+        let $list = $('#folder-filters').empty();
+        names.forEach(function (name, i) {
+            let id = 'folder-filter-' + i;
+            let $input = $('<input type="text" class="white-text remote-field folder-filter" autocomplete="off" spellcheck="false">')
+                .attr({ id: id, placeholder: fallback, 'data-name': name })
+                .val(folderFilters[name.toLowerCase()] || '')
+                .on('input', function () {
+                    folderFilters[name.toLowerCase()] = $(this).val();
+                    setFieldError($(this), '');
+                });
+            $list.append($('<div class="input-field folder-filter-row"></div>').append(
+                $('<label class="white-text active"></label>').attr('for', id).text(name),
+                $input,
+                $('<span class="helper-text white-text" data-error=""></span>')));
+        });
+    }
+
+    $('#file-filter').on('input', function () {
+        $('#folder-filters input.folder-filter').attr('placeholder', $(this).val().trim() || 'all files');
+    });
+
+    // What keeps the per-folder lists from being written, marking the field.
+    function folderFiltersProblem() {
+        let bad = false;
+        $('#folder-filters input.folder-filter').each(function () {
+            let $input = $(this);
+            $input.val($input.val().trim());
+            let value = $input.val();
+            folderFilters[$input.attr('data-name').toLowerCase()] = value;
+            let problem = value.indexOf(';') >= 0 ? 'Separate extensions with commas or spaces'
+                : iniValueProblem(value);
+            // The 3DS reads Extensions= as the list for every folder.
+            if (!problem && value !== '' && $input.attr('data-name').toLowerCase() === 'extensions')
+                problem = 'A folder named Extensions cannot have its own list; rename it';
+            setFieldError($input, problem);
+            if (problem) bad = true;
+        });
+        return bad;
+    }
+
     function syncsFolder(remote, name) {
         return remotes.length < 2 || !(excluded[remote.uid] || {})[name.toLowerCase()];
     }
@@ -1118,6 +1166,7 @@ $(function () {
         if (names.length === 0)
             $body.append($('<tr><td class="routing-empty">Choose a folder above first.</td></tr>'));
         $('#routing-table').empty().append($table.append($body));
+        renderFolderFilters();
     }
 
     $('#paths-presets, #paths-custom').on('input change', 'input, select', renderRouting);
@@ -1198,8 +1247,14 @@ $(function () {
         if (strUploadPaths) pathSections += '\n[UploadPaths]\n' + strUploadPaths;
         if (strUploadShallowPaths) pathSections += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
         // Written only when filled: no [Filter] section means all files.
+        let filterLines = '';
         let fileFilter = $('#file-filter').val().trim();
-        if (fileFilter) pathSections += '\n[Filter]\nExtensions=' + fileFilter + '\n';
+        if (fileFilter) filterLines += 'Extensions=' + fileFilter + '\n';
+        paths.forEach(function (path) {
+            let own = (folderFilters[path[0].toLowerCase()] || '').trim();
+            if (own) filterLines += path[0] + '=' + own + '\n';
+        });
+        if (filterLines) pathSections += '\n[Filter]\n' + filterLines;
 
         return remotes.map(function (remote) { return remoteSectionString(remote, masked); }).join('\n')
             + pathSections;
@@ -1317,6 +1372,7 @@ $(function () {
         setFieldError($filter, filterProblem);
         if (filterProblem) error = true;
         renderRouting();
+        if (folderFiltersProblem()) error = true;
         let routing = error ? null : routingProblem();
         $('#routing-note').text(routing || '').toggleClass('warn', !!routing);
         if (routing) {

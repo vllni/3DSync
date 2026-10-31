@@ -319,7 +319,8 @@ Password=&lt;app password&gt;</code></pre>
         </p>
         <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">
           On startup 3DSync checks the file. If a remote is missing a setting or a login, a section has a
-          misspelled type, or <code>Role=</code> or <code>Only=</code> make no sense, it lists every problem with
+          misspelled type, <code>Role=</code> or <code>Only=</code> make no sense, or a <code>[Filter]</code> line
+          names no configured path, it lists every problem with
           what to do, before the main menu. Press <strong>A</strong> to continue anyway or <strong>START</strong>
           to exit and fix the file.
         </p>
@@ -381,9 +382,12 @@ Backup=/3ds/MyGame</code></pre>
         </ul>
         <h5>File type filter</h5>
         <p>By default every file under a sync path is synced. To sync only certain file types, list their
-          extensions under <code>[Filter]</code>:</p>
+          extensions under <code>[Filter]</code>: <code>Extensions=</code> for every path, or a path's name for
+          that path alone:</p>
         <pre><code>[Filter]
-Extensions=sav, bin, dat</code></pre>
+Extensions=sav, bin, dat   ; every path without a line of its own
+roms/nds/saves=dsv         ; only .dsv in this one
+screenshots=*              ; every file in this one</code></pre>
         <ul class="readme-bullets" style="margin-top:0.75rem">
           <li>Separate extensions with commas, spaces or both &mdash; <code>sav,bin</code>,
             <code>sav, bin</code> and <code>sav, bin,srm</code> all work (not <code>;</code>, which starts a
@@ -391,9 +395,11 @@ Extensions=sav, bin, dat</code></pre>
             <code>sav</code>, <code>.sav</code> and <code>*.sav</code> all mean the same, and case does not
             matter.</li>
           <li>Leave <code>Extensions=</code> empty, leave it out, or write <code>*</code> to sync all files.</li>
-          <li>The filter applies to every sync path and to both directions: a filtered-out file is neither
-            uploaded nor downloaded.</li>
-          <li>The main menu on the 3DS shows the active filter next to <strong>FILES</strong>.</li>
+          <li>A path's own line replaces <code>Extensions=</code> for that path rather than adding to it. A
+            line naming a path that is not configured is reported when 3DSync starts.</li>
+          <li>Filters apply in both directions: a filtered-out file is neither uploaded nor downloaded.</li>
+          <li>The main menu on the 3DS shows the filter next to <strong>FILES</strong> (<em>per path</em> once a
+            path has its own), and a sync prints it under each path it applies to.</li>
         </ul>
       </div>
 

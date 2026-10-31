@@ -483,10 +483,15 @@
                   <div class="row">
                     <div class="input-field col s12">
                       <input id="file-filter" class="white-text" type="text" autocomplete="off" spellcheck="false">
-                      <label for="file-filter" class="white-text">Extensions to sync (optional)</label>
+                      <label for="file-filter" class="white-text">Extensions for every folder (optional)</label>
                       <span class="helper-text white-text" data-error="">e.g. <strong>sav, bin</strong>; blank to
-                        sync all files. Applies to every path above, in both directions.</span>
+                        sync all files. Applies in both directions.</span>
                     </div>
+                  </div>
+                  <div id="folder-filters-section" class="folder-filters-section">
+                    <p class="white-text panel-intro">A folder can have its own list instead. Leave it blank to use
+                      the one above; <strong>*</strong> syncs every file in that folder.</p>
+                    <div id="folder-filters" class="folder-filters"></div>
                   </div>
                   <br>
                   <div class="step-actions">
