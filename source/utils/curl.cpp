@@ -222,6 +222,16 @@ long Curl::getStatusCode() const
     return code;
 }
 
+long Curl::getAuthOffered() const
+{
+    // Collected from every WWW-Authenticate of the transfer and cleared only
+    // when the next one starts, so it still holds the 401's answer after the
+    // retried request has succeeded.
+    long methods = 0;
+    curl_easy_getinfo(_curl, CURLINFO_HTTPAUTH_AVAIL, &methods);
+    return methods;
+}
+
 std::string Curl::getResponseHeader(const std::string &name) const
 {
     // Build a lowercase copy for case-insensitive matching
@@ -278,11 +288,12 @@ void Curl::reset()
     _applyDefaults();
 }
 
-void Curl::setUserPassword(const std::string &user, const std::string &password)
+void Curl::setUserPassword(const std::string &user, const std::string &password,
+                           long methods)
 {
     _userPassword = user + ":" + password;
     curl_easy_setopt(_curl, CURLOPT_USERPWD, _userPassword.c_str());
-    curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_ANY);
+    curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, methods);
 }
 
 void Curl::setCustomRequest(const char *method)

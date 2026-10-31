@@ -27,7 +27,10 @@ public:
     void reset();
 
     // Credentials for protocols that authenticate per request (FTP, WebDAV).
-    void setUserPassword(const std::string &user, const std::string &password);
+    // methods is a CURLAUTH_* mask for HTTP.  CURLAUTH_ANY asks first and
+    // answers the challenge; a single method is sent with the first request.
+    void setUserPassword(const std::string &user, const std::string &password,
+                         long methods = CURLAUTH_ANY);
     // Override the HTTP method (PROPFIND, MKCOL, DELETE, …).
     void setCustomRequest(const char *method);
     // Request headers only, no body (HTTP HEAD, or FTP MDTM/SIZE).
@@ -78,6 +81,9 @@ public:
     // The URL of the last request, for error messages that have to name it.
     std::string getURL() const;
     long getStatusCode() const;
+    // CURLAUTH_* methods the server offered in a 401 during the last
+    // perform(), 0 if it never asked.
+    long getAuthOffered() const;
     // Case-insensitive search in the last response's headers (e.g. "Date").
     std::string getResponseHeader(const std::string &name) const;
 
