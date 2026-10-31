@@ -54,15 +54,7 @@ PRODUCT_CODE := CTR-K-SYNC
 UNIQUE_ID := 0xF5555
 
 BANNER_AUDIO := meta/audio_3ds.wav
-# The animated HOME Menu banner (tools/make_banner.py).  FLAT_BANNER=1 builds
-# with the still picture instead, e.g. to install over a banner that froze
-# the HOME Menu.  Switching does not rebuild an existing banner, so remove it
-# first: rm -f build/3ds-arm/banner.bnr && make FLAT_BANNER=1
-ifeq ($(FLAT_BANNER),1)
 BANNER_IMAGE := meta/banner_3ds.png
-else
-BANNER_IMAGE := meta/banner_3ds.cgfx
-endif
 ICON := meta/icon_3ds.png
 
 # INTERNAL #

@@ -63,9 +63,6 @@ source/             C++ application source
     font.h, fontdata.cpp  Glyph tables; fontdata.cpp is generated
   libs/inih/        INI parser (inih + INIReader)
 tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
-tools/make_banner.py  The HOME Menu banner: animated meta/banner_3ds.cgfx and the flat
-                    meta/banner_3ds.png, from one scene — see "HOME Menu banner"
-tools/fetch_pycgfx.sh  pycgfx at a pinned, hash-checked commit, for make_banner.py
 tests/              Host unit tests (see "Tests"), and preview.cpp
 testinfra/          Compose stack of SMB, FTP and WebDAV servers to sync a
                     real 3DS against; its README has the settings per case
@@ -352,7 +349,7 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 - Step 3 previews the file with `IniFile.toIni(config, true)`, which masks passwords, secrets and tokens; the download uses `toIni(config, false)`.
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is the configurator page, `https://3dsync.vllni.dev/configurator.html`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
-- The favicon is `docs/favicon.svg` (the two sync arrows from `meta/icon_3ds.png`, without the lettering, which is unreadable at 16 px). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) are rendered from it; regenerate both when it changes. Every page's `<head>` links all three.
+- The favicon is `docs/favicon.svg`, the logo's cloud and arrows on navy (see "Logo and HOME Menu artwork"). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) match it; replace all three together. Every page's `<head>` links all three.
 - INI generation is `toIni()` in `inifile.js`: lines that came before any section, then one section per remote in the order added (`[Type]` or `[Type:Label]`, then `Role=` and `Only=` where they apply), then the path sections, `[Filter]`, and the other kept sections.
 
 ## Pages and the Universal-Updater store
@@ -369,20 +366,18 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 
 ---
 
-## HOME Menu banner (`meta/`, `tools/make_banner.py`)
+## Logo and HOME Menu artwork (`meta/`)
 
-The CIA's banner is an animated 3D model, `meta/banner_3ds.cgfx`: the blue and red arrows run anticlockwise round "3DSync" along a sharp-cornered rectangle, one round per 6 s, turning each corner. `make FLAT_BANNER=1` builds with `meta/banner_3ds.png` instead, the same scene at time 0 — the way back when a banner freezes the HOME Menu (remove `build/3ds-arm/banner.bnr` first; make does not see the switch). Both are generated and committed, so a build needs no Python.
+The logo is the "3DSYNC" wordmark in a cloud with an up and a down arrow; the icons are the cloud and arrows alone on navy. `meta/logo.svg` (transparent) and `meta/logo-on-navy.svg` are the vector sources; the rest are exported from them and committed as they are, at the sizes each place needs:
 
-To change it, edit the constants at the top of `make_banner.py`, then:
+| File | Size | Used for |
+|---|---|---|
+| `meta/banner_3ds.png` | 256 × 128 | HOME Menu banner (CIA) |
+| `meta/icon_3ds.png` | 48 × 48 | HOME Menu and Homebrew Launcher icon; bannertool makes the 24 × 24 one; `pages.yml` builds the Universal-Updater icon sheet from it |
+| `docs/favicon.svg`, `favicon.ico` (16/32/48) | | site favicon |
+| `docs/apple-touch-icon.png` | 180 × 180, opaque | iOS home screen (it fills transparency with black) |
 
-```bash
-tools/fetch_pycgfx.sh /tmp/pycgfx          # pinned commit, hash-checked
-pip install gltflib                         # pycgfx needs it, and Python 3.12+
-tools/make_banner.py cgfx <font> /tmp/pycgfx meta/banner_3ds.cgfx
-tools/make_banner.py png  <font> meta/banner_3ds.png
-```
-
-The font is Lato Black (`fonts-lato`). pycgfx has no licence file: fetch it for each use, never commit it. 3dsDL (GPL — read it, do not copy from it) found on a console what keeps a banner from crashing or freezing the HOME Menu, and the script holds to each: rigid node animation only (the shaft is a chain of squares that only translate; only the heads rotate), every mesh's `mesh_node_name` set to its bone and mesh/shape names unique, every name table rebuilt and walked the way the console looks names up, no blended transparency (the wordmark is an alpha cut-out), under 512 KiB, and every part inside the camera's safe area in every frame. The script refuses to write a CGFX that breaks a rule it can check. **Test every change on a console before releasing it.**
+**The banner stays a flat PNG.** An animated 3D banner (a CGFX built from glTF with pycgfx, following 3dsDL's rules for rigid animation, named mesh nodes and resolvable name lookups) passed every check off-console and still crashed the system on a real 3DS as soon as 3DSync was selected. Do not try again without a way to test on hardware that does not cost the user a crashed console.
 
 ## Licensing
 
