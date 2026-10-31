@@ -144,3 +144,27 @@ TEST(debuglog, a_new_run_does_not_carry_the_previous_one)
     CHECK_EQ(debugLogDropped(), (size_t)0);
     setDebugEnabled(was);
 }
+
+TEST(debug, hides_the_ftp_password_command)
+{
+    // As libcurl hands an outgoing FTP command to the trace...
+    CHECK_STR_EQ(debugRedact("USER bob\r\nPASS hunter2\r\n"), "USER bob\r\nPASS <redacted>\r\n");
+    CHECK_STR_EQ(debugRedact("ACCT secret\r\n"), "ACCT <redacted>\r\n");
+    // ...and as it sits in the session log, after the trace's own prefixes.
+    CHECK_STR_EQ(debugRedact("dbg: > PASS hunter2\n"), "dbg: > PASS <redacted>\n");
+    CHECK_STR_EQ(debugRedact("\x1b[35mdbg: > pass hunter2\n\x1b[0m"),
+                 "\x1b[35mdbg: > pass <redacted>\n\x1b[0m");
+    // A word that merely contains it, or the word in a sentence, is left alone.
+    CHECK_STR_EQ(debugRedact("bypass the cache\nThe PASS command failed\n"),
+                 "bypass the cache\nThe PASS command failed\n");
+}
+
+TEST(debug, hides_a_password_written_into_a_url)
+{
+    CHECK_STR_EQ(debugRedact("status 200 <- https://bob:hunter2@dav.example/remote.php/"),
+                 "status 200 <- https://bob:<redacted>@dav.example/remote.php/");
+    CHECK_STR_EQ(debugRedact("ftp://anonymous@host/pub ftp://a:b@h"),
+                 "ftp://anonymous@host/pub ftp://a:<redacted>@h");
+    // A port is not a password.
+    CHECK_STR_EQ(debugRedact("https://nas.local:5006/dav/"), "https://nas.local:5006/dav/");
+}

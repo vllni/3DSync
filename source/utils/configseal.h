@@ -25,11 +25,24 @@
 // ---------------------------------------------------------------------------
 
 // Finish or undo a seal that was interrupted.  Call before reading the INI.
-void recoverConfigSeal(const std::string &path);
+// A ".sealed" copy is only applied while the file on the card is still the
+// one it was made from — untouched, or partly or wholly overwritten with it.
+// A file the user has since replaced is kept, and the copy dropped: it would
+// otherwise bring back the old configuration.  key may be NULL when the
+// console key is not available; only those two cases that need no opening of
+// sealed values are then recognised.  Returns false if a copy was dropped.
+bool recoverConfigSeal(const std::string &path, const SealKey *key);
+
+// Whether `current`, the INI as found on the card, is the file a leftover
+// `sealed` copy was made from (see above).  Exposed for the host tests.
+bool sealedCopyBelongsTo(const std::string &current, const std::string &sealed,
+                         const SealKey *key);
 
 // Seal the plain secrets in the file at path.  Returns how many were sealed
 // (0 when there was nothing to do), or -1 if the file could not be rewritten,
-// in which case it is left as it was.
-int sealConfigFile(const std::string &path, const SealKey &key, SealRandom random);
+// in which case it is left as it was.  skipped, when given, receives the
+// fields that stay plain because inih would not read them as one line.
+int sealConfigFile(const std::string &path, const SealKey &key, SealRandom random,
+                   std::vector<std::string> *skipped = NULL);
 
 #endif

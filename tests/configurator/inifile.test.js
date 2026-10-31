@@ -95,3 +95,14 @@ test('a file with neither remotes nor folders is not a config', () => {
     assert.equal(config, null);
     assert.match(report.problems[0], /No remotes or folders/);
 });
+
+test('VerifyTLS=false ticks the certificate box, and is written back', () => {
+    let { config } = IniFile.fromIni('[WebDAV]\nUrl=https://nas/dav/\nVerifyTLS=False\n[FTP]\nHost=h\nVerifyTLS=maybe\n');
+    let [webdav, ftp] = config.remotes;
+    assert.equal(webdav.fields['webdav-insecure'], true);
+    assert.deepEqual(webdav.carry, []);
+    // A value the box cannot show is kept as it was.
+    assert.equal(ftp.fields['ftp-insecure'], undefined);
+    assert.deepEqual(ftp.carry, [['VerifyTLS', 'maybe']]);
+    assert.match(IniFile.toIni(config, false), /\[WebDAV\]\nUrl=https:\/\/nas\/dav\/\nVerifyTLS=False\n/);
+});

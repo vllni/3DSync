@@ -8,6 +8,9 @@
 #include <unistd.h>
 
 #include <3ds.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+#include <time.h>
 
 #include "../version.h"
 #include "debug.h"
@@ -73,7 +76,81 @@ static int _closeGracefully(void *clientp, curl_socket_t fd)
     return closesocket(fd);
 }
 
-Curl::Curl() : _downloadFile(nullptr)
+// ---------------------------------------------------------------------------
+// Certificate checking
+// ---------------------------------------------------------------------------
+// The CA bundle is curl's extract of Mozilla's (romfs/cacert.pem), parsed once
+// per app run and kept: libcurl's mbedTLS backend would otherwise parse the
+// whole file again for every connection, and FTPS opens one per transfer.  It
+// is handed to each connection through CURLOPT_SSL_CTX_FUNCTION.  Only the
+// worker thread uses libcurl, so the lazy load needs no lock.
+static const char *const CA_BUNDLE = "romfs:/cacert.pem";
+static mbedtls_x509_crt g_caChain;
+static int g_caState = 0; // 0 not tried, 1 loaded, -1 failed
+
+static const mbedtls_x509_crt *caChain()
+{
+    if (g_caState == 0)
+    {
+        mbedtls_x509_crt_init(&g_caChain);
+        int ret = mbedtls_x509_crt_parse_file(&g_caChain, CA_BUNDLE);
+        // A positive result counts certificates that did not parse; the rest
+        // are usable.  A negative one means nothing was read.
+        g_caState = (ret >= 0 && g_caChain.version != 0) ? 1 : -1;
+        if (ret > 0)
+            debugf("CA bundle: %d certificate(s) skipped\n", ret);
+        if (g_caState < 0)
+            debugf("CA bundle %s could not be loaded (mbedTLS -0x%04x)\n", CA_BUNDLE,
+                   (unsigned)-ret);
+    }
+    return g_caState > 0 ? &g_caChain : NULL;
+}
+
+// Runs for every new TLS connection, after libcurl has set mbedTLS up and
+// before the handshake: the place to give it the trusted roots.
+static CURLcode _sslContext(CURL *handle, void *sslConfig, void *userdata)
+{
+    (void)handle;
+    (void)userdata;
+    const mbedtls_x509_crt *ca = caChain();
+    if (!ca)
+        return CURLE_SSL_CACERT_BADFILE;
+    mbedtls_ssl_conf_ca_chain((mbedtls_ssl_config *)sslConfig,
+                              const_cast<mbedtls_x509_crt *>(ca), NULL);
+    return CURLE_OK;
+}
+
+bool Curl::isCertificateError(int curlCode)
+{
+    return curlCode == CURLE_PEER_FAILED_VERIFICATION || curlCode == CURLE_SSL_CACERT_BADFILE;
+}
+
+void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut)
+{
+    if (curlCode == CURLE_SSL_CACERT_BADFILE)
+    {
+        printf(CONSOLE_RED "%s: the list of trusted certificates\n" CONSOLE_RESET, remoteName);
+        printf(CONSOLE_RED "  is missing, so 3DSync did not connect.\n" CONSOLE_RESET);
+        printf("  Reinstall 3DSync.\n");
+        return;
+    }
+    printf(CONSOLE_RED "%s: the server's certificate could not\n" CONSOLE_RESET, remoteName);
+    printf(CONSOLE_RED "  be verified, so 3DSync did not connect.\n" CONSOLE_RESET);
+    // A clock that was never set (2000, 2011) makes every certificate look
+    // not yet valid: the most likely cause on a 3DS, and easy to fix.
+    time_t now = time(NULL);
+    struct tm *t = gmtime(&now);
+    if (t)
+        printf("  The 3DS date is %04d-%02d-%02d; if that is\n  wrong, set it in System Settings.\n",
+               t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
+    if (canOptOut)
+    {
+        printf("  A server with its own certificate (a\n");
+        printf("  NAS)? Add VerifyTLS=false to its section.\n");
+    }
+}
+
+Curl::Curl() : _downloadFile(nullptr), _verifyTls(true)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
@@ -91,7 +168,26 @@ void Curl::_applyDefaults()
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 1L);
-    curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    if (_verifyTls)
+    {
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        // devkitPro's libcurl defaults to sdmc:/config/ssl/cacert.pem, which
+        // few SD cards have: without this every connection would try to load
+        // it, and fail.  The bundle comes from the callback below instead.
+        curl_easy_setopt(_curl, CURLOPT_CAINFO, (char *)NULL);
+        curl_easy_setopt(_curl, CURLOPT_CAPATH, (char *)NULL);
+        // A libcurl without SSL_CTX_FUNCTION for its TLS backend refuses the
+        // option; it then reads the bundle itself, once per connection.
+        if (curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, _sslContext) != CURLE_OK)
+            curl_easy_setopt(_curl, CURLOPT_CAINFO, CA_BUNDLE);
+    }
+    else
+    {
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, (void *)NULL);
+    }
     curl_easy_setopt(_curl, CURLOPT_PIPEWAIT, 1L);
     curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, _write_callback);
     curl_easy_setopt(_curl, CURLOPT_WRITEDATA, this);
@@ -113,6 +209,13 @@ void Curl::_applyDefaults()
 Curl::~Curl()
 {
     curl_easy_cleanup(_curl);
+}
+
+void Curl::setVerifyTls(bool enabled)
+{
+    _verifyTls = enabled;
+    if (_curl)
+        _applyDefaults();
 }
 
 void Curl::setURL(std::string URL)

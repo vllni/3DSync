@@ -201,15 +201,59 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
             remote.role = ROLE_BACKUP;
         else if (role == "source")
             remote.role = ROLE_SOURCE;
+        else if (role.empty() || role == "sync")
+            remote.role = ROLE_SYNC;
         else
         {
-            remote.role = ROLE_SYNC;
-            if (!role.empty() && role != "sync")
-                result.issues.push_back(issue(section, "Role= is not known",
-                                              {"Role= is not sync, backup or source in",
+            // Not a guess at what was meant: a misspelt "backup" read as "sync"
+            // would start downloading from a remote meant to only receive.
+            result.issues.push_back(issue(section, "Role= is not known",
+                                          {"Role= is not sync, backup or source,",
+                                           "  so this remote is left out:",
+                                           "  [" + section + "]"},
+                                          true));
+            continue;
+        }
+
+        std::string verify = lower(valueOf(values, section, "verifytls"));
+        bool canSkipVerify = remote.type == REMOTE_WEBDAV || remote.type == REMOTE_FTP;
+        if (verify == "false" || verify == "no" || verify == "0" || verify == "off")
+        {
+            if (canSkipVerify)
+                remote.verifyTls = false;
+            else
+                result.issues.push_back(issue(section, "VerifyTLS=false ignored",
+                                              {"VerifyTLS=false is ignored in",
                                                "  [" + section + "]",
-                                               "  It syncs both ways until that is fixed."},
+                                               "  Its certificate is always checked."},
                                               false));
+        }
+        else if (!verify.empty() && verify != "true" && verify != "yes" && verify != "1" &&
+                 verify != "on")
+            result.issues.push_back(issue(section, "VerifyTLS= unknown",
+                                          {"VerifyTLS= is neither true nor false in",
+                                           "  [" + section + "]",
+                                           "  Certificates are checked until fixed."},
+                                          false));
+
+        if (remote.type == REMOTE_FTP)
+        {
+            std::string tls = lower(valueOf(values, section, "tls"));
+            if (tls.empty() || tls == "try")
+                remote.ftpTls = "try";
+            else if (tls == "none" || tls == "implicit")
+                remote.ftpTls = tls;
+            else if (tls == "require" || tls == "required" || tls == "explicit")
+                remote.ftpTls = "require";
+            else
+            {
+                remote.ftpTls = "require";
+                result.issues.push_back(issue(section, "TLS= is not known",
+                                              {"TLS= is not none, try, require or",
+                                               "  implicit in [" + section + "]",
+                                               "  TLS is required until that is fixed."},
+                                              false));
+            }
         }
 
         remote.only = splitNames(valueOf(values, section, "only"));

@@ -272,6 +272,7 @@ SealResult sealIniText(const std::string &text, const SealKey &key, SealRandom r
             debugf("3DSync.ini: %s repeats or continues on the next line, left as it is\n",
                    s.field.c_str());
             result.skipped++;
+            result.skippedFields.push_back(s.field);
             continue;
         }
 
@@ -279,6 +280,7 @@ SealResult sealIniText(const std::string &text, const SealKey &key, SealRandom r
         if (!sealValue(key, s.section, s.name, value, random, sealed))
         {
             result.skipped++;
+            result.skippedFields.push_back(s.field);
             continue;
         }
         size_t lineBegin = text.rfind('\n', s.begin);
@@ -292,6 +294,7 @@ SealResult sealIniText(const std::string &text, const SealKey &key, SealRandom r
             debugf("3DSync.ini: %s would be too long once sealed, left as it is\n",
                    s.field.c_str());
             result.skipped++;
+            result.skippedFields.push_back(s.field);
             continue;
         }
 
@@ -303,4 +306,26 @@ SealResult sealIniText(const std::string &text, const SealKey &key, SealRandom r
     out.append(text, copied, std::string::npos);
     result.text = out;
     return result;
+}
+
+bool openIniText(const std::string &text, const SealKey &key, std::string &out)
+{
+    std::map<std::string, int> uses;
+    std::vector<ValueSpan> spans = scanValues(text, uses);
+    out.clear();
+    size_t copied = 0;
+    for (auto &s : spans)
+    {
+        std::string value = text.substr(s.begin, s.end - s.begin);
+        if (!isSealableSecret(s.section, s.name) || !isSealedValue(value))
+            continue;
+        std::string plain;
+        if (!openSealedValue(key, s.section, s.name, value, plain))
+            return false;
+        out.append(text, copied, s.begin - copied);
+        out += plain;
+        copied = s.end;
+    }
+    out.append(text, copied, std::string::npos);
+    return true;
 }

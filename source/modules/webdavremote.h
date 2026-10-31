@@ -20,7 +20,7 @@ class WebDavRemote : public SyncProvider
 {
 public:
     WebDavRemote(const std::string &baseUrl, const std::string &user,
-                 const std::string &password);
+                 const std::string &password, bool verifyTls = true);
 
     const char *name() const override { return "WebDAV"; }
     bool isExperimental() const override { return false; }

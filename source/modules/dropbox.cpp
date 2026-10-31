@@ -159,6 +159,12 @@ int Dropbox::_performWithRetry(FILE *uploadFile, long expectedStatus)
         if (!date.empty())
             _lastServerTime = date;
 
+        if (Curl::isCertificateError(curlRes))
+        {
+            Curl::printCertificateHelp(name(), curlRes, false);
+            _fatalError = true;
+            return curlRes;
+        }
         // Network-level failure (timeout, DNS, TLS, …)
         if (curlRes != 0)
         {

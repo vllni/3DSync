@@ -21,6 +21,11 @@
 //                     are left alone.  source is the reverse: it is never
 //                     written to, and a change made there reaches the 3DS and
 //                     every other remote.  Default sync.
+//   Role= anything else leaves the remote out: a misspelt "backup" must not
+//                     quietly become a remote that syncs both ways.
+//   VerifyTLS=false   WebDAV and FTP only: accept a server certificate that
+//                     cannot be verified (a NAS with a self-signed one).
+//                     Default true; Dropbox and Google Drive always verify.
 //   Only=saves, gba   the [Paths]-style names this remote takes part in.
 //                     Missing or empty: every one.  Commas and whitespace
 //                     separate, as in [Filter] Extensions=.
@@ -54,6 +59,11 @@ struct RemoteConfig
     std::string label;   // "" for the unnamed one
     RemoteRole role;
     std::set<std::string> only; // entry names; empty = every entry
+    // Check the server's TLS certificate.  Only WebDAV and FTP can turn it off.
+    bool verifyTls = true;
+    // FTP's TLS=, checked: "none", "try", "require" or "implicit".  An unknown
+    // value is an issue and reads as "require", never as a weaker mode.
+    std::string ftpTls = "try";
 
     // "SMB", or "SMB (backup)" for a labelled one.  The name the log, the
     // conflict prompt and the summary use.

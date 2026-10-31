@@ -121,15 +121,51 @@ TEST(remoteconfig, role_source_is_read_only)
     CHECK(r.issues.empty());
 }
 
-TEST(remoteconfig, an_unknown_role_syncs_both_ways_and_says_so)
+TEST(remoteconfig, an_unknown_role_leaves_the_remote_out)
 {
-    Values v = {{"ftp=host", "h"}, {"ftp=role", "mirror"}};
+    // A misspelt "backup" must not become a remote that syncs both ways.
+    Values v = {{"ftp=host", "h"}, {"ftp=role", "bakup"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
-    CHECK_EQ(r.remotes[0].role, ROLE_SYNC);
+    CHECK(r.remotes.empty());
     CHECK_EQ(r.issues.size(), (size_t)1);
     CHECK(joined(r.issues[0].lines).find("[ftp]") != std::string::npos);
-    // It still syncs, so it is not one that is left out.
+    CHECK(r.issues[0].leftOut);
+}
+
+TEST(remoteconfig, certificates_are_checked_unless_webdav_or_ftp_opt_out)
+{
+    Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=verifytls", "False"},
+                {"ftp=host", "h"},
+                {"dropbox=refreshtoken", "t"}, {"dropbox=verifytls", "no"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)3);
+    for (auto &remote : r.remotes)
+        CHECK_EQ(remote.verifyTls, remote.type != REMOTE_WEBDAV);
+    // Dropbox cannot opt out, and is told so.
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK_STR_EQ(r.issues[0].section, "dropbox");
     CHECK(!r.issues[0].leftOut);
+}
+
+TEST(remoteconfig, an_unknown_verifytls_keeps_checking)
+{
+    Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=verifytls", "nope"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK(r.remotes[0].verifyTls);
+    CHECK_EQ(r.issues.size(), (size_t)1);
+}
+
+TEST(remoteconfig, ftp_tls_is_checked_and_a_typo_requires_tls)
+{
+    Values v = {{"ftp=host", "h"}, {"ftp:b=host", "h"}, {"ftp:b=tls", "Explicit"},
+                {"ftp:c=host", "h"}, {"ftp:c=tls", "requier"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)3);
+    CHECK_STR_EQ(r.remotes[0].ftpTls, "try");
+    CHECK_STR_EQ(r.remotes[1].ftpTls, "require");
+    CHECK_STR_EQ(r.remotes[2].ftpTls, "require");
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK_STR_EQ(r.issues[0].section, "ftp:c");
 }
 
 TEST(remoteconfig, only_limits_the_entries)
@@ -187,10 +223,15 @@ TEST(remoteconfig, issues_fit_the_screens)
                 {"dropbox=appkey", "k"},
                 {"webdav=user", "u"},
                 {"ftp=host", "h"},
-                {"ftp=role", "mirror"},
-                {"ftp=only", "nothere"}};
+                {"ftp=only", "nothere"},
+                {"ftp=tls", "maybe"},
+                {"ftp=verifytls", "perhaps"},
+                {"ftp:b=host", "h"},
+                {"ftp:b=role", "mirror"},
+                {"googledrive:b=refreshtoken", "t"},
+                {"googledrive:b=verifytls", "false"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
-    CHECK_EQ(r.issues.size(), (size_t)7);
+    CHECK_EQ(r.issues.size(), (size_t)10);
     for (auto &issue : r.issues)
     {
         // Short labels stay on one line of the bottom screen's list.

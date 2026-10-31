@@ -15,4 +15,11 @@ std::string normalizeRemotePath(const std::string &path, bool leadingSlash = fal
 // True if the path names one of our in-flight transfers, which listings skip.
 bool isTempTransferName(const std::string &path);
 
+// True if a relative path from a remote listing ("/Game/001.sav") is safe to
+// append to a local folder: it starts with '/', and has no empty, "." or ".."
+// segment, no backslash and no control character.  Anything else could name
+// a file outside the folder it is synced into ("/../../boot.firm"), so the
+// engine refuses it before deciding anything.
+bool isSafeRelativePath(const std::string &relPath);
+
 #endif

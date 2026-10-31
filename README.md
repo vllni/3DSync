@@ -146,11 +146,17 @@ Password=<password>
 Path=                     ; optional base directory
 TLS=try                   ; none | try | require | implicit
 Mode=passive              ; passive | active
+VerifyTLS=                ; optional, false for a self-signed certificate
 ```
 
 `TLS=try` (the default) encrypts the session when the server offers `AUTH TLS`
 and falls back to plaintext when it does not. Use `require` to refuse an
-unencrypted session, or `implicit` for the older `ftps://` on port 990.
+unencrypted session, or `implicit` for the older `ftps://` on port 990. `try`
+only protects against someone listening: an attacker who can alter the
+connection can make the server look as if it offered no TLS, and the login
+then goes out unencrypted. Use `require` wherever the server supports it. A
+`TLS=` value 3DSync does not know is reported at startup and treated as
+`require`.
 
 An **anonymous** login (no `User=` line, or `User=anonymous` / `User=ftp`)
 with `TLS=try` also falls back to plaintext when the server accepts TLS but
@@ -180,6 +186,21 @@ Password=<app password>
 Works with Nextcloud/ownCloud and any NAS with WebDAV enabled. Use an app
 password rather than your account password where the server offers one.
 
+### Server certificates
+
+Every encrypted connection (Dropbox, Google Drive, `https://` WebDAV, FTPS)
+checks the server's certificate against the trusted roots 3DSync ships with
+(Mozilla's list, as curl publishes it) and against the host name. A failed
+check stops that remote with an explanation instead of connecting anyway.
+
+- **The 3DS clock** matters: a date that was never set makes every certificate
+  look not yet valid. The message shows the date the 3DS has.
+- **A server with its own certificate** — most NAS out of the box — fails the
+  check. Add `VerifyTLS=false` to that `[WebDAV]` or `[FTP]` section (the
+  configurator has a checkbox for it). The connection is still encrypted, but
+  no longer protected against someone on the network posing as the server.
+  Dropbox and Google Drive always check.
+
 ### Several remotes
 
 Configure as many remotes as you like. Every file is decided once across all
@@ -201,7 +222,9 @@ any remote section:
   anywhere else never reaches it. A source takes no part in upload-only paths.
   If the 3DS changed a file and the source later changes its own older copy,
   that is a conflict, as it would be with any other remote.
-- The default is `Role=sync`, which syncs both ways.
+- The default is `Role=sync`, which syncs both ways. A `Role=` that is none of
+  the three leaves the remote out (reported at startup), so a misspelled
+  `backup` never starts syncing both ways.
 - `Only=` lists the sync paths, by their names in `[Paths]`, that the remote
   takes part in. Leave it out to sync every path. Separate names with commas
   or spaces.
@@ -233,9 +256,10 @@ that remote as new, so its first sync compares every file again.
 On startup 3DSync checks the file, and if something is wrong it lists every
 problem, with what to do, before the main menu: a remote missing a setting
 (`[SMB]` without `Share=`), a remote with no login, a misspelled remote type, a
-`Role=` or `Only=` that does not make sense, a `[Filter]` line naming no
-configured path, a password sealed on another
-console, or a line the file cannot be read at. Press **A** to continue anyway
+`Role=`, `Only=`, `TLS=` or `VerifyTLS=` that does not make sense, a
+`[Filter]` line naming no configured path, a password sealed on another
+console, a credential that could not be sealed (written on more than one line,
+or too long), or a line the file cannot be read at. Press **A** to continue anyway
 or **START** to exit and fix the file. A remote that cannot be used is left out
 of every sync, listed under "Not synced" in the summary, and the menu shows
 **Check config** until the file is fixed.
@@ -254,9 +278,17 @@ Password=enc:v1:Wm9vbGFuZCBpcyBub3QgYSByZWFsIHBhc3N3b3Jk…
 ```
 
 The value is encrypted (AES-256-GCM) with a key derived from a secret unique
-to the console, which is not on the SD card. On that 3DS, nothing changes. On
-its own — a copy of the card, a file attached to a bug report — the value is
-useless. The rest of the file stays readable and editable.
+to the console. 3DSync stores neither the key nor that secret. On that 3DS,
+nothing changes. On its own — a copied `3DSync.ini`, a file attached to a bug
+report — the value is useless. The rest of the file stays readable and
+editable.
+
+How far that goes depends on what else is on the card. The secret is the
+console's LocalFriendCodeSeed, and the custom firmware guide has every user
+back it up to the SD card (`gm9/out/essential.exefs`, made by GodMode9).
+Someone holding a card that still has that backup may be able to work out the
+key. Keep that backup on a PC rather than on the card, as the guide suggests
+anyway.
 
 - **Changing a password:** type the new one over the sealed value in plain
   text. It is sealed on the next start. Or import the file into the
@@ -372,6 +404,10 @@ On the first sync of a file (no manifest entry yet), a file on one side only is 
 others. A file already on both is a conflict, unless Google Drive or Dropbox can prove it holds
 the same bytes as the 3DS.
 
+A remote file whose name could reach outside the synced folder (one with a `..`
+segment, an empty segment or a backslash) is never downloaded or compared. The
+run says so and ends with "Sync finished with errors".
+
 Google Drive and Dropbox can verify a local file by content — their tags are an
 MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
 save whose mtime never moves (some emulators never update it) is still detected,
@@ -483,6 +519,10 @@ is licensed under the **LGPL-2.1**. It is statically linked into the released
 requirement is met by this repository — the full source and the pinned libsmb2
 commit (see `docker/3dsync-devcontainer.Dockerfile`) are public, and the build is
 reproducible with `make`. 3DSync's own code remains MIT.
+
+The trusted certificate roots in `romfs/cacert.pem` are curl's extract of
+Mozilla's CA list (https://curl.se/docs/caextract.html), under the **MPL-2.0**;
+the file is unmodified, and its source is that page.
 
 ---
 

@@ -241,15 +241,88 @@ TEST(configseal, nothing_to_seal_leaves_the_file_alone)
     CHECK_EQ(sealConfigFile(dir.path() + "/missing.ini", kKey, countingRandom), 0);
 }
 
-TEST(configseal, a_finished_copy_left_behind_is_applied)
+// A seal interrupted at each point, and a file the user replaced meanwhile.
+// The original and its sealed copy are the real thing, so the nonce check in
+// sealedCopyBelongsTo() sees what it would on the card.
+static const std::string kPlain = "[SMB]\nServer=nas\nPassword=plain-password\n[Paths]\nsaves=/s\n";
+
+static std::string sealedOf(const std::string &text)
 {
-    // Power lost after ".sealed" was complete, during the overwrite.
+    return sealIniText(text, kKey, countingRandom).text;
+}
+
+TEST(configseal, a_copy_left_before_the_overwrite_is_applied)
+{
     TempDir dir;
-    dir.write("/3DSync.ini", "[SMB]\nPassword=plain\n");
-    dir.write("/3DSync.ini.sealed", "[SMB]\nPassword=enc:v1:AAAA\n");
-    recoverConfigSeal(dir.path() + "/3DSync.ini");
-    CHECK_STR_EQ(dir.read("/3DSync.ini"), "[SMB]\nPassword=enc:v1:AAAA\n");
+    std::string sealed = sealedOf(kPlain);
+    dir.write("/3DSync.ini", kPlain);
+    dir.write("/3DSync.ini.sealed", sealed);
+    CHECK(recoverConfigSeal(dir.path() + "/3DSync.ini", &kKey));
+    CHECK_STR_EQ(dir.read("/3DSync.ini"), sealed);
     CHECK(!dir.exists("/3DSync.ini.sealed"));
+}
+
+TEST(configseal, a_copy_left_during_the_overwrite_is_applied)
+{
+    std::string sealed = sealedOf(kPlain);
+    size_t first = sealed.find("enc:v1:");
+    // Power lost partway: the start is the copy's, the rest still the old file.
+    for (size_t k : {first + 30, sealed.size() - 3})
+    {
+        std::string partial = sealed.substr(0, k) + (k < kPlain.size() ? kPlain.substr(k) : "");
+        CHECK(sealedCopyBelongsTo(partial, sealed, &kKey));
+        CHECK(sealedCopyBelongsTo(partial, sealed, NULL)); // needs no key
+    }
+}
+
+TEST(configseal, a_copy_left_after_the_overwrite_is_only_removed)
+{
+    TempDir dir;
+    std::string sealed = sealedOf(kPlain);
+    dir.write("/3DSync.ini", sealed);
+    dir.write("/3DSync.ini.sealed", sealed);
+    CHECK(recoverConfigSeal(dir.path() + "/3DSync.ini", NULL));
+    CHECK_STR_EQ(dir.read("/3DSync.ini"), sealed);
+    CHECK(!dir.exists("/3DSync.ini.sealed"));
+}
+
+TEST(configseal, a_file_replaced_since_keeps_and_drops_the_copy)
+{
+    // The user copied a new 3DSync.ini onto the card after the interruption:
+    // same layout, other password, other server.  It must not be overwritten
+    // with the old configuration.
+    TempDir dir;
+    std::string sealed = sealedOf(kPlain);
+    std::string mine = "[SMB]\nServer=nas\nPassword=new-password\n[Paths]\nsaves=/s\n";
+    dir.write("/3DSync.ini", mine);
+    dir.write("/3DSync.ini.sealed", sealed);
+    CHECK(!recoverConfigSeal(dir.path() + "/3DSync.ini", &kKey));
+    CHECK_STR_EQ(dir.read("/3DSync.ini"), mine);
+    CHECK(!dir.exists("/3DSync.ini.sealed"));
+
+    CHECK(!sealedCopyBelongsTo("[SMB]\nServer=other\n", sealed, &kKey));
+    // Not even an earlier sealed value carried into the new file at the same
+    // place counts, unless the copy's own new nonce is there too.
+    CHECK(!sealedCopyBelongsTo(sealed.substr(0, sealed.find("enc:v1:") + 10) + "xx", sealed, NULL));
+}
+
+TEST(configseal, reports_the_secrets_it_leaves_plain)
+{
+    TempDir dir;
+    dir.write("/3DSync.ini", "[SMB]\nPassword=a\nPassword=b\n[FTP]\nHost=h\nPassword=c\n");
+    std::vector<std::string> skipped;
+    CHECK_EQ(sealConfigFile(dir.path() + "/3DSync.ini", kKey, countingRandom, &skipped), 1);
+    CHECK_EQ(skipped.size(), (size_t)2); // both lines of the repeated one
+    CHECK_STR_EQ(skipped[0], "smb=password");
+}
+
+TEST(sealini, opening_a_sealed_text_gives_back_the_original)
+{
+    std::string sealed = sealedOf(kPlain);
+    std::string opened;
+    CHECK(openIniText(sealed, kKey, opened));
+    CHECK_STR_EQ(opened, kPlain);
+    CHECK(!openIniText(sealed, kOtherConsole, opened));
 }
 
 TEST(configseal, an_unfinished_copy_left_behind_is_dropped)
@@ -259,7 +332,7 @@ TEST(configseal, an_unfinished_copy_left_behind_is_dropped)
     TempDir dir;
     dir.write("/3DSync.ini", "[SMB]\nPassword=plain\n");
     dir.write("/3DSync.ini.3dstmp", "[SMB]\nPass");
-    recoverConfigSeal(dir.path() + "/3DSync.ini");
+    recoverConfigSeal(dir.path() + "/3DSync.ini", &kKey);
     CHECK_STR_EQ(dir.read("/3DSync.ini"), "[SMB]\nPassword=plain\n");
     CHECK(!dir.exists("/3DSync.ini.3dstmp"));
 }

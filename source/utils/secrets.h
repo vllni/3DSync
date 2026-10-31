@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // Credentials sealed to the console
@@ -15,8 +16,8 @@
 //     Password=enc:v1:<base64 of nonce | AES-256-GCM ciphertext | tag>
 //
 // under a key derived from a console-unique value (CFGU_GenHashConsoleUnique,
-// which comes from the console's LocalFriendCodeSeed and is not on the SD
-// card).  The file is then useless on its own, but works exactly as before on
+// which comes from the console's LocalFriendCodeSeed; 3DSync stores neither,
+// though a GodMode9 backup on the card may hold the seed — see the README).  The file is then useless on its own, but works exactly as before on
 // this console.  The field's own "section=name" is the GCM associated data, so
 // a sealed value cannot be moved to another field.
 //
@@ -63,7 +64,14 @@ struct SealResult
     std::string text;
     int sealed;
     int skipped;
+    // The fields left plain, as "section=name" (lowercased, as the INI reader
+    // names them), so the startup check can say which stay readable.
+    std::vector<std::string> skippedFields;
 };
 SealResult sealIniText(const std::string &text, const SealKey &key, SealRandom random);
+
+// The reverse, for comparing two versions of the file: every sealed secret in
+// the text replaced by its plain value.  False if any does not open.
+bool openIniText(const std::string &text, const SealKey &key, std::string &out);
 
 #endif

@@ -406,6 +406,12 @@ int GoogleDrive::_performWithRetry()
         int curlRes = _curl.perform();
         long status = _curl.getStatusCode();
 
+        if (Curl::isCertificateError(curlRes))
+        {
+            Curl::printCertificateHelp(name(), curlRes, false);
+            _fatalError = true;
+            return curlRes;
+        }
         // Network-level failure (timeout, DNS, TLS, …)
         if (curlRes != 0)
         {

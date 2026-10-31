@@ -54,3 +54,27 @@ TEST(path, recognises_in_flight_transfers)
     CHECK(!isTempTransferName(".3dstmp"));
     CHECK(!isTempTransferName(""));
 }
+
+TEST(path, accepts_ordinary_relative_paths)
+{
+    CHECK(isSafeRelativePath("/001.sav"));
+    CHECK(isSafeRelativePath("/Game {EU}/main"));
+    CHECK(isSafeRelativePath("/a..b/c.d.e"));
+    CHECK(isSafeRelativePath("/\xc3\xa9t\xc3\xa9/save"));
+}
+
+TEST(path, refuses_paths_that_could_leave_the_folder)
+{
+    CHECK(!isSafeRelativePath("/../escaped.sav"));
+    CHECK(!isSafeRelativePath("/Game/../../boot.firm"));
+    CHECK(!isSafeRelativePath("/Game/.."));
+    CHECK(!isSafeRelativePath("/./x"));
+    CHECK(!isSafeRelativePath("//x"));
+    CHECK(!isSafeRelativePath("/x/"));
+    CHECK(!isSafeRelativePath("x"));
+    CHECK(!isSafeRelativePath("/"));
+    CHECK(!isSafeRelativePath(""));
+    CHECK(!isSafeRelativePath("/a\\..\\b"));
+    CHECK(!isSafeRelativePath(std::string("/a\0b", 4)));
+    CHECK(!isSafeRelativePath("/a\nb"));
+}
