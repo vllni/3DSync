@@ -239,7 +239,7 @@ bool FtpRemote::connect()
         return true;
     }
 
-    printf("FTP: cannot reach %s\n", _host.c_str());
+    printf("%s: cannot reach %s\n", displayName().c_str(), _host.c_str());
     return false;
 }
 

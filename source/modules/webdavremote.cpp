@@ -146,7 +146,8 @@ bool WebDavRemote::connect()
     std::vector<DavEntry> entries;
     if (!_propfind("", "0", entries))
     {
-        printf("WebDAV: cannot reach %s\n", urlWithoutCredentials(_baseUrl).c_str());
+        printf("%s: cannot reach %s\n", displayName().c_str(),
+               urlWithoutCredentials(_baseUrl).c_str());
         return false;
     }
     return true;

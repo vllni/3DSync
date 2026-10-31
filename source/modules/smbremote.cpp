@@ -104,8 +104,8 @@ bool SmbRemote::connect()
     std::string error;
     if (!_openSession(error))
     {
-        printf(CONSOLE_RED "SMB: cannot connect to \\\\%s\\%s" CONSOLE_RESET "\n",
-               _server.c_str(), _share.c_str());
+        printf(CONSOLE_RED "%s: cannot connect to \\\\%s\\%s" CONSOLE_RESET "\n",
+               displayName().c_str(), _server.c_str(), _share.c_str());
         printf("  %s\n", error.c_str());
         printf("  Check the server address, share name,\n");
         printf("  User and Password.\n");
