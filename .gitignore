@@ -2,6 +2,7 @@
 *.3dsx
 *.elf
 *.smdh
+*.log
 Thumbs.db
 build/
 lib/
