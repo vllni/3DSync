@@ -97,6 +97,15 @@ static const mbedtls_x509_crt *caChain()
         // A positive result counts certificates that did not parse; the rest
         // are usable.  A negative one means nothing was read.
         g_caState = (ret >= 0 && g_caChain.version != 0) ? 1 : -1;
+        if (g_caState > 0)
+        {
+            // Said once per run: the one line in a debug log that shows the
+            // certificates are being checked, and against what.
+            int roots = 0;
+            for (const mbedtls_x509_crt *c = &g_caChain; c && c->version != 0; c = c->next)
+                roots++;
+            debugf("TLS: checking certificates against %d trusted roots\n", roots);
+        }
         if (ret > 0)
             debugf("CA bundle: %d certificate(s) skipped\n", ret);
         if (g_caState < 0)
