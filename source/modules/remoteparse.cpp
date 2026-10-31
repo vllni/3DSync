@@ -176,6 +176,12 @@ bool isAnonymousFtpUser(const std::string &user)
     return lower == "anonymous" || lower == "ftp";
 }
 
+bool smbShouldProbe(long long lastActivity, long long now, bool lastRequestFailed)
+{
+    return lastRequestFailed || now < lastActivity ||
+           now - lastActivity >= SMB_IDLE_PROBE_SECONDS;
+}
+
 bool ftpShouldRetryWithoutTls(FtpTlsMode mode, const std::string &user, bool loginDenied)
 {
     return loginDenied && mode == FTP_TLS_TRY && isAnonymousFtpUser(user);

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <vector>
 
 #include <3ds.h>
@@ -26,18 +27,13 @@ SmbRemote::SmbRemote(const std::string &server, const std::string &share,
                      const std::string &domain, const std::string &basePath)
     : _server(server), _share(share), _user(user), _password(password),
       _domain(domain), _basePath(normalizeRemotePath(basePath)), _smb2(NULL),
-      _connected(false), _fatalError(false)
+      _connected(false), _fatalError(false), _lastActivity(0), _lastFailed(false)
 {
 }
 
 SmbRemote::~SmbRemote()
 {
-    if (_smb2)
-    {
-        if (_connected)
-            smb2_disconnect_share(_smb2);
-        smb2_destroy_context(_smb2);
-    }
+    _closeSession(!_lastFailed);
 }
 
 std::string SmbRemote::manifestPrefix() const
@@ -47,13 +43,12 @@ std::string SmbRemote::manifestPrefix() const
 
 bool SmbRemote::hasFatalError() const { return _fatalError; }
 
-bool SmbRemote::connect()
+bool SmbRemote::_openSession(std::string &error)
 {
     _smb2 = smb2_init_context();
     if (!_smb2)
     {
-        printf("SMB: out of memory\n");
-        _fatalError = true;
+        error = "out of memory";
         return false;
     }
 
@@ -70,18 +65,85 @@ bool SmbRemote::connect()
                                  _user.empty() ? NULL : _user.c_str());
     if (res != 0)
     {
-        printf(CONSOLE_RED "SMB: cannot connect to \\\\%s\\%s" CONSOLE_RESET "\n",
-               _server.c_str(), _share.c_str());
-        printf("  %s\n", smb2_get_error(_smb2));
-        printf("  Check the server address, share name,\n");
-        printf("  User and Password.\n");
+        error = smb2_get_error(_smb2);
         debugf("smb2_connect_share returned %d\n", res);
-        _fatalError = true; // wrong host or credentials — retrying will not help
+        _closeSession(false);
         return false;
     }
 
     _connected = true;
+    _lastActivity = (long long)time(NULL);
+    _lastFailed = false;
     return true;
+}
+
+void SmbRemote::_closeSession(bool polite)
+{
+    if (!_smb2)
+        return;
+    if (_connected && polite)
+        smb2_disconnect_share(_smb2);
+    smb2_destroy_context(_smb2);
+    _smb2 = NULL;
+    _connected = false;
+}
+
+bool SmbRemote::connect()
+{
+    std::string error;
+    if (!_openSession(error))
+    {
+        printf(CONSOLE_RED "SMB: cannot connect to \\\\%s\\%s" CONSOLE_RESET "\n",
+               _server.c_str(), _share.c_str());
+        printf("  %s\n", error.c_str());
+        printf("  Check the server address, share name,\n");
+        printf("  User and Password.\n");
+        _fatalError = true; // wrong host or credentials — retrying will not help
+        return false;
+    }
+    return true;
+}
+
+bool SmbRemote::_ensureSession()
+{
+    if (_fatalError || !_smb2)
+        return false;
+
+    long long now = (long long)time(NULL);
+    if (!smbShouldProbe(_lastActivity, now, _lastFailed))
+        return true;
+
+    int rc = smb2_echo(_smb2);
+    if (rc == 0)
+    {
+        debugf("SMB: session still open after %lld s%s\n", now - _lastActivity,
+               _lastFailed ? " and a failed request" : "");
+        _lastActivity = now;
+        _lastFailed = false;
+        return true;
+    }
+
+    // libsmb2 cannot resume a session whose socket died, and requests may
+    // still be pending in the context: start over with a fresh one.
+    debugf("SMB: echo failed (%d): %s — reconnecting\n", rc, smb2_get_error(_smb2));
+    _closeSession(false);
+    std::string error;
+    if (!_openSession(error))
+    {
+        printf(CONSOLE_RED "SMB: the connection was lost and could\n"
+               "  not be reopened." CONSOLE_RESET "\n");
+        printf("  %s\n", error.c_str());
+        _fatalError = true; // every later request would wait out the timeout
+        return false;
+    }
+    debugf("SMB: reconnected to \\\\%s\\%s\n", _server.c_str(), _share.c_str());
+    return true;
+}
+
+void SmbRemote::_settle(bool ok)
+{
+    _lastActivity = (long long)time(NULL);
+    _lastFailed = !ok;
 }
 
 std::string SmbRemote::_tagFor(const struct smb2_stat_64 &st)
@@ -127,11 +189,13 @@ bool SmbRemote::_mkdirs(const std::string &dirPath)
 
 std::string SmbRemote::ensureRoot(const std::string &remoteName)
 {
+    if (!_ensureSession())
+        return "";
     std::string root = normalizeRemotePath(_basePath.empty() ? remoteName
                                                     : _basePath + "/" + remoteName);
-    if (!_mkdirs(root))
-        return "";
-    return root;
+    bool ok = _mkdirs(root);
+    _settle(ok);
+    return ok ? root : "";
 }
 
 bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
@@ -190,10 +254,35 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
 bool SmbRemote::list(const std::string &root,
                      std::map<std::string, RemoteFileInfo> &out)
 {
-    return _listInto(root, "", out);
+    if (!_ensureSession())
+        return false;
+    bool ok = _listInto(root, "", out);
+    _settle(ok);
+    return ok;
 }
 
 bool SmbRemote::download(const RemoteFileInfo &file, const std::string &localPath)
+{
+    if (!_ensureSession())
+        return false;
+    bool ok = _download(file, localPath);
+    _settle(ok);
+    return ok;
+}
+
+bool SmbRemote::upload(const std::string &root, const std::string &relPath,
+                       const std::string &localPath, const RemoteFileInfo *existing,
+                       std::string &outTag, std::string &outId)
+{
+    (void)existing;
+    if (!_ensureSession())
+        return false;
+    bool ok = _upload(root, relPath, localPath, outTag, outId);
+    _settle(ok);
+    return ok;
+}
+
+bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPath)
 {
     struct smb2fh *fh = smb2_open(_smb2, file.id.c_str(), O_RDONLY);
     if (!fh)
@@ -251,12 +340,10 @@ bool SmbRemote::download(const RemoteFileInfo &file, const std::string &localPat
     return replaceLocalFile(tmpPath, localPath);
 }
 
-bool SmbRemote::upload(const std::string &root, const std::string &relPath,
-                       const std::string &localPath, const RemoteFileInfo *existing,
-                       std::string &outTag, std::string &outId)
+bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
+                        const std::string &localPath, std::string &outTag,
+                        std::string &outId)
 {
-    (void)existing;
-
     std::string remotePath = normalizeRemotePath(root + relPath);
     size_t slash = remotePath.rfind('/');
     if (slash != std::string::npos && !_mkdirs(remotePath.substr(0, slash)))
