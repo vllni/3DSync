@@ -102,8 +102,9 @@ SealCredentials=false
 ## 3DSync.ini
 
 The same servers written by hand. Replace `192.168.1.10` with `HOST_IP`.
-A file holds at most one section per remote type, but `[SMB]`, `[FTP]` and
-`[WebDAV]` can sit side by side and are synced in turn in one run.
+All of them can sit side by side and are synced together in one run. A second
+remote of a type takes a label: `[SMB:enc]` next to `[SMB]` covers both SMB
+shares at once (the README's "Several remotes" has `Role=` and `Only=`).
 
 ```ini
 [SMB]

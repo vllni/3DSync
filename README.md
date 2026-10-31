@@ -178,9 +178,44 @@ Password=<app password>
 Works with Nextcloud/ownCloud and any NAS with WebDAV enabled. Use an app
 password rather than your account password where the server offers one.
 
-Configure as many remotes as you like — each configured section is synced in
-turn against the same set of paths, and each keeps its own state in the
-manifest.
+### Several remotes
+
+Configure as many remotes as you like. Every file is decided once across all
+of them (see [Bidirectional Sync Logic](#bidirectional-sync-logic)), and each
+keeps its own state in the manifest.
+
+For a second remote of the same type, give its section a label after a colon,
+like `[SMB:Backup]`. It takes the same keys as the unnamed one. Two keys work in
+any remote section:
+
+- `Role=backup` makes a remote only ever receive. It is never the source of a
+  change and is never part of a conflict prompt, and files that exist only on
+  it are left alone. The default is `Role=sync`.
+- `Only=` lists the sync paths, by their names in `[Paths]`, that the remote
+  takes part in. Leave it out to sync every path. Separate names with commas
+  or spaces.
+
+```ini
+[Dropbox]                 ; syncs every path both ways
+AppKey=...
+RefreshToken=...
+
+[SMB:Backup]              ; a second SMB share: a copy of the saves only
+Server=192.168.1.10
+Share=backup
+User=...
+Password=...
+Role=backup
+Only=saves
+
+[Paths]
+saves=/roms/saves
+screenshots=/luma/screenshots
+```
+
+Labels are shown in lower case on the 3DS (`SMB (backup)`): the INI reader
+does not keep the case of section names. Renaming a label makes 3DSync treat
+that remote as new, so its first sync compares every file again.
 
 ### Sealed credentials
 
@@ -332,7 +367,8 @@ changed.
 ```
 
 Each key is the remote's identifier and the full local path, so several remotes
-can sync the same folder without overwriting each other's state. Manifests
+can sync the same folder without overwriting each other's state. A labelled
+remote's identifier ends in `#<label>` (`smb://192.168.1.10/backup#backup`). Manifests
 written by older versions (bare local paths, an `md5` field, no `local|` entries
 or `gen`) are read and upgraded automatically, and an older 3DSync can still
 read a newer manifest.
