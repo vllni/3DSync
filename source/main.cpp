@@ -695,6 +695,8 @@ static void runSync(const INIReader &reader)
         if (ui.cancelRequested())
             break;
         providers.push_back(std::unique_ptr<SyncProvider>(makeProvider(reader, config)));
+        if (providers.back())
+            providers.back()->setDisplayName(config.displayName());
         ActiveRemote remote = {providers.back().get(), config, config.displayName()};
         if (remote.provider && connectRemote(remote, summary))
             connected.push_back(remote);

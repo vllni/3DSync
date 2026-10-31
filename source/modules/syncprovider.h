@@ -31,10 +31,19 @@ public:
     // Short name for log lines, e.g. "Drive" or "SMB".
     virtual const char *name() const = 0;
 
+    // The name the user knows this remote by: "FTP (strict)" for a labelled
+    // one, as the summary and the prompts show it.  main sets it from the
+    // config; until then, and in the tests, it is name().
+    void setDisplayName(const std::string &displayName) { _displayName = displayName; }
+    std::string displayName() const
+    {
+        return _displayName.empty() ? std::string(name()) : _displayName;
+    }
+
     // Whether this backend is still experimental.  Defaults to true so a newly
     // added remote warns until someone has deliberately marked it stable: the
     // 3DS prints a notice with the issue tracker URL before syncing, and the
-    // docs badge it.  Only Google Drive returns false.
+    // docs badge it.  Every backend so far overrides it to false.
     virtual bool isExperimental() const { return true; }
 
     // Stable identifier for *this* remote, used to scope manifest keys so two
@@ -109,6 +118,9 @@ public:
     // Server clock as an RFC 3339 or RFC 7231 string, for skew detection.
     // "" when the provider does not report one.
     virtual std::string serverTime() const { return ""; }
+
+private:
+    std::string _displayName;
 };
 
 #endif

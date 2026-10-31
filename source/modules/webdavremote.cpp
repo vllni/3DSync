@@ -87,7 +87,7 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
 
         if (Curl::isCertificateError(curlRes))
         {
-            Curl::printCertificateHelp(name(), curlRes, true);
+            Curl::printCertificateHelp(displayName().c_str(), curlRes, true);
             _fatalError = true;
             return curlRes;
         }
@@ -146,7 +146,7 @@ bool WebDavRemote::connect()
     std::vector<DavEntry> entries;
     if (!_propfind("", "0", entries))
     {
-        printf("WebDAV: cannot reach %s\n", _baseUrl.c_str());
+        printf("WebDAV: cannot reach %s\n", urlWithoutCredentials(_baseUrl).c_str());
         return false;
     }
     return true;

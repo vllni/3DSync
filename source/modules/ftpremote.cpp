@@ -157,7 +157,7 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
             return res;
         case CURLE_PEER_FAILED_VERIFICATION:
         case CURLE_SSL_CACERT_BADFILE:
-            Curl::printCertificateHelp(name(), res, true);
+            Curl::printCertificateHelp(displayName().c_str(), res, true);
             _fatalError = true;
             return res;
         case CURLE_USE_SSL_FAILED:

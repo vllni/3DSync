@@ -161,7 +161,7 @@ int Dropbox::_performWithRetry(FILE *uploadFile, long expectedStatus)
 
         if (Curl::isCertificateError(curlRes))
         {
-            Curl::printCertificateHelp(name(), curlRes, false);
+            Curl::printCertificateHelp(displayName().c_str(), curlRes, false);
             _fatalError = true;
             return curlRes;
         }
