@@ -310,9 +310,10 @@ Password=&lt;app password&gt;</code></pre>
         </p>
 
         <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">
-          Configure as many remotes as you like &mdash; each is synced in turn against the same set of paths,
-          and each keeps its own state in the manifest. The configurator writes one remote per file; to use
-          several, copy their sections into one <code>3DSync.ini</code>.
+          Configure as many remotes as you like, several of one kind too: <code>[SMB:backup]</code> is a
+          second SMB remote, labelled <em>backup</em>. A save changed in one place reaches all the others in the
+          same sync. <code>Role=backup</code> makes a remote only receive copies, and <code>Only=saves, gba</code>
+          limits it to those folders. The configurator writes all of them into one file.
         </p>
       </div>
 

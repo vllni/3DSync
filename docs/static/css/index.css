@@ -12,9 +12,126 @@ main {
     font-size: 2rem;
 }
 
-/* --- Configurator: auth method tiles ---------------------------------- */
-/* A tile per backend; clicking one selects it (clicking it again clears the
-   choice) and the settings for the selected one appear below the grid. */
+/* --- Configurator: remotes ------------------------------------------- */
+/* The remotes added so far as a list, a tile per backend to add another, and
+   one editor below the tiles for the remote being added or changed. */
+.remotes-heading {
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.8;
+    margin: 18px 0 10px 0;
+}
+
+.remote-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.remote-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 6px 8px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
+.remote-row.editing {
+    border-color: #fff;
+    box-shadow: 0 0 0 2px #fff;
+}
+
+.remote-row-icon {
+    flex: none;
+    width: 28px;
+    text-align: center;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.remote-row-icon .material-icons {
+    font-size: 1.6rem;
+    vertical-align: middle;
+}
+
+.remote-row-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.remote-row-name {
+    font-weight: 500;
+}
+
+/* A server address or URL can be long; it is cut, not allowed to push the
+   buttons off the row. */
+.remote-row-detail {
+    font-size: 0.82em;
+    opacity: 0.75;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.role-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    vertical-align: 2px;
+}
+
+.remote-row-button {
+    flex: none;
+    padding: 0 8px;
+}
+
+.remote-editor {
+    display: none;
+    scroll-margin-top: 16px;
+}
+
+.remote-editor.open {
+    display: block;
+}
+
+.remote-editor-title {
+    font-size: 1.3rem;
+    margin: 0 0 12px 0;
+}
+
+.remote-editor-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.remote-editor-actions .auth-continue-hint {
+    margin-left: 4px;
+}
+
+.login-status {
+    display: inline-block;
+    margin-left: 12px;
+}
+
+.login-status:empty {
+    display: none;
+}
 .auth-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
@@ -62,28 +179,6 @@ main {
     box-shadow: 0 0 0 2px #fff;
 }
 
-.auth-radio {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.6);
-}
-
-.auth-tile.selected .auth-radio {
-    border-color: #fff;
-}
-
-.auth-tile.selected .auth-radio::after {
-    content: "";
-    position: absolute;
-    inset: 2px;
-    border-radius: 50%;
-    background: #fff;
-}
-
 .auth-icon {
     height: 40px;
     display: flex;
@@ -112,16 +207,6 @@ main {
     margin: 6px 0 0 0;
 }
 
-.auth-status {
-    font-size: 0.8em;
-    color: #b9f6ca;
-    min-height: 0;
-}
-
-.auth-status:empty {
-    display: none;
-}
-
 /* Phones: a compact list, icon on the left, so the settings below are not
    five screen-heights away. */
 @media (max-width: 600px) {
@@ -132,23 +217,16 @@ main {
 
     .auth-tile {
         display: grid;
-        grid-template-columns: 22px 32px 1fr;
+        grid-template-columns: 32px 1fr;
         grid-template-areas:
-            "radio icon title"
-            "radio icon subtitle"
-            "radio icon badge";
+            "icon title"
+            "icon subtitle"
+            "icon badge";
         align-items: center;
         text-align: left;
         column-gap: 10px;
         row-gap: 0;
         padding: 10px 12px;
-    }
-
-    .auth-radio {
-        position: relative;
-        top: auto;
-        left: auto;
-        grid-area: radio;
     }
 
     .auth-icon {
@@ -175,13 +253,17 @@ main {
         margin-top: 4px;
     }
 
-    .auth-status {
-        grid-area: badge;
-        justify-self: end;
-    }
-
     .auth-settings {
         padding: 14px;
+    }
+
+    .remote-row {
+        gap: 8px;
+        padding-left: 10px;
+    }
+
+    .remote-row-button {
+        padding: 0 4px;
     }
 
     /* Materialize buttons are one fixed-height line; let long labels wrap
@@ -417,4 +499,40 @@ main {
     text-decoration: underline;
     text-underline-offset: 3px;
     outline: none;
+}
+
+/* --- Configurator: remotes per folder ----------------------------------- */
+.routing-section {
+    display: none;
+}
+
+.routing-table {
+    overflow-x: auto;
+}
+
+.routing-table table {
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+.routing-table th,
+.routing-table td {
+    padding: 6px 10px;
+    white-space: nowrap;
+}
+
+.routing-table th:not(:first-child),
+.routing-table td:not(:first-child) {
+    text-align: center;
+}
+
+/* Materialize draws the box in the span's padding; with no text beside it,
+   the label must still be as tall as the box. */
+.routing-table label span {
+    padding-left: 18px;
+    height: 20px;
+}
+
+.routing-empty {
+    opacity: 0.75;
 }

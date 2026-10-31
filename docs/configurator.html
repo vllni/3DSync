@@ -33,8 +33,8 @@
     <div class="container">
       <div class="row">
         <div class="card-panel teal darken-3 white-text">
-          <span>Use this tool to generate the config file for 3DSync. Pick where to sync &mdash; Dropbox, Google
-            Drive, an SMB file server, FTP or WebDAV &mdash; configure your sync folders, then download the config
+          <span>Use this tool to generate the config file for 3DSync. Add the places to sync with &mdash; Dropbox,
+            Google Drive, SMB file servers, FTP or WebDAV, as many as you like &mdash; configure your sync folders, then download the config
             file and copy it to your 3DS SD card at: <strong style="font-weight: 700">/3ds/3DSync/3DSync.ini</strong>
             (create folders if not existing)</span>
         </div>
@@ -46,45 +46,42 @@
               <li class="step active">
                 <div class="step-title white-text">Choose where to sync</div>
                 <div class="step-content">
-                  <div class="auth-tiles" role="radiogroup" aria-label="Where to sync">
-                    <div class="auth-tile" data-provider="dropbox" role="radio" aria-checked="false" tabindex="0">
-                      <span class="auth-radio" aria-hidden="true"></span>
+                  <p class="white-text panel-intro">Add every place 3DSync should sync with. With more than one, a
+                    save changed in one place reaches all the others in the same sync.</p>
+                  <h6 class="white-text remotes-heading">Your remotes</h6>
+                  <div id="remote-list" class="remote-list"></div>
+                  <p class="white-text auth-empty" id="remote-list-empty">None yet &mdash; add one below.</p>
+                  <h6 class="white-text remotes-heading">Add a remote</h6>
+                  <div class="auth-tiles" role="group" aria-label="Add a remote">
+                    <div class="auth-tile" data-provider="dropbox" role="button" tabindex="0">
                       <span class="auth-icon"><i class="fa fa-dropbox"></i></span>
                       <span class="auth-title">Dropbox</span>
                       <span class="auth-subtitle">Log in with your Dropbox account</span>
-                      <span class="auth-status"></span>
                     </div>
-                    <div class="auth-tile" data-provider="googledrive" role="radio" aria-checked="false" tabindex="0">
-                      <span class="auth-radio" aria-hidden="true"></span>
+                    <div class="auth-tile" data-provider="googledrive" role="button" tabindex="0">
                       <span class="auth-icon"><i class="material-icons">add_to_drive</i></span>
                       <span class="auth-title">Google Drive</span>
                       <span class="auth-subtitle">Log in with your own Google Cloud app</span>
-                      <span class="auth-status"></span>
                     </div>
-                    <div class="auth-tile" data-provider="smb" role="radio" aria-checked="false" tabindex="0">
-                      <span class="auth-radio" aria-hidden="true"></span>
+                    <div class="auth-tile" data-provider="smb" role="button" tabindex="0">
                       <span class="auth-icon"><i class="material-icons">storage</i></span>
                       <span class="auth-title">SMB file server</span>
                       <span class="auth-subtitle">NAS or Windows share</span>
-                      <span class="auth-status"></span>
                     </div>
-                    <div class="auth-tile" data-provider="ftp" role="radio" aria-checked="false" tabindex="0">
-                      <span class="auth-radio" aria-hidden="true"></span>
+                    <div class="auth-tile" data-provider="ftp" role="button" tabindex="0">
                       <span class="auth-icon"><i class="material-icons">folder_shared</i></span>
                       <span class="auth-title">FTP / FTPS</span>
                       <span class="auth-subtitle">Any FTP server, TLS where offered</span>
-                      <span class="auth-status"></span>
                     </div>
-                    <div class="auth-tile" data-provider="webdav" role="radio" aria-checked="false" tabindex="0">
-                      <span class="auth-radio" aria-hidden="true"></span>
+                    <div class="auth-tile" data-provider="webdav" role="button" tabindex="0">
                       <span class="auth-icon"><i class="material-icons">cloud_queue</i></span>
                       <span class="auth-title">WebDAV</span>
                       <span class="auth-subtitle">Nextcloud, ownCloud, NAS</span>
-                      <span class="auth-status"></span>
                     </div>
                   </div>
-                  <p class="white-text auth-empty" id="auth-empty">Pick where 3DSync should sync your saves &mdash;
-                    the settings for it appear here.</p>
+
+                  <div class="remote-editor" id="remote-editor">
+                  <h5 class="white-text remote-editor-title" id="remote-editor-title"></h5>
 
                   <!-- Dropbox -->
                   <div class="auth-settings" data-provider="dropbox" id="auth-settings-dropbox">
@@ -101,6 +98,8 @@
                             rel="noopener noreferrer">Connected apps</a>.</span></p>
                       <a href="#" id="dropbox-login" class="btn blue darken-3"><i class="fa fa-dropbox left"></i> Login
                         with Dropbox</a>
+                      <span class="test-result login-status" id="login-status-dropbox" role="status"
+                        aria-live="polite"></span>
                       <div class="test-row">
                         <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="dropbox"><i
                             class="material-icons left">network_check</i>Test connection</a>
@@ -171,6 +170,8 @@
                       </div>
                       <a href="#" id="gdrive-login" class="btn blue darken-3"><i
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
+                      <span class="test-result login-status" id="login-status-googledrive" role="status"
+                        aria-live="polite"></span>
                       <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>3DSync is given access to your whole Drive. If the 3DS or its SD card goes missing,
                           remove that access under <a href="https://myaccount.google.com/connections" target="_blank"
                             rel="noopener noreferrer">Third-party apps &amp; services</a> &mdash; the token stops
@@ -381,6 +382,32 @@
                     </div>
                   </div>
 
+                  <!-- Every remote: label and role -->
+                  <div class="auth-settings active remote-meta">
+                    <div class="row">
+                      <div class="input-field col s12 m6">
+                        <input id="remote-label" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="remote-label" class="white-text">Label</label>
+                        <span class="helper-text white-text" data-error="" id="remote-label-hint"></span>
+                      </div>
+                      <div class="col s12 m6">
+                        <label class="white-text select-label" for="remote-role">Role</label>
+                        <select id="remote-role" class="browser-default dark-select">
+                          <option value="sync" selected>Sync &mdash; both ways</option>
+                          <option value="backup">Backup &mdash; only receives copies</option>
+                        </select>
+                      </div>
+                    </div>
+                    <p class="white-text field-note" id="remote-role-note"></p>
+                  </div>
+                  <div class="remote-editor-actions">
+                    <a href="#" class="btn white blue-text text-darken-3" id="remote-save">Save remote</a>
+                    <a href="#" class="btn-flat white-text" id="remote-cancel">Cancel</a>
+                    <span id="remote-editor-hint" class="white-text auth-continue-hint"></span>
+                  </div>
+                  </div>
+
                   <div class="card-panel blue darken-4 white-text remote-security-note">
                     <i class="material-icons left">lock_outline</i>
                     Everything here stays in this browser tab, and is forgotten when you close it. Nothing is sent
@@ -440,6 +467,13 @@
                   <div id="paths-custom">
                     <a href="#" class="btn-floating waves-effect waves-light green" id="add-custom-path"><i
                         class="material-icons">add</i></a>
+                  </div>
+                  <div id="routing-section" class="routing-section">
+                    <h4 class="white-text">Remotes per folder</h4>
+                    <p class="white-text panel-intro">Every remote syncs every folder; untick one to leave it out
+                      there.</p>
+                    <div id="routing-table" class="routing-table"></div>
+                    <p class="white-text field-note" id="routing-note"></p>
                   </div>
                   <h4 class="white-text">File Types</h4>
                   <div class="row">

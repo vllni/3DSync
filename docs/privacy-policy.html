@@ -46,7 +46,7 @@
     <div class="container white-text">
 
       <h3 class="white-text">Privacy Policy</h3>
-      <p class="last-updated white-text">Last updated: May 29, 2026</p>
+      <p class="last-updated white-text">Last updated: October 31, 2026</p>
 
       <p>
         This Privacy Policy describes how 3DSync ("the Application", "we", "us") handles information when
@@ -70,22 +70,23 @@
       </p>
       <ul class="browser-default">
         <li>
-          <strong>Google Drive:</strong> You are redirected to Google's own OAuth 2.0 consent screen.
-          Google issues an authorisation code which is exchanged directly from your browser for an access
-          token and a refresh token by calling <code>https://oauth2.googleapis.com/token</code>.
-          These tokens are stored in your browser's <code>localStorage</code> solely to assemble the config
-          file. They are never transmitted to any server controlled by the developer and remain until you clear
-          this site's data.
+          <strong>Google Drive:</strong> A login window opens on Google's own OAuth 2.0 consent screen.
+          Google issues an authorisation code, which the window hands back to the configurator page; the page
+          exchanges it directly from your browser for a refresh token by calling
+          <code>https://oauth2.googleapis.com/token</code>.
         </li>
         <li>
-          <strong>Dropbox:</strong> You are redirected to Dropbox's own OAuth 2.0 consent screen.
-          Dropbox returns an access token in the URL fragment. This token is read by the page, stored in
-          <code>localStorage</code> to assemble the config file, and is never sent anywhere else.
+          <strong>Dropbox:</strong> A login window opens on Dropbox's own OAuth 2.0 consent screen. Dropbox
+          issues an authorisation code, which the page exchanges directly from your browser for a refresh
+          token by calling <code>https://api.dropbox.com/oauth2/token</code>.
         </li>
       </ul>
       <p>
-        Once you click <em>Download</em>, the config file is saved to your computer. Tokens stored in
-        <code>localStorage</code> remain until you clear this site's data.
+        Tokens, passwords and the other settings you enter are kept only in the page's memory, solely to
+        assemble the config file. They are never transmitted to any server controlled by the developer, and
+        they are forgotten when you close or reload the page. The one value kept in your browser's
+        <code>localStorage</code> is a Dropbox app key you enter in expert mode, which is not a secret.
+        Once you click <em>Download</em>, the config file is saved to your computer.
       </p>
 
       <h4 class="white-text">3. Google API Services – Limited Use Disclosure</h4>
