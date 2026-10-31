@@ -52,7 +52,7 @@ struct Fixture
 
     bool run()
     {
-        // What recurse_dir would find right now.
+        // What listLocalFiles() would find right now.
         entry.localFiles.clear();
         if (local.exists(SAVE) || listSave)
             entry.localFiles.push_back(SAVE);

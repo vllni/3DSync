@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <malloc.h>
-#include <dirent.h>
 #include <sys/stat.h>
 #include <string>
 #include <vector>
@@ -31,53 +30,6 @@
 #include "utils/secrets.h"
 #include "utils/timeutil.h"
 #include "version.h"
-
-// ---------------------------------------------------------------------------
-// recurse_dir
-// ---------------------------------------------------------------------------
-std::vector<std::string> recurse_dir(std::string basepath, std::string additionalpath = "", bool recursive = true)
-{
-    std::vector<std::string> paths;
-    DIR *dir;
-    struct dirent *ent;
-    std::string path(basepath + additionalpath);
-    if ((dir = opendir(path.c_str())) != NULL)
-    {
-        while ((ent = readdir(dir)) != NULL)
-        {
-            std::string childAdditional = additionalpath + "/" + ent->d_name;
-            std::string childFull = basepath + childAdditional;
-            DIR *childDir = opendir(childFull.c_str());
-            if (childDir != NULL)
-            {
-                closedir(childDir);
-                if (recursive)
-                {
-                    std::vector<std::string> sub = recurse_dir(basepath, childAdditional, true);
-                    paths.insert(paths.end(), sub.begin(), sub.end());
-                }
-            }
-            else
-            {
-                paths.push_back(childAdditional);
-            }
-        }
-        closedir(dir);
-    }
-    else
-    {
-        // opendir also fails on a plain file, which is how a "Paths=" entry
-        // pointing at a single save is handled — hence no error in that case.
-        if (additionalpath != "")
-            paths.push_back(additionalpath);
-        else
-        {
-            printf("Folder %s not found\n", basepath.c_str());
-            debugErrno("opendir", path);
-        }
-    }
-    return paths;
-}
 
 // ---------------------------------------------------------------------------
 // getConfiguredSyncPaths
@@ -163,7 +115,7 @@ static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
         const ExtensionFilter &filter = entry.filter;
         // Filtered here as well as in performSync(): a provider's
         // legacyUpload() is handed this list and nothing else.
-        std::vector<std::string> found = recurse_dir(kv.second, "", recursive);
+        std::vector<std::string> found = listLocalFiles(kv.second, recursive);
         for (auto &f : found)
             if (filter.matches(f))
                 entry.localFiles.push_back(f);
@@ -387,6 +339,10 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
         if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))
             debugf("%s: stopped at the user's request\n", entry.remoteName.c_str());
         dropFailed();
+        // Kept per entry, so a crash or a flat battery later in the run loses
+        // this entry's records at most.  A failure is reported by the last
+        // save in runSync(), which tries again.
+        manifest.saveIfChanged();
 
         if (ui.cancelRequested())
         {
@@ -703,7 +659,7 @@ static void runSync(const INIReader &reader)
     }
     syncAllEntries(connected, syncEntries, manifest, summary, ui);
 
-    if (!manifest.save())
+    if (!manifest.saveIfChanged())
         printf(CONSOLE_RED "Sync state could not be saved — the next run will\n"
                "re-examine every file.\n" CONSOLE_RESET);
 

@@ -159,7 +159,7 @@ void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOp
     }
 }
 
-Curl::Curl() : _downloadFile(nullptr), _verifyTls(true)
+Curl::Curl() : _downloadFile(nullptr), _downloaded(0), _verifyTls(true)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
@@ -272,6 +272,9 @@ int Curl::perform()
 {
     _responseData.clear();
     _rawHeaders.clear();
+    // A retry must not append to what the previous attempt left in the file;
+    // FTP's retry loop never rewound it, and appended.
+    rewindDownloadFile();
 
     if (!_curl)
     {
@@ -380,6 +383,7 @@ void Curl::rewindDownloadFile()
         rewind(_downloadFile);
         ftruncate(fileno(_downloadFile), 0);
     }
+    _downloaded = 0;
 }
 
 void Curl::setPatch()
@@ -520,6 +524,7 @@ size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userda
     if (self->_downloadFile != nullptr)
     {
         size_t written = fwrite(data, size, nmemb, self->_downloadFile);
+        self->_downloaded += (long long)(written * size);
         // Returning less than asked aborts the transfer with CURLE_WRITE_ERROR,
         // which says nothing about the SD card being full or write-protected.
         if (written < nmemb)
