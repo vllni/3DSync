@@ -1067,6 +1067,16 @@ $(function () {
         });
     }
 
+    // 'upload' for a custom folder set to upload only; presets sync both ways.
+    function folderDirection(name) {
+        let direction = 'both';
+        $('#paths-custom input.path-custom').each(function () {
+            if ($('#' + $(this).attr('id') + '-n').val().trim().toLowerCase() === name.toLowerCase())
+                direction = $(this).closest('.row').find('.path-direction').val() || 'both';
+        });
+        return direction;
+    }
+
     function syncsFolder(remote, name) {
         return remotes.length < 2 || !(excluded[remote.uid] || {})[name.toLowerCase()];
     }
@@ -1083,7 +1093,15 @@ $(function () {
         let $body = $('<tbody></tbody>');
         names.forEach(function (name) {
             let $row = $('<tr></tr>').append($('<td></td>').text(name));
+            let uploadOnly = folderDirection(name) === 'upload';
             remotes.forEach(function (remote) {
+                // A source is never written to, so it has no part in an
+                // upload-only folder whatever is ticked.
+                if (uploadOnly && remote.role === 'source') {
+                    $row.append($('<td class="routing-na"></td>').text('—')
+                        .attr('title', displayName(remote) + ' is a source: nothing is uploaded to it'));
+                    return;
+                }
                 let $box = $('<input type="checkbox" class="filled-in">')
                     .prop('checked', syncsFolder(remote, name))
                     .attr('aria-label', name + ' on ' + displayName(remote))
@@ -1102,7 +1120,7 @@ $(function () {
         $('#routing-table').empty().append($table.append($body));
     }
 
-    $('#paths-presets, #paths-custom').on('input change', 'input', renderRouting);
+    $('#paths-presets, #paths-custom').on('input change', 'input, select', renderRouting);
 
     // The folders a remote is limited to, or null when it syncs all of them.
     function onlyFolders(remote) {

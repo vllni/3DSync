@@ -306,6 +306,7 @@ Backup=/3ds/MyGame
 - **LocalPath** is the absolute path on the SD card.
 - Bidirectional entries use a **manifest** (`/3ds/3DSync/manifest.json`) to detect which side changed.
 - Upload-only entries push the local file to every remote taking part and never download.
+  A `Role=source` remote is left out of them: 3DSync never writes to it.
 
 ### File type filter
 
