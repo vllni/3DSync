@@ -63,7 +63,9 @@ source/             C++ application source
     font.h, fontdata.cpp  Glyph tables; fontdata.cpp is generated
   libs/inih/        INI parser (inih + INIReader)
 tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
-tools/make_banner.py  Draws meta/banner_3ds.png (HOME Menu banner) from a bold font
+tools/make_banner.py  The HOME Menu banner: animated meta/banner_3ds.cgfx and the flat
+                    meta/banner_3ds.png, from one scene — see "HOME Menu banner"
+tools/fetch_pycgfx.sh  pycgfx at a pinned, hash-checked commit, for make_banner.py
 tests/              Host unit tests (see "Tests"), and preview.cpp
 testinfra/          Compose stack of SMB, FTP and WebDAV servers to sync a
                     real 3DS against; its README has the settings per case
@@ -366,6 +368,21 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 - A `release` event runs on the tag ref, which the `github-pages` environment refuses to deploy, so that trigger only re-dispatches the workflow on main.
 
 ---
+
+## HOME Menu banner (`meta/`, `tools/make_banner.py`)
+
+The CIA's banner is an animated 3D model, `meta/banner_3ds.cgfx`: the blue and red arrows run anticlockwise round "3DSync" along a sharp-cornered rectangle, one round per 6 s, turning each corner. `make FLAT_BANNER=1` builds with `meta/banner_3ds.png` instead, the same scene at time 0 — the way back when a banner freezes the HOME Menu (remove `build/3ds-arm/banner.bnr` first; make does not see the switch). Both are generated and committed, so a build needs no Python.
+
+To change it, edit the constants at the top of `make_banner.py`, then:
+
+```bash
+tools/fetch_pycgfx.sh /tmp/pycgfx          # pinned commit, hash-checked
+pip install gltflib                         # pycgfx needs it, and Python 3.12+
+tools/make_banner.py cgfx <font> /tmp/pycgfx meta/banner_3ds.cgfx
+tools/make_banner.py png  <font> meta/banner_3ds.png
+```
+
+The font is Lato Black (`fonts-lato`). pycgfx has no licence file: fetch it for each use, never commit it. 3dsDL (GPL — read it, do not copy from it) found on a console what keeps a banner from crashing or freezing the HOME Menu, and the script holds to each: rigid node animation only (the shaft is a chain of squares that only translate; only the heads rotate), every mesh's `mesh_node_name` set to its bone and mesh/shape names unique, every name table rebuilt and walked the way the console looks names up, no blended transparency (the wordmark is an alpha cut-out), under 512 KiB, and every part inside the camera's safe area in every frame. The script refuses to write a CGFX that breaks a rule it can check. **Test every change on a console before releasing it.**
 
 ## Licensing
 
