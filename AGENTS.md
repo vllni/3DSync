@@ -349,7 +349,7 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 - Step 3 previews the file with `IniFile.toIni(config, true)`, which masks passwords, secrets and tokens; the download uses `toIni(config, false)`.
 - OAuth flow: PKCE (S256), authorization code, refresh token stored in INI. Redirect URI is the configurator page, `https://3dsync.vllni.dev/configurator.html`.
 - All `target="_blank"` links must include `rel="noopener noreferrer"`.
-- The favicon is `docs/favicon.svg` (the two sync arrows from `meta/icon_3ds.png`, without the lettering, which is unreadable at 16 px). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) are rendered from it; regenerate both when it changes. Every page's `<head>` links all three.
+- The favicon is `docs/favicon.svg`, the logo's cloud and arrows on navy (see "Logo and HOME Menu artwork"). `favicon.ico` (16/32/48) and `apple-touch-icon.png` (180, opaque — iOS fills transparency with black) match it; replace all three together. Every page's `<head>` links all three.
 - INI generation is `toIni()` in `inifile.js`: lines that came before any section, then one section per remote in the order added (`[Type]` or `[Type:Label]`, then `Role=` and `Only=` where they apply), then the path sections, `[Filter]`, and the other kept sections.
 
 ## Pages and the Universal-Updater store
@@ -365,6 +365,19 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 - A `release` event runs on the tag ref, which the `github-pages` environment refuses to deploy, so that trigger only re-dispatches the workflow on main.
 
 ---
+
+## Logo and HOME Menu artwork (`meta/`)
+
+The logo is the "3DSYNC" wordmark in a cloud with an up and a down arrow; the icons are the cloud and arrows alone on navy. `meta/logo.svg` (transparent) and `meta/logo-on-navy.svg` are the vector sources; the rest are exported from them and committed as they are, at the sizes each place needs:
+
+| File | Size | Used for |
+|---|---|---|
+| `meta/banner_3ds.png` | 256 × 128 | HOME Menu banner (CIA) |
+| `meta/icon_3ds.png` | 48 × 48 | HOME Menu and Homebrew Launcher icon; bannertool makes the 24 × 24 one; `pages.yml` builds the Universal-Updater icon sheet from it |
+| `docs/favicon.svg`, `favicon.ico` (16/32/48) | | site favicon |
+| `docs/apple-touch-icon.png` | 180 × 180, opaque | iOS home screen (it fills transparency with black) |
+
+**The banner stays a flat PNG.** An animated 3D banner (a CGFX built from glTF with pycgfx, following 3dsDL's rules for rigid animation, named mesh nodes and resolvable name lookups) passed every check off-console and still crashed the system on a real 3DS as soon as 3DSync was selected. Do not try again without a way to test on hardware that does not cost the user a crashed console.
 
 ## Licensing
 
