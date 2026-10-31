@@ -364,6 +364,26 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
             continue;
         }
 
+        if (s.p->readOnly)
+        {
+            // Nothing is sent to it.  A change of its own that did not win is
+            // taken note of, so it is not raised again next run, while the
+            // generation stays the one it really holds: it is still behind.
+            if (s.changed)
+            {
+                ManifestEntry rec = {0, 0, s.file->tag, s.file->id, s.held};
+                manifest.set(s.key, rec);
+            }
+            else if (s.inManifest && s.rec.generation != s.held)
+            {
+                s.rec.generation = s.held; // an older record, now numbered
+                manifest.set(s.key, s.rec);
+            }
+            if (s.file == NULL || s.held < generation)
+                debugf("  %s is read-only, not sent this version\n", s.p->label.c_str());
+            continue;
+        }
+
         bool behind = s.file == NULL || s.held == 0 || s.held < generation;
         // A sink is only sent what it lacks; a change made on it is left alone.
         // Any other side that changed and is not the source lost a conflict.
@@ -413,6 +433,12 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
     {
         p.listed = false;
         p.files.clear();
+        if (uploadOnly && p.readOnly)
+        {
+            debugf("%s is read-only, left out of upload-only %s\n", p.label.c_str(),
+                   entry.remoteName.c_str());
+            continue;
+        }
         if (uploadOnly)
             p.sink = true;
         SyncProvider &provider = *p.provider;

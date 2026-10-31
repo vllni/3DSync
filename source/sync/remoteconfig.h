@@ -15,9 +15,12 @@
 // manifestScope()), so two shares on one server keep separate state.
 //
 // Two keys apply to any remote section:
-//   Role=sync|backup  backup only ever receives: it is never the source of a
+//   Role=sync|backup|source
+//                     backup only ever receives: it is never the source of a
 //                     change, is never asked about, and files only it holds
-//                     are left alone.  Default sync.
+//                     are left alone.  source is the reverse: it is never
+//                     written to, and a change made there reaches the 3DS and
+//                     every other remote.  Default sync.
 //   Only=saves, gba   the [Paths]-style names this remote takes part in.
 //                     Missing or empty: every one.  Commas and whitespace
 //                     separate, as in [Filter] Extensions=.
@@ -40,7 +43,8 @@ enum RemoteType
 enum RemoteRole
 {
     ROLE_SYNC,
-    ROLE_BACKUP
+    ROLE_BACKUP,
+    ROLE_SOURCE
 };
 
 struct RemoteConfig

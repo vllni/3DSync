@@ -197,13 +197,20 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
         }
 
         std::string role = lower(valueOf(values, section, "role"));
-        remote.role = role == "backup" ? ROLE_BACKUP : ROLE_SYNC;
-        if (!role.empty() && role != "sync" && role != "backup")
-            result.issues.push_back(issue(section, "Role= is not sync/backup",
-                                          {"Role= is neither sync nor backup in",
-                                           "  [" + section + "]",
-                                           "  It syncs both ways until that is fixed."},
-                                          false));
+        if (role == "backup")
+            remote.role = ROLE_BACKUP;
+        else if (role == "source")
+            remote.role = ROLE_SOURCE;
+        else
+        {
+            remote.role = ROLE_SYNC;
+            if (!role.empty() && role != "sync")
+                result.issues.push_back(issue(section, "Role= is not known",
+                                              {"Role= is not sync, backup or source in",
+                                               "  [" + section + "]",
+                                               "  It syncs both ways until that is fixed."},
+                                              false));
+        }
 
         remote.only = splitNames(valueOf(values, section, "only"));
         for (auto &name : remote.only)

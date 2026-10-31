@@ -157,7 +157,7 @@ $(function () {
             $row.append($('<span class="remote-row-icon" aria-hidden="true"></span>').html(TYPES[remote.type].icon));
             let $text = $('<span class="remote-row-text"></span>');
             let $name = $('<span class="remote-row-name"></span>').text(displayName(remote));
-            if (remote.role === 'backup') $name.append($('<span class="role-badge">backup</span>'));
+            if (remote.role !== 'sync') $name.append($('<span class="role-badge"></span>').text(remote.role));
             $text.append($name, $('<span class="remote-row-detail"></span>').text(remoteDetail(remote)));
             $row.append($text);
             let $edit = $('<a href="#" class="btn-flat white-text remote-row-button" title="Edit"><i class="material-icons">edit</i></a>')
@@ -308,10 +308,13 @@ $(function () {
     }
 
     function updateRoleNote() {
-        $('#remote-role-note').text($('#remote-role').val() === 'backup'
-            ? 'The 3DS only ever sends to it: nothing is downloaded from it, a change made there is never '
-            + 'asked about, and files only it has are left alone.'
-            : '');
+        let notes = {
+            backup: 'The 3DS only ever sends to it: nothing is downloaded from it, a change made there is never '
+                + 'asked about, and files only it has are left alone.',
+            source: 'The 3DS only ever takes from it: nothing is written there, and a change made there reaches '
+                + 'the 3DS and your other remotes. It takes no part in upload-only folders.'
+        };
+        $('#remote-role-note').text(notes[$('#remote-role').val()] || '');
     }
 
     $('#remote-role').on('change', updateRoleNote);
@@ -1110,6 +1113,14 @@ $(function () {
 
     // What keeps the routing from being written, or null.
     function routingProblem() {
+        // A source is never written to, so it takes no part in one.
+        for (let i = 0; i < paths.length; i++) {
+            let name = paths[i][0];
+            if (paths[i][3] === 'upload' &&
+                !remotes.some(function (r) { return r.role !== 'source' && syncsFolder(r, name); }))
+                return '"' + name + '" is upload-only, and a Source remote is never written to. '
+                    + 'Sync it both ways, or send it to another remote.';
+        }
         if (remotes.length < 2) return null;
         for (let i = 0; i < paths.length; i++) {
             let name = paths[i][0];
@@ -1139,7 +1150,7 @@ $(function () {
         remote.entries.forEach(function (kv) {
             lines.push(kv[0] + '=' + (masked && secret.test(kv[0]) ? '••••••••' : kv[1]));
         });
-        if (remote.role === 'backup') lines.push('Role=backup');
+        if (remote.role !== 'sync') lines.push('Role=' + remote.role);
         let only = onlyFolders(remote);
         if (only !== null) lines.push('Only=' + only.join(', '));
         return lines.join('\n') + '\n';
@@ -1290,7 +1301,10 @@ $(function () {
         renderRouting();
         let routing = error ? null : routingProblem();
         $('#routing-note').text(routing || '').toggleClass('warn', !!routing);
-        if (routing) error = true;
+        if (routing) {
+            $('#routing-section').show(); // hidden for a single remote
+            error = true;
+        }
         if (error === false) {
             $('#config-preview').text(getConfigString(true));
             stepperInstace.nextStep();

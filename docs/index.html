@@ -313,7 +313,8 @@ Password=&lt;app password&gt;</code></pre>
         <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">
           Configure as many remotes as you like, several of one kind too: <code>[SMB:backup]</code> is a
           second SMB remote, labelled <em>backup</em>. A save changed in one place reaches all the others in the
-          same sync. <code>Role=backup</code> makes a remote only receive copies, and <code>Only=saves, gba</code>
+          same sync. <code>Role=backup</code> makes a remote only receive copies, <code>Role=source</code> makes it
+          only send them, and <code>Only=saves, gba</code>
           limits it to those folders. The configurator writes all of them into one file.
         </p>
         <p style="margin-top:0.9rem;font-size:0.9em;opacity:0.85">

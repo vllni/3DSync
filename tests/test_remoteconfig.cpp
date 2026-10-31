@@ -113,6 +113,14 @@ TEST(remoteconfig, role_backup_makes_a_sink)
     CHECK(r.issues.empty());
 }
 
+TEST(remoteconfig, role_source_is_read_only)
+{
+    Values v = {{"webdav:pc=url", "https://h/"}, {"webdav:pc=role", "Source"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes[0].role, ROLE_SOURCE);
+    CHECK(r.issues.empty());
+}
+
 TEST(remoteconfig, an_unknown_role_syncs_both_ways_and_says_so)
 {
     Values v = {{"ftp=host", "h"}, {"ftp=role", "mirror"}};

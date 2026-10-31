@@ -134,6 +134,10 @@ struct Participant
     // about, and files that exist only there are left alone.  Every remote
     // is one for an upload-only entry.
     bool sink;
+    // The reverse: never written to.  A change made there is copied to the
+    // 3DS and every other side, but one made elsewhere never reaches it, and
+    // it takes no part in an upload-only entry.
+    bool readOnly;
 
     // Filled in by syncEntry().
     std::string root;
@@ -141,8 +145,9 @@ struct Participant
     bool listed;
 
     Participant(SyncProvider &p, const std::string &label, const std::string &keyPrefix,
-                bool sink = false)
-        : provider(&p), label(label), keyPrefix(keyPrefix), sink(sink), listed(false)
+                bool sink = false, bool readOnly = false)
+        : provider(&p), label(label), keyPrefix(keyPrefix), sink(sink), readOnly(readOnly),
+          listed(false)
     {
     }
 };

@@ -24,6 +24,7 @@ struct Fixture
     // Leave a remote out of the next run, as if it could not be reached.
     bool useA = true, useB = true, useC = true;
     bool sinkC = false;
+    bool readOnlyC = false;
     // Name the file to the engine even when the 3DS no longer has it.
     bool listSave = false;
 
@@ -60,7 +61,7 @@ struct Fixture
         if (useB)
             parts.push_back(Participant(b, "B", b.prefix));
         if (useC)
-            parts.push_back(Participant(c, "C", c.prefix, sinkC));
+            parts.push_back(Participant(c, "C", c.prefix, sinkC, readOnlyC));
         summary = SyncSummary();
         return syncEntry(parts, manifest, entry, summary, ui);
     }
@@ -337,6 +338,92 @@ TEST(nway, a_file_only_on_a_sink_is_not_fetched)
     CHECK(f.run());
     CHECK(!f.local.exists("/only-on-backup.sav"));
     CHECK_EQ(f.a.uploaded.size(), (size_t)0);
+}
+
+// C as a source: it holds v1, and the first run brings it to the 3DS, A and B.
+void syncedFromSource(Fixture &f)
+{
+    f.readOnlyC = true;
+    f.c.setRemote(SAVE, "v1");
+    CHECK(f.run());
+    CHECK_EQ(f.local.read(SAVE), std::string("v1"));
+    CHECK_EQ(f.a.files[SAVE].content, std::string("v1"));
+    CHECK_EQ(f.b.files[SAVE].content, std::string("v1"));
+    CHECK_EQ(f.c.uploaded.size(), (size_t)0);
+    f.clearCalls();
+}
+
+TEST(nway, a_change_on_a_source_reaches_every_side)
+{
+    Fixture f;
+    syncedFromSource(f);
+    f.c.setRemote(SAVE, "v2");
+
+    CHECK(f.run());
+    CHECK_EQ(f.ui.conflictsRaised.size(), (size_t)0);
+    CHECK_EQ(f.local.read(SAVE), std::string("v2"));
+    CHECK_EQ(f.a.files[SAVE].content, std::string("v2"));
+    CHECK_EQ(f.b.files[SAVE].content, std::string("v2"));
+    CHECK_EQ(f.c.uploaded.size(), (size_t)0);
+}
+
+TEST(nway, a_source_is_never_written_to)
+{
+    Fixture f;
+    syncedFromSource(f);
+    f.local.write(SAVE, "edited on the 3DS", 1700000100);
+
+    CHECK(f.run());
+    CHECK_EQ(f.a.files[SAVE].content, std::string("edited on the 3DS"));
+    CHECK_EQ(f.b.files[SAVE].content, std::string("edited on the 3DS"));
+    CHECK_EQ(f.c.uploaded.size(), (size_t)0);
+    CHECK_EQ(f.c.files[SAVE].content, std::string("v1"));
+
+    // Being behind is its normal state, not something to raise or retry.
+    f.clearCalls();
+    CHECK(f.run());
+    CHECK_EQ(f.ui.conflictsRaised.size(), (size_t)0);
+    CHECK_EQ(f.a.uploaded.size() + f.b.uploaded.size() + f.c.uploaded.size(), (size_t)0);
+    CHECK_EQ(f.local.read(SAVE), std::string("edited on the 3DS"));
+}
+
+TEST(nway, a_source_changed_after_a_3ds_edit_is_a_conflict)
+{
+    Fixture f;
+    syncedFromSource(f);
+    f.local.write(SAVE, "edited on the 3DS", 1700000100);
+    CHECK(f.run());
+    f.clearCalls();
+
+    // Its edit started from v1, not from the 3DS's version.
+    f.c.setRemote(SAVE, "edited on the source");
+    f.ui.answers = {"3DS"};
+    CHECK(f.run());
+    CHECK_EQ(f.ui.sidesOffered.size(), (size_t)1);
+    CHECK(f.ui.sidesOffered[0] == std::vector<std::string>({"3DS", "C"}));
+    CHECK_EQ(f.local.read(SAVE), std::string("edited on the 3DS"));
+    CHECK_EQ(f.c.uploaded.size(), (size_t)0);
+
+    // Answered once: the lost edit is not raised again.
+    f.clearCalls();
+    CHECK(f.run());
+    CHECK_EQ(f.ui.conflictsRaised.size(), (size_t)0);
+    CHECK_EQ(f.local.read(SAVE), std::string("edited on the 3DS"));
+}
+
+TEST(nway, a_source_takes_no_part_in_an_upload_only_entry)
+{
+    Fixture f;
+    f.readOnlyC = true;
+    f.entry.direction = SYNC_UPLOAD_ONLY;
+    f.local.write(SAVE, "v1", 1700000000);
+    f.c.setRemote("/only-on-source.sav", "src");
+
+    CHECK(f.run());
+    CHECK_EQ(f.a.files[SAVE].content, std::string("v1"));
+    CHECK_EQ(f.c.listCalls, 0);
+    CHECK_EQ(f.c.uploaded.size(), (size_t)0);
+    CHECK(!f.local.exists("/only-on-source.sav"));
 }
 
 TEST(nway, restoring_a_deleted_file_does_not_resend_it)
