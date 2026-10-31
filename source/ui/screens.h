@@ -68,7 +68,8 @@ enum ScreenMode
     SCREEN_MENU,     // waiting for A / Y / START
     SCREEN_RUNNING,  // a sync is in progress
     SCREEN_CONFLICT, // the engine is waiting for a conflict answer
-    SCREEN_SAVE_LOG  // end of a debug run: keep the transcript or not
+    SCREEN_SAVE_LOG, // end of a debug run: keep the transcript or not
+    SCREEN_CONFIG_ISSUES // at startup: 3DSync.ini has problems; go on or exit
 };
 
 struct BottomModel
@@ -84,6 +85,7 @@ struct BottomModel
     std::string fileFilter; // "all files" or ".sav .bin"; "" reads as all
     std::string lastResult; // "" before the first run
     bool lastResultOk;
+    int configIssueCount; // the header says "Check config" while non-zero
 
     // SCREEN_RUNNING
     std::string provider;
@@ -105,6 +107,11 @@ struct BottomModel
     // SCREEN_SAVE_LOG
     unsigned logKilobytes;
     bool logTrimmed;
+
+    // SCREEN_CONFIG_ISSUES: every line of every problem, as printed to the
+    // log (a line without indent starts one), and the first row shown.
+    std::vector<std::string> configIssueLines;
+    int configScroll;
 
     // Keys currently down, physically or by touch: drawn pressed.
     uint32_t heldKeys;
@@ -145,6 +152,20 @@ const Rect STRIP_DOWN = {282, 204, 34, 32};
 
 // Every touch target for this model, the scroll arrows included.
 std::vector<Button> bottomButtons(const BottomModel &m);
+
+// The config problems wrapped to the card: what SCREEN_CONFIG_ISSUES shows,
+// CONFIG_ISSUE_ROWS at a time from configScroll.  While it is open every
+// scroll control moves it instead of the log.
+struct ConfigIssueRow
+{
+    std::string text;
+    bool heading; // the first line of a problem
+};
+const int CONFIG_ISSUE_ROWS = 8;
+std::vector<ConfigIssueRow> configIssueRows(const BottomModel &m);
+// configScroll moved by rows (or set from a fraction of the range, when
+// fraction >= 0) and kept in range.
+int configScrollTo(const BottomModel &m, int rows, float fraction);
 
 // Whether the bottom screen shows the conflict list, whose D-pad Up/Down are
 // the list's rather than the log's.

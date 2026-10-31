@@ -59,22 +59,30 @@ struct RemoteConfig
     bool syncs(const std::string &entryName) const;
 };
 
+// Something in a remote section the user has to fix.  Shown before a sync
+// starts, so a remote that is set up wrongly never just goes missing.
+struct ConfigIssue
+{
+    std::string section; // as INIReader keys it: "smb:enc"
+    // One line for the bottom screen, at most about 40 characters:
+    // "[smb:enc] needs Share=".
+    std::string brief;
+    // For the log: what is wrong and what to do, each line under 50
+    // columns, the first unindented.
+    std::vector<std::string> lines;
+    // The remote is not synced at all, rather than synced with a default.
+    bool leftOut;
+};
+
 struct RemoteConfigs
 {
     // Configured remotes in connect order: by type (Dropbox, Drive, SMB,
     // FTP, WebDAV), the unnamed one of a type before its labelled ones.
     std::vector<RemoteConfig> remotes;
-    // Mistakes worth telling the user about, each already split into console
-    // lines under 50 columns, the first unindented.
-    std::vector<std::vector<std::string> > warnings;
-    // Sections meant as remotes but left out, an unknown type or an empty
-    // label ("smbx:nas").  Each also has a warning; the run lists them as
-    // not synced, so the summary does not pass over them.
-    std::vector<std::string> ignored;
-    // Remote sections left out for lack of their required keys ("smb:enc").
-    // Not a warning: the configurator writes a section only once it is filled
-    // in, so an empty one is someone's work in progress.  For debug output.
-    std::vector<std::string> incomplete;
+    // In section order.  A remote section missing a required key, one of an
+    // unknown type behind a ':', an empty label, a bad Role= and an Only=
+    // naming no configured path.
+    std::vector<ConfigIssue> issues;
 };
 
 // values: INIReader::GetValues(), keyed "section=key".  entryNames: the names

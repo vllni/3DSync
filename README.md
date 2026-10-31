@@ -38,6 +38,7 @@ label says which, so either works:
 | During a sync | **START** stops after the current file |
 | Conflict | The versions that changed are listed; **A** keeps the highlighted one (the 3DS's at first). Tap a version, or move to it with **R** or **D-pad ↑/↓**. **X** skips the file, **L** applies the answer to every remaining conflict, **START** stops. The log still scrolls with ←/→, the Circle Pad and the scroll strip |
 | End of a debug run | **A** save the log, **B** discard it |
+| Problems in 3DSync.ini, at startup | **A** continue to the menu, **START** exit; the list scrolls like the log |
 
 The log can be scrolled at any time, including while a sync is running:
 **D-pad ↑/↓** one line (hold to keep going), **D-pad ←/→** one page, the
@@ -216,6 +217,17 @@ screenshots=/luma/screenshots
 Labels are shown in lower case on the 3DS (`SMB (backup)`): the INI reader
 does not keep the case of section names. Renaming a label makes 3DSync treat
 that remote as new, so its first sync compares every file again.
+
+### Problems in 3DSync.ini
+
+On startup 3DSync checks the file, and if something is wrong it lists every
+problem, with what to do, before the main menu: a remote missing a setting
+(`[SMB]` without `Share=`), a remote with no login, a misspelled remote type, a
+`Role=` or `Only=` that does not make sense, a password sealed on another
+console, or a line the file cannot be read at. Press **A** to continue anyway
+or **START** to exit and fix the file. A remote that cannot be used is left out
+of every sync, listed under "Not synced" in the summary, and the menu shows
+**Check config** until the file is fixed.
 
 ### Sealed credentials
 

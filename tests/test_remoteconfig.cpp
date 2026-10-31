@@ -35,7 +35,7 @@ TEST(remoteconfig, an_unnamed_section_is_the_remote_it_always_was)
     CHECK_EQ(r.remotes[0].role, ROLE_SYNC);
     // Its manifest records are the ones it already has.
     CHECK_STR_EQ(manifestScope(r.remotes[0], "smb://nas/3ds"), "smb://nas/3ds");
-    CHECK(r.warnings.empty());
+    CHECK(r.issues.empty());
 }
 
 TEST(remoteconfig, a_label_makes_a_second_remote_of_the_same_type)
@@ -67,13 +67,32 @@ TEST(remoteconfig, every_type_is_recognised_in_connect_order)
     CHECK_STR_EQ(remoteNames(r.remotes), "Dropbox (work), Drive, SMB, FTP (x), WebDAV");
 }
 
-TEST(remoteconfig, an_incomplete_section_is_left_out_quietly)
+TEST(remoteconfig, an_incomplete_section_is_an_issue_naming_the_key)
 {
     Values v = {{"smb:enc=server", "nas"}, {"ftp=port", "21"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK(r.remotes.empty());
-    CHECK(r.warnings.empty());
-    CHECK_EQ(r.incomplete.size(), (size_t)2);
+    CHECK_EQ(r.issues.size(), (size_t)2);
+    // Section order: "ftp" before "smb:enc".
+    CHECK_STR_EQ(r.issues[0].brief, "[ftp] needs Host=");
+    CHECK_STR_EQ(r.issues[1].brief, "[smb:enc] needs Share=");
+    CHECK(r.issues[0].leftOut && r.issues[1].leftOut);
+    CHECK(joined(r.issues[1].lines).find("Add Share=") != std::string::npos);
+}
+
+TEST(remoteconfig, each_type_names_what_it_lacks)
+{
+    Values v = {{"smb=user", "u"},
+                {"dropbox=appkey", "k"},
+                {"googledrive:b=clientid", "c"},
+                {"webdav=user", "u"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.issues.size(), (size_t)4);
+    std::string all;
+    for (auto &i : r.issues)
+        all += i.brief + "|";
+    CHECK_STR_EQ(all, "[dropbox] needs a login|[googledrive:b] needs a login|"
+                      "[smb] needs Server=, Share=|[webdav] needs Url=|");
 }
 
 TEST(remoteconfig, other_sections_are_not_remotes)
@@ -83,7 +102,7 @@ TEST(remoteconfig, other_sections_are_not_remotes)
                 {"security=sealcredentials", "false"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK(r.remotes.empty());
-    CHECK(r.warnings.empty());
+    CHECK(r.issues.empty());
 }
 
 TEST(remoteconfig, role_backup_makes_a_sink)
@@ -91,7 +110,7 @@ TEST(remoteconfig, role_backup_makes_a_sink)
     Values v = {{"ftp:backup=host", "h"}, {"ftp:backup=role", "Backup"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK_EQ(r.remotes[0].role, ROLE_BACKUP);
-    CHECK(r.warnings.empty());
+    CHECK(r.issues.empty());
 }
 
 TEST(remoteconfig, an_unknown_role_syncs_both_ways_and_says_so)
@@ -99,8 +118,10 @@ TEST(remoteconfig, an_unknown_role_syncs_both_ways_and_says_so)
     Values v = {{"ftp=host", "h"}, {"ftp=role", "mirror"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK_EQ(r.remotes[0].role, ROLE_SYNC);
-    CHECK_EQ(r.warnings.size(), (size_t)1);
-    CHECK(joined(r.warnings[0]).find("[ftp]") != std::string::npos);
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK(joined(r.issues[0].lines).find("[ftp]") != std::string::npos);
+    // It still syncs, so it is not one that is left out.
+    CHECK(!r.issues[0].leftOut);
 }
 
 TEST(remoteconfig, only_limits_the_entries)
@@ -110,7 +131,7 @@ TEST(remoteconfig, only_limits_the_entries)
     CHECK(r.remotes[0].syncs("saves"));
     CHECK(r.remotes[0].syncs("SAVES"));
     CHECK(!r.remotes[0].syncs("gba"));
-    CHECK(r.warnings.empty());
+    CHECK(r.issues.empty());
 }
 
 TEST(remoteconfig, only_splits_on_commas_and_whitespace)
@@ -133,36 +154,44 @@ TEST(remoteconfig, only_naming_a_missing_path_is_a_warning)
 {
     Values v = {{"webdav=url", "u"}, {"webdav=only", "saves, savs"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
-    CHECK_EQ(r.warnings.size(), (size_t)1);
-    CHECK(joined(r.warnings[0]).find("savs") != std::string::npos);
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK(joined(r.issues[0].lines).find("savs") != std::string::npos);
+    CHECK(!r.issues[0].leftOut);
     // The remote still syncs what it names correctly.
     CHECK(r.remotes[0].syncs("saves"));
 }
 
-TEST(remoteconfig, unknown_and_empty_labelled_sections_are_warnings)
+TEST(remoteconfig, unknown_and_empty_labelled_sections_are_issues)
 {
     Values v = {{"smbx:nas=server", "nas"}, {"smb:=server", "nas"}, {"smb:=share", "s"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK(r.remotes.empty());
-    CHECK_EQ(r.warnings.size(), (size_t)2);
-    // Listed for the summary too: a remote the user meant is not syncing.
-    CHECK_EQ(r.ignored.size(), (size_t)2);
+    CHECK_EQ(r.issues.size(), (size_t)2);
+    // A remote the user meant is not syncing.
+    CHECK(r.issues[0].leftOut && r.issues[1].leftOut);
 }
 
-TEST(remoteconfig, warnings_fit_the_log)
+TEST(remoteconfig, issues_fit_the_screens)
 {
     Values v = {{"smbx:nas=server", "nas"},
                 {"smb:=server", "nas"},
+                {"smb:b=user", "u"},
+                {"dropbox=appkey", "k"},
+                {"webdav=user", "u"},
                 {"ftp=host", "h"},
                 {"ftp=role", "mirror"},
                 {"ftp=only", "nothere"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
-    CHECK_EQ(r.warnings.size(), (size_t)4);
-    for (auto &w : r.warnings)
-        for (size_t i = 0; i < w.size(); i++)
+    CHECK_EQ(r.issues.size(), (size_t)7);
+    for (auto &issue : r.issues)
+    {
+        // Short labels stay on one line of the bottom screen's list.
+        CHECK(issue.brief.size() <= 40);
+        for (size_t i = 0; i < issue.lines.size(); i++)
         {
-            CHECK(w[i].size() < 50);
+            CHECK(issue.lines[i].size() < 50);
             // The first line starts the message, the rest are indented.
-            CHECK_EQ(w[i].compare(0, 2, "  ") == 0, i > 0);
+            CHECK_EQ(issue.lines[i].compare(0, 2, "  ") == 0, i > 0);
         }
+    }
 }

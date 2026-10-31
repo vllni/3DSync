@@ -112,12 +112,17 @@ static std::string g_drawnBottom;
 // costs a few milliseconds, comparing this costs nothing.
 static std::string signature(const BottomModel &m)
 {
-    char buf[160];
-    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%d|%lx|%u|%u|%u|%d|%d|%d", m.mode,
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%d|%lx|%u|%u|%u|%d|%d|%d|%d|%d|%u",
+             m.mode,
              m.debugRun, m.starting, m.configLoaded, m.pathCount, m.elapsedSeconds, m.spinnerFrame,
              m.cancelling, m.applyToAll, m.logKilobytes, m.logTrimmed,
              (unsigned long)m.heldKeys, (unsigned)m.logFirst, (unsigned)m.logEnd,
-             (unsigned)m.logTop, m.lastResultOk, m.logVisible, m.conflictPick);
+             (unsigned)m.logTop, m.lastResultOk, m.logVisible, m.conflictPick,
+             m.configIssueCount, m.configScroll,
+             // The problem lines are set once at startup and never change
+             // while shown, so their count stands in for them.
+             (unsigned)m.configIssueLines.size());
     std::string sides;
     for (auto &side : m.conflictSides)
         sides += side + "|";
@@ -227,15 +232,39 @@ static bool frame(u32 &pressed)
         g_circleCarry = 0;
 
     LightLock_Lock(&g_logLock);
-    if (t.dragging)
-        g_scroll.scrollToFraction(g_log, t.dragFraction);
-    else if (rows != 0)
-        g_scroll.scrollBy(g_log, rows);
+    if (m.mode == SCREEN_CONFIG_ISSUES)
+    {
+        // The problems at startup take every scroll control: they are what
+        // the user has to read, and the log above only repeats them.  The
+        // strip shows the card's position instead of the log's.
+        int top = configScrollTo(m, (int)rows, t.dragging ? t.dragFraction : -1.0f);
+        if (top != m.configScroll)
+        {
+            LightLock_Lock(&g_stateLock);
+            g_shared.configScroll = top;
+            LightLock_Unlock(&g_stateLock);
+            m.configScroll = top;
+        }
+        m.logFirst = 0;
+        m.logEnd = configIssueRows(m).size();
+        m.logTop = top;
+        m.logVisible = CONFIG_ISSUE_ROWS;
+    }
+    else
+    {
+        if (t.dragging)
+            g_scroll.scrollToFraction(g_log, t.dragFraction);
+        else if (rows != 0)
+            g_scroll.scrollBy(g_log, rows);
+    }
     g_scroll.update(g_log);
-    m.logFirst = g_log.firstRow();
-    m.logEnd = g_log.endRow();
-    m.logTop = g_scroll.top();
-    m.logVisible = g_scroll.visibleRows();
+    if (m.mode != SCREEN_CONFIG_ISSUES)
+    {
+        m.logFirst = g_log.firstRow();
+        m.logEnd = g_log.endRow();
+        m.logTop = g_scroll.top();
+        m.logVisible = g_scroll.visibleRows();
+    }
     LightLock_Unlock(&g_logLock);
 
     m.heldKeys = (held & ~KEY_TOUCH) | t.held;
@@ -274,9 +303,10 @@ void exit()
 }
 
 void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
-                 const std::string &fileFilter)
+                 const std::string &fileFilter, int configIssueCount)
 {
     LightLock_Lock(&g_stateLock);
+    g_shared.configIssueCount = configIssueCount;
     g_shared.starting = false;
     g_shared.configLoaded = configLoaded;
     g_shared.remotes = remotes;
@@ -288,6 +318,34 @@ void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
 // ---------------------------------------------------------------------------
 // Menu
 // ---------------------------------------------------------------------------
+bool showConfigIssues(const std::vector<std::string> &lines, int count)
+{
+    LightLock_Lock(&g_stateLock);
+    g_shared.configIssueLines = lines;
+    g_shared.configIssueCount = count;
+    g_shared.configScroll = 0;
+    g_shared.mode = SCREEN_CONFIG_ISSUES;
+    LightLock_Unlock(&g_stateLock);
+
+    bool go = false;
+    u32 keys;
+    while (frame(keys))
+    {
+        if (keys & KEY_A)
+        {
+            go = true;
+            break;
+        }
+        if (keys & KEY_START)
+            break;
+    }
+
+    LightLock_Lock(&g_stateLock);
+    g_shared.mode = SCREEN_MENU;
+    LightLock_Unlock(&g_stateLock);
+    return go;
+}
+
 MenuChoice waitForMenu()
 {
     LightLock_Lock(&g_stateLock);

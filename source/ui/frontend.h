@@ -28,8 +28,14 @@ void exit();
 
 // What the idle screen says about the configuration.  fileFilter is
 // ExtensionFilter::describe(): "all files" or ".sav .bin".
+// configIssueCount: problems found in 3DSync.ini, for the menu's header.
 void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
-                 const std::string &fileFilter);
+                 const std::string &fileFilter, int configIssueCount);
+
+// At startup, when 3DSync.ini has problems: every line of them, scrollable,
+// on the bottom screen (count is how many problems).  True to go on to the
+// menu, false to exit.  Runs on the main thread, like waitForMenu().
+bool showConfigIssues(const std::vector<std::string> &lines, int count);
 
 enum MenuChoice
 {

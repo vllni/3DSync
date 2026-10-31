@@ -397,6 +397,8 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
 static std::vector<std::string> g_initLog;
 // Credentials loadConfig() opened from their sealed form, as "section=name".
 static std::set<std::string> g_unsealedFields;
+// Sealed values loadConfig() could not open, for configIssues().
+static std::vector<ConfigIssue> g_sealIssues;
 
 static void initStep(const char *what, Result res)
 {
@@ -578,6 +580,45 @@ static SyncProvider *makeProvider(const INIReader &reader, const RemoteConfig &r
 }
 
 // ---------------------------------------------------------------------------
+// configIssues  — everything in 3DSync.ini the user has to fix
+// ---------------------------------------------------------------------------
+// The INI is read once, at startup, so this is too: main() shows it before the
+// menu, and every run repeats it in the log, where a saved debug log keeps it.
+// ---------------------------------------------------------------------------
+static std::vector<ConfigIssue> configIssues(const INIReader &reader,
+                                             const RemoteConfigs &remotes)
+{
+    std::vector<ConfigIssue> issues;
+    if (reader.ParseError() > 0)
+    {
+        // inih skips the line and reads on, so whatever was on it is missing.
+        char line[48];
+        snprintf(line, sizeof(line), "  Line %d was skipped; check its", reader.ParseError());
+        ConfigIssue issue;
+        issue.brief = "3DSync.ini has a syntax error";
+        issue.lines = {"3DSync.ini has a syntax error:", line,
+                       "  [Section] or Key=value form."};
+        issue.leftOut = false;
+        issues.push_back(issue);
+    }
+    issues.insert(issues.end(), g_sealIssues.begin(), g_sealIssues.end());
+    issues.insert(issues.end(), remotes.issues.begin(), remotes.issues.end());
+    return issues;
+}
+
+static void printConfigIssues(const std::vector<ConfigIssue> &issues)
+{
+    for (auto &issue : issues)
+    {
+        printf(CONSOLE_YELLOW "%s" CONSOLE_RESET "\n", issue.lines[0].c_str());
+        for (size_t i = 1; i < issue.lines.size(); i++)
+            printf("%s\n", issue.lines[i].c_str());
+    }
+    if (!issues.empty())
+        printf("\n");
+}
+
+// ---------------------------------------------------------------------------
 // runSync  — one full sync pass, on the frontend's worker thread
 // ---------------------------------------------------------------------------
 static void runSync(const INIReader &reader)
@@ -594,14 +635,8 @@ static void runSync(const INIReader &reader)
     }
 
     RemoteConfigs remotes = configuredRemotes(reader);
-    for (auto &warning : remotes.warnings)
-    {
-        printf(CONSOLE_YELLOW "%s" CONSOLE_RESET "\n", warning[0].c_str());
-        for (size_t i = 1; i < warning.size(); i++)
-            printf("%s\n", warning[i].c_str());
-    }
-    for (auto &section : remotes.incomplete)
-        debugf("[%s] lacks the settings a remote needs, left out\n", section.c_str());
+    std::vector<ConfigIssue> issues = configIssues(reader, remotes);
+    printConfigIssues(issues);
     debugf("remotes configured: %s\n", remoteNames(remotes.remotes).c_str());
 
     if (remotes.remotes.empty())
@@ -631,9 +666,10 @@ static void runSync(const INIReader &reader)
     manifest.load();
     SyncSummary summary;
 
-    // A section meant as a remote that cannot be one is a remote not synced.
-    for (auto &section : remotes.ignored)
-        summary.problems.push_back("[" + section + "] (ignored)");
+    // A remote the user meant to have that is left out is a remote not synced.
+    for (auto &issue : issues)
+        if (issue.leftOut)
+            summary.problems.push_back(issue.brief);
 
     // In the order the menu card names them.
     std::vector<std::unique_ptr<SyncProvider> > providers;
@@ -751,13 +787,19 @@ static INIReader loadConfig()
             continue;
         }
         // Never hand the provider the sealed text as if it were the secret:
-        // clear it, so the remote reads as unconfigured, and say why.
+        // clear it, so the remote reads as unconfigured, and say why — in
+        // the startup check, with everything else wrong in the file.
         reader.Set(section, name, "");
-        printf(CONSOLE_RED "3DSync.ini: [%s] %s cannot be opened\n" CONSOLE_RESET
-               "here. It was sealed on another console (or this\n"
-               "one was reset). Paste the plain value back into\n"
-               "the file, or make a new one with the configurator.\n\n",
-               section.c_str(), name.c_str());
+        ConfigIssue issue;
+        issue.section = section;
+        issue.brief = "[" + section + "] " + name + "= won't open";
+        issue.lines = {"A sealed value cannot be opened here:", "  [" + section + "] " + name,
+                       "  It was sealed on another console, or",
+                       "  this one was reset. Paste the plain",
+                       "  value back, or make a new file with",
+                       "  the configurator."};
+        issue.leftOut = false;
+        g_sealIssues.push_back(issue);
     }
     return reader;
 }
@@ -793,8 +835,27 @@ int main(int argc, char **argv)
     INIReader reader = loadConfig();
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
-    frontend::setMenuInfo(reader.ParseError() >= 0, remoteNames(configuredRemotes(reader).remotes),
-                          countSyncPaths(reader), configuredFilter(reader).describe());
+    RemoteConfigs remotes = configuredRemotes(reader);
+    std::vector<ConfigIssue> issues =
+        reader.ParseError() >= 0 ? configIssues(reader, remotes) : std::vector<ConfigIssue>();
+    frontend::setMenuInfo(reader.ParseError() >= 0, remoteNames(remotes.remotes),
+                          countSyncPaths(reader), configuredFilter(reader).describe(),
+                          (int)issues.size());
+
+    // Said once, before the menu: a remote that is set up wrongly is left out
+    // of every sync, which nothing else on screen would explain.
+    if (!issues.empty())
+    {
+        printConfigIssues(issues);
+        std::vector<std::string> lines;
+        for (auto &issue : issues)
+            lines.insert(lines.end(), issue.lines.begin(), issue.lines.end());
+        if (!frontend::showConfigIssues(lines, (int)issues.size()))
+        {
+            componentsExit();
+            return 0;
+        }
+    }
 
     while (true)
     {

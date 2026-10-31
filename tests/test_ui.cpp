@@ -365,6 +365,42 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 << 1 | K_X | K_L | K_START | scroll);
     m.mode = SCREEN_SAVE_LOG;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
+    m.mode = SCREEN_CONFIG_ISSUES;
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_START | scroll);
+}
+
+TEST(layout, config_issues_wrap_into_rows_with_a_gap_between_problems)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFIG_ISSUES;
+    m.configIssueLines = {"A remote is missing a setting:", "  [smb:enc]",
+                          "  Add Share= (the share name).", "A remote has no login:",
+                          "  [dropbox]"};
+    std::vector<ConfigIssueRow> rows = configIssueRows(m);
+    CHECK_EQ(rows.size(), (size_t)6);
+    CHECK(rows[0].heading);
+    CHECK(!rows[1].heading);
+    CHECK_STR_EQ(rows[3].text, ""); // the gap
+    CHECK(rows[4].heading);
+}
+
+TEST(layout, config_issues_scroll_within_their_rows)
+{
+    BottomModel m;
+    m.mode = SCREEN_CONFIG_ISSUES;
+    for (int i = 0; i < 5; i++)
+        m.configIssueLines.insert(m.configIssueLines.end(),
+                                  {"A remote is missing a setting:", "  [smb]", "  Add Share=."});
+    int total = (int)configIssueRows(m).size(); // 5 x 3 + 4 gaps
+    CHECK_EQ(total, 19);
+    CHECK_EQ(configScrollTo(m, -3, -1), 0);
+    CHECK_EQ(configScrollTo(m, 5, -1), 5);
+    CHECK_EQ(configScrollTo(m, 100, -1), total - CONFIG_ISSUE_ROWS);
+    CHECK_EQ(configScrollTo(m, 0, 1.0f), total - CONFIG_ISSUE_ROWS);
+    CHECK_EQ(configScrollTo(m, 0, 0.0f), 0);
+    // Fewer rows than fit: nothing to scroll.
+    m.configIssueLines.resize(3);
+    CHECK_EQ(configScrollTo(m, 10, -1), 0);
 }
 
 TEST(layout, a_two_sided_conflict_is_a_list_starting_on_the_3ds)
@@ -424,7 +460,8 @@ TEST(layout, a_long_conflict_list_follows_the_highlight)
 static std::vector<BottomModel> everyLayout()
 {
     std::vector<BottomModel> out;
-    ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG};
+    ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG,
+                          SCREEN_CONFIG_ISSUES};
     for (ScreenMode mode : modes)
     {
         BottomModel m;

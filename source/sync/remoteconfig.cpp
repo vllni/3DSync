@@ -34,26 +34,63 @@ std::string valueOf(const std::map<std::string, std::string> &values,
     return it == values.end() ? std::string() : it->second;
 }
 
-// What a section needs before a sync can try it.  The same rules the app has
-// always used for the unnamed sections.
-bool isConfigured(RemoteType type, const std::map<std::string, std::string> &values,
-                  const std::string &section)
+ConfigIssue issue(const std::string &section, const std::string &brief,
+                  const std::vector<std::string> &lines, bool leftOut)
 {
+    ConfigIssue i;
+    i.section = section;
+    i.brief = "[" + section + "] " + brief;
+    i.lines = lines;
+    i.leftOut = leftOut;
+    return i;
+}
+
+// What a section lacks before a sync can try it, as an issue; false when it
+// has everything.  The required keys are the ones the app has always checked.
+bool missingKeys(RemoteType type, const std::map<std::string, std::string> &values,
+                 const std::string &section, ConfigIssue &out)
+{
+    std::string brief, what;
     switch (type)
     {
     case REMOTE_DROPBOX:
     case REMOTE_DRIVE:
-        return !valueOf(values, section, "token").empty() ||
-               !valueOf(values, section, "refreshtoken").empty();
+        if (!valueOf(values, section, "token").empty() ||
+            !valueOf(values, section, "refreshtoken").empty())
+            return false;
+        out = issue(section, "needs a login",
+                    {"A remote has no login:", "  [" + section + "]",
+                     "  Log in again with the configurator", "  and copy its RefreshToken= here."},
+                    true);
+        return true;
     case REMOTE_SMB:
-        return !valueOf(values, section, "server").empty() &&
-               !valueOf(values, section, "share").empty();
-    case REMOTE_FTP:
-        return !valueOf(values, section, "host").empty();
-    case REMOTE_WEBDAV:
-        return !valueOf(values, section, "url").empty();
+    {
+        bool server = !valueOf(values, section, "server").empty();
+        bool share = !valueOf(values, section, "share").empty();
+        if (server && share)
+            return false;
+        brief = !server && !share ? "needs Server=, Share=" : (!server ? "needs Server=" : "needs Share=");
+        what = !server && !share ? "  Add Server= and Share=."
+                                 : (!server ? "  Add Server= (the server address)."
+                                            : "  Add Share= (the share name).");
+        break;
     }
-    return false;
+    case REMOTE_FTP:
+        if (!valueOf(values, section, "host").empty())
+            return false;
+        brief = "needs Host=";
+        what = "  Add Host= (the server address).";
+        break;
+    case REMOTE_WEBDAV:
+        if (!valueOf(values, section, "url").empty())
+            return false;
+        brief = "needs Url=";
+        what = "  Add Url= (the WebDAV address).";
+        break;
+    }
+    out = issue(section, brief, {"A remote is missing a setting:", "  [" + section + "]", what},
+                true);
+    return true;
 }
 
 // Split on commas and whitespace, like [Filter] Extensions=, lowercased.
@@ -131,11 +168,11 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
             // [Paths], [Filter], [Security] and the like are not remotes, but
             // a labelled section can only have been meant as one.
             if (colon != std::string::npos)
-            {
-                result.warnings.push_back(
-                    {"Unknown remote type, section ignored:", "  [" + section + "]"});
-                result.ignored.push_back(section);
-            }
+                result.issues.push_back(issue(
+                    section, "is no remote type",
+                    {"Not a remote type, section left out:", "  [" + section + "]",
+                     "  Use Dropbox, GoogleDrive, SMB, FTP", "  or WebDAV before the ':'."},
+                    true));
             continue;
         }
 
@@ -145,28 +182,37 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
         remote.label = colon == std::string::npos ? "" : section.substr(colon + 1);
         if (colon != std::string::npos && remote.label.empty())
         {
-            result.warnings.push_back(
-                {"A remote label is empty, section ignored:", "  [" + section + "]"});
-            result.ignored.push_back(section);
+            result.issues.push_back(issue(section, "has an empty label",
+                                          {"A remote label is empty, section left out:",
+                                           "  [" + section + "]",
+                                           "  Write a name after the ':' or drop it."},
+                                          true));
             continue;
         }
-        if (!isConfigured(remote.type, values, section))
+        ConfigIssue missing;
+        if (missingKeys(remote.type, values, section, missing))
         {
-            result.incomplete.push_back(section);
+            result.issues.push_back(missing);
             continue;
         }
 
         std::string role = lower(valueOf(values, section, "role"));
         remote.role = role == "backup" ? ROLE_BACKUP : ROLE_SYNC;
         if (!role.empty() && role != "sync" && role != "backup")
-            result.warnings.push_back({"Role= is neither sync nor backup in",
-                                       "  [" + section + "]", "  so it syncs both ways."});
+            result.issues.push_back(issue(section, "Role= is not sync/backup",
+                                          {"Role= is neither sync nor backup in",
+                                           "  [" + section + "]",
+                                           "  It syncs both ways until that is fixed."},
+                                          false));
 
         remote.only = splitNames(valueOf(values, section, "only"));
         for (auto &name : remote.only)
             if (!known.count(name))
-                result.warnings.push_back({"Only= names a path that is not configured:",
-                                           "  " + name, "  in [" + section + "]"});
+                result.issues.push_back(issue(section, "Only= names no path",
+                                              {"Only= names a path that is not configured:",
+                                               "  " + name, "  in [" + section + "]",
+                                               "  Use a name from [Paths]."},
+                                              false));
 
         found.push_back(remote);
     }
