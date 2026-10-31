@@ -7,6 +7,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>
 #include <errno.h>
 
 // One bad response should not scroll the rest of the run off a 30-line screen,
@@ -149,6 +150,76 @@ static void redactHeaderValue(std::string &text, const char *name)
     }
 }
 
+// FTP sends the password as a command of its own, "PASS hunter2", which
+// curl's trace prints like any other outgoing line (ACCT likewise).  Found at
+// the start of a line, after what the trace or the log put in front of it
+// ("dbg: ", "> "), so "bypass" or "PASS" inside a sentence is left alone.
+static void redactFtpCommand(std::string &text, const char *command)
+{
+    size_t len = strlen(command);
+    size_t lineStart = 0;
+    while (lineStart < text.size())
+    {
+        size_t lineEnd = text.find('\n', lineStart);
+        if (lineEnd == std::string::npos)
+            lineEnd = text.size();
+        size_t p = lineStart;
+        // The log keeps colour codes until it is saved: skip "\x1b[..m" too.
+        while (p < lineEnd)
+        {
+            if (text[p] == ' ' || text[p] == '>')
+                p++;
+            else if (text.compare(p, 4, "dbg:") == 0)
+                p += 4;
+            else if (text[p] == '\x1b')
+            {
+                size_t m = text.find('m', p);
+                p = (m == std::string::npos || m >= lineEnd) ? lineEnd : m + 1;
+            }
+            else
+                break;
+        }
+        if (lineEnd - p > len && strncasecmp(text.c_str() + p, command, len) == 0 &&
+            text[p + len] == ' ')
+        {
+            size_t valueStart = p + len + 1;
+            size_t valueEnd = lineEnd;
+            while (valueEnd > valueStart && text[valueEnd - 1] == '\r')
+                valueEnd--;
+            if (valueEnd > valueStart)
+            {
+                text.replace(valueStart, valueEnd - valueStart, REDACTED);
+                lineEnd = valueStart + strlen(REDACTED) + (lineEnd - valueEnd);
+            }
+        }
+        lineStart = lineEnd + 1;
+    }
+}
+
+// ftp://bob:hunter2@host/  ->  ftp://bob:<redacted>@host/ — a password
+// written into a WebDAV Url= or an FTP URL is printed with every request.
+static void redactUrlPassword(std::string &text)
+{
+    size_t pos = 0;
+    while ((pos = text.find("://", pos)) != std::string::npos)
+    {
+        size_t authStart = pos + 3;
+        size_t authEnd = authStart;
+        while (authEnd < text.size() && text[authEnd] != '/' && text[authEnd] != '@' &&
+               text[authEnd] != ' ' && text[authEnd] != '\n' && text[authEnd] != '\r' &&
+               text[authEnd] != '"' && text[authEnd] != '?' && text[authEnd] != '#')
+            authEnd++;
+        size_t colon = text.find(':', authStart);
+        if (authEnd < text.size() && text[authEnd] == '@' && colon != std::string::npos &&
+            colon < authEnd)
+        {
+            text.replace(colon + 1, authEnd - colon - 1, REDACTED);
+            authEnd = colon + 1 + strlen(REDACTED);
+        }
+        pos = authEnd;
+    }
+}
+
 std::string debugRedact(const std::string &text)
 {
     std::string out = text;
@@ -172,6 +243,11 @@ std::string debugRedact(const std::string &text)
     redactHeaderValue(out, "proxy-authorization");
     redactHeaderValue(out, "cookie");
     redactHeaderValue(out, "set-cookie");
+
+    // FTP's own login commands, and credentials written into a URL.
+    redactFtpCommand(out, "PASS");
+    redactFtpCommand(out, "ACCT");
+    redactUrlPassword(out);
 
     return out;
 }

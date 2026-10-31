@@ -46,3 +46,15 @@ TEST(url, decodes_a_webdav_href)
     CHECK_STR_EQ(urlDecode("/remote.php/dav/files/user/3DS/Pok%C3%A9mon%20X/001.sav"),
                  "/remote.php/dav/files/user/3DS/Pok\xc3\xa9mon X/001.sav");
 }
+
+TEST(url, credentials_are_removed_from_a_url)
+{
+    CHECK_STR_EQ(urlWithoutCredentials("http://3dsync:3dsync@nas:8080/dav/"), "http://nas:8080/dav/");
+    CHECK_STR_EQ(urlWithoutCredentials("https://user@host/remote.php/dav/"), "https://host/remote.php/dav/");
+    // A password may itself contain '@'; the host starts after the last one.
+    CHECK_STR_EQ(urlWithoutCredentials("https://u:p@ss@host/x"), "https://host/x");
+    // Nothing to remove: unchanged, including an '@' later in the path.
+    CHECK_STR_EQ(urlWithoutCredentials("https://host/files/a@b.com/"), "https://host/files/a@b.com/");
+    CHECK_STR_EQ(urlWithoutCredentials("https://nas.local:5006/dav/"), "https://nas.local:5006/dav/");
+    CHECK_STR_EQ(urlWithoutCredentials("not a url"), "not a url");
+}

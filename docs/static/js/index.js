@@ -115,8 +115,8 @@ $(function () {
         dropbox: ['dropbox-expert-mode', 'dropbox-client-id'],
         googledrive: ['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'],
         smb: ['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
-        ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode'],
-        webdav: ['webdav-url', 'webdav-user', 'webdav-password']
+        ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode', 'ftp-insecure'],
+        webdav: ['webdav-url', 'webdav-user', 'webdav-password', 'webdav-insecure']
     };
 
     // What the steps build, and what the file is written from (IniFile in
@@ -945,7 +945,8 @@ $(function () {
                 ['Password', $('#ftp-password').val()],
                 ['Path', $('#ftp-path').val()],
                 ['TLS', $('#ftp-tls').val()],
-                ['Mode', $('#ftp-mode').val()]
+                ['Mode', $('#ftp-mode').val()],
+                ['VerifyTLS', $('#ftp-insecure').prop('checked') ? 'false' : '']
             ]);
         },
         webdav: function () {
@@ -960,7 +961,8 @@ $(function () {
             return entriesFrom([
                 ['Url', $('#webdav-url').val()],
                 ['User', $('#webdav-user').val()],
-                ['Password', $('#webdav-password').val()]
+                ['Password', $('#webdav-password').val()],
+                ['VerifyTLS', $('#webdav-insecure').prop('checked') ? 'false' : '']
             ]);
         }
     };

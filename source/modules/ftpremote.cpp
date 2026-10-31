@@ -14,13 +14,14 @@
 
 FtpRemote::FtpRemote(const std::string &host, int port, const std::string &user,
                      const std::string &password, const std::string &basePath,
-                     FtpTlsMode tls, bool activeMode)
+                     FtpTlsMode tls, bool activeMode, bool verifyTls)
     : _host(host), _port(port > 0 ? port : (tls == FTP_TLS_IMPLICIT ? 990 : 21)),
       _user(user), _password(password), _tls(tls), _tlsDropped(false), _activeMode(activeMode),
       _fatalError(false)
 {
     // Strip the separators so paths can be joined without doubling them.
     _basePath = normalizeRemotePath(basePath);
+    _curl.setVerifyTls(verifyTls);
 }
 
 std::string FtpRemote::manifestPrefix() const
@@ -154,6 +155,11 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
                    _tlsDropped ? "dropped" : "as configured");
             _fatalError = true;
             return res;
+        case CURLE_PEER_FAILED_VERIFICATION:
+        case CURLE_SSL_CACERT_BADFILE:
+            Curl::printCertificateHelp(displayName().c_str(), res, true);
+            _fatalError = true;
+            return res;
         case CURLE_USE_SSL_FAILED:
             printf(CONSOLE_RED "  FATAL: the server does not support FTPS." CONSOLE_RESET "\n");
             printf("  Set TLS=try or TLS=none in 3DSync.ini\n");
@@ -233,7 +239,7 @@ bool FtpRemote::connect()
         return true;
     }
 
-    printf("FTP: cannot reach %s\n", _host.c_str());
+    printf("%s: cannot reach %s\n", displayName().c_str(), _host.c_str());
     return false;
 }
 

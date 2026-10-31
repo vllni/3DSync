@@ -29,3 +29,24 @@ bool isTempTransferName(const std::string &path)
     return path.size() > suffixLen &&
            path.compare(path.size() - suffixLen, suffixLen, TEMP_SUFFIX) == 0;
 }
+
+bool isSafeRelativePath(const std::string &relPath)
+{
+    if (relPath.size() < 2 || relPath[0] != '/')
+        return false;
+    size_t start = 1;
+    while (start <= relPath.size())
+    {
+        size_t end = relPath.find('/', start);
+        if (end == std::string::npos)
+            end = relPath.size();
+        std::string segment = relPath.substr(start, end - start);
+        if (segment.empty() || segment == "." || segment == "..")
+            return false;
+        start = end + 1;
+    }
+    for (char c : relPath)
+        if (c == '\\' || (unsigned char)c < 0x20 || c == 0x7f)
+            return false;
+    return true;
+}

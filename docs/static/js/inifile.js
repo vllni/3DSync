@@ -45,8 +45,14 @@
         smb: { server: 'smb-server', share: 'smb-share', user: 'smb-user', password: 'smb-password',
             domain: 'smb-domain', path: 'smb-path' },
         ftp: { host: 'ftp-host', port: 'ftp-port', user: 'ftp-user', password: 'ftp-password', path: 'ftp-path',
-            tls: 'ftp-tls', mode: 'ftp-mode' },
-        webdav: { url: 'webdav-url', user: 'webdav-user', password: 'webdav-password' }
+            tls: 'ftp-tls', mode: 'ftp-mode', verifytls: 'ftp-insecure' },
+        webdav: { url: 'webdav-url', user: 'webdav-user', password: 'webdav-password', verifytls: 'webdav-insecure' }
+    };
+    // Checkboxes, by the INI values that tick them (VerifyTLS=false ticks
+    // "don't check the certificate").  Another value is kept as it was.
+    const CHECKBOX_VALUES = {
+        'ftp-insecure': { 'false': true, no: true, '0': true, off: true, 'true': false, yes: false, '1': false, on: false },
+        'webdav-insecure': { 'false': true, no: true, '0': true, off: true, 'true': false, yes: false, '1': false, on: false }
     };
     // The editor's selects; a value outside them is kept as it was instead.
     const SELECT_OPTIONS = {
@@ -229,12 +235,14 @@
             let sealed = isSealed(value) && SEALABLE[type].indexOf(key) >= 0;
             let input = fields[key];
             let options = input && SELECT_OPTIONS[input];
-            let fits = input && (!options || options.indexOf(value.toLowerCase()) >= 0);
+            let ticks = input && CHECKBOX_VALUES[input];
+            let fits = input && (ticks ? Object.prototype.hasOwnProperty.call(ticks, value.toLowerCase())
+                : !options || options.indexOf(value.toLowerCase()) >= 0);
             let formKey = !!input || (oauth && key === 'refreshtoken');
             if (sealed || !formKey || (input && !fits)) remote.carry.push(pair);
             if (sealed) report.sealed++;
             let plain = sealed ? '' : value;
-            if (fits) remote.fields[input] = options ? value.toLowerCase() : plain;
+            if (fits) remote.fields[input] = ticks ? ticks[value.toLowerCase()] : options ? value.toLowerCase() : plain;
             if (key === 'refreshtoken') refreshToken = plain;
         });
         if (type === 'dropbox') {

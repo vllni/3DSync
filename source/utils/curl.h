@@ -12,6 +12,18 @@ public:
     Curl();
     ~Curl();
     void setURL(std::string URL);
+    // Check the server's TLS certificate against the CA bundle in romfs and
+    // its name against the host (the default).  Off only for a WebDAV or FTP
+    // remote whose section says VerifyTLS=false.  Survives reset().
+    void setVerifyTls(bool enabled);
+
+    // A failed certificate check (curl 60) or a CA bundle that could not be
+    // loaded (77): not a network hiccup to retry, but a reason to stop.
+    static bool isCertificateError(int curlCode);
+    // Says why on the console: which remote, the 3DS's date (an unset clock
+    // makes every certificate look expired or not yet valid), and, where the
+    // remote allows it, VerifyTLS=false for a server with its own certificate.
+    static void printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut);
     void setHeaders(curl_slist *headers);
     // Stream the request body from a FILE*.  When size >= 0 the body length is
     // announced with Content-Length; without it libcurl falls back to chunked
@@ -97,6 +109,7 @@ private:
     // back the URL once the handle has been reset.
     std::string _lastUrl;
     FILE *_downloadFile;
+    bool _verifyTls;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
     // Lets libcurl rewind a request body read from a file, which it must do to

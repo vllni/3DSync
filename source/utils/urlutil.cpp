@@ -45,3 +45,18 @@ std::string urlDecode(const std::string &value)
     }
     return out;
 }
+
+std::string urlWithoutCredentials(const std::string &url)
+{
+    size_t scheme = url.find("://");
+    if (scheme == std::string::npos)
+        return url;
+    size_t authStart = scheme + 3;
+    size_t authEnd = url.find_first_of("/?#", authStart);
+    if (authEnd == std::string::npos)
+        authEnd = url.size();
+    size_t at = url.rfind('@', authEnd - 1);
+    if (at == std::string::npos || at < authStart)
+        return url;
+    return url.substr(0, authStart) + url.substr(at + 1);
+}

@@ -344,6 +344,13 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="ftp-tls-note"></p>
+                    <p class="cert-option">
+                      <label>
+                        <input type="checkbox" class="filled-in" id="ftp-insecure">
+                        <span class="white-text" style="font-size:0.88em">The server uses its own certificate
+                          (self-signed, as many NAS do): don't check it</span>
+                      </label>
+                    </p>
                     <div class="test-row test-unavailable">
                       <i class="material-icons">info_outline</i>
                       <span>A web page cannot open FTP connections, so these settings can only be tried from the
@@ -385,6 +392,13 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="webdav-url-note"></p>
+                    <p class="cert-option">
+                      <label>
+                        <input type="checkbox" class="filled-in" id="webdav-insecure">
+                        <span class="white-text" style="font-size:0.88em">The server uses its own certificate
+                          (self-signed, as many NAS do): don't check it</span>
+                      </label>
+                    </p>
                     <div class="test-row">
                       <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="webdav"><i
                           class="material-icons left">network_check</i>Test connection</a>

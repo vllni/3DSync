@@ -7,6 +7,8 @@
 #include "framework.h"
 #include "mocks.h"
 
+#include <unistd.h>
+
 namespace
 {
 
@@ -544,4 +546,23 @@ TEST(nway, upgrading_keeps_a_pairwise_conflict_a_conflict)
     CHECK(f.ui.sidesOffered[0] == std::vector<std::string>({"3DS", "B"}));
     CHECK_EQ(f.local.read(SAVE), std::string("edited on B"));
     CHECK_EQ(f.a.files[SAVE].content, std::string("edited on B"));
+}
+
+TEST(nway, a_remote_name_that_leaves_the_folder_is_never_written)
+{
+    Fixture f;
+    f.a.setRemote("/../escaped.sav", "evil");
+    f.a.setRemote("/Game/../../boot.firm", "evil");
+    f.a.setRemote("/ok.sav", "fine");
+
+    CHECK(f.run());
+    CHECK(f.local.exists("/ok.sav"));
+    // Nothing one or two levels above the sync folder.
+    std::string up = f.local.path() + "/../escaped.sav";
+    CHECK(access(up.c_str(), F_OK) != 0);
+    CHECK_EQ(f.a.downloaded.size(), (size_t)1);
+    CHECK_EQ(f.summary.problems.size(), (size_t)1);
+    CHECK(f.summary.problems[0].find("unsafe") != std::string::npos);
+    // The other remotes are not sent it either.
+    CHECK(f.b.files.find("/../escaped.sav") == f.b.files.end());
 }

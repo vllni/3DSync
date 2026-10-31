@@ -8,6 +8,7 @@
 #include "../utils/curl.h"
 #include "remoteparse.h"
 #include "syncprovider.h"
+#include "../utils/urlutil.h"
 
 // WebDAV remote — Nextcloud/ownCloud, a NAS with WebDAV enabled, or any server
 // speaking PROPFIND/MKCOL/PUT/MOVE.
@@ -20,11 +21,13 @@ class WebDavRemote : public SyncProvider
 {
 public:
     WebDavRemote(const std::string &baseUrl, const std::string &user,
-                 const std::string &password);
+                 const std::string &password, bool verifyTls = true);
 
     const char *name() const override { return "WebDAV"; }
     bool isExperimental() const override { return false; }
-    std::string manifestPrefix() const override { return _baseUrl; }
+    // The URL without credentials: manifest.json is not sealed like the INI,
+    // so a password written into Url= must not end up in it.
+    std::string manifestPrefix() const override { return urlWithoutCredentials(_baseUrl); }
     bool connect() override;
     bool hasFatalError() const override;
     std::string ensureRoot(const std::string &remoteName) override;

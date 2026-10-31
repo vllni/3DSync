@@ -7,6 +7,7 @@
 #include "../utils/console.h"
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
+#include "../utils/pathutil.h"
 
 const char *const LOCAL_SIDE = "3DS";
 
@@ -472,6 +473,29 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
             summary.problems.push_back(p.label + ":" + entry.remoteName + " (not listed)");
             p.files.clear();
             continue;
+        }
+        // A name that could reach outside the local folder ("/../x") is
+        // refused before anything is decided: nothing is downloaded to it or
+        // compared with it.  Said once per remote and entry, and counted as a
+        // problem, so the summary does not report a clean run.
+        int unsafe = 0;
+        for (auto it = p.files.begin(); it != p.files.end();)
+        {
+            if (isSafeRelativePath(it->first))
+            {
+                ++it;
+                continue;
+            }
+            debugf("unsafe name from %s skipped: \"%s\"\n", p.label.c_str(), it->first.c_str());
+            it = p.files.erase(it);
+            unsafe++;
+        }
+        if (unsafe > 0)
+        {
+            printf(CONSOLE_RED "%s:%s: %d file(s) with an unsafe\n" CONSOLE_RESET, p.label.c_str(),
+                   entry.remoteName.c_str(), unsafe);
+            printf(CONSOLE_RED "  name (such as ../) skipped\n" CONSOLE_RESET);
+            summary.problems.push_back(p.label + ":" + entry.remoteName + " (unsafe file name skipped)");
         }
         debugf("%s root \"%s\": %d remote file(s), %d local file(s)\n", p.label.c_str(),
                p.root.c_str(), (int)p.files.size(), (int)entry.localFiles.size());

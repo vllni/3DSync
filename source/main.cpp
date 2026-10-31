@@ -490,7 +490,7 @@ static FtpTlsMode parseTlsMode(std::string value)
         return FTP_TLS_REQUIRE;
     if (value == "implicit")
         return FTP_TLS_IMPLICIT;
-    return FTP_TLS_TRY; // default: use TLS when the server offers it
+    return FTP_TLS_TRY; // RemoteConfig::ftpTls is checked, so this is "try"
 }
 
 // ---------------------------------------------------------------------------
@@ -580,11 +580,11 @@ static SyncProvider *makeProvider(const INIReader &reader, const RemoteConfig &r
         return new FtpRemote(reader.Get(s, "host", ""), (int)reader.GetInteger(s, "port", 0),
                              reader.Get(s, "user", "anonymous"),
                              reader.Get(s, "password", ""), reader.Get(s, "path", ""),
-                             parseTlsMode(reader.Get(s, "tls", "try")),
-                             reader.Get(s, "mode", "passive") == "active");
+                             parseTlsMode(remote.ftpTls),
+                             reader.Get(s, "mode", "passive") == "active", remote.verifyTls);
     case REMOTE_WEBDAV:
         return new WebDavRemote(reader.Get(s, "url", ""), reader.Get(s, "user", ""),
-                                reader.Get(s, "password", ""));
+                                reader.Get(s, "password", ""), remote.verifyTls);
     }
     return NULL;
 }
@@ -695,6 +695,8 @@ static void runSync(const INIReader &reader)
         if (ui.cancelRequested())
             break;
         providers.push_back(std::unique_ptr<SyncProvider>(makeProvider(reader, config)));
+        if (providers.back())
+            providers.back()->setDisplayName(config.displayName());
         ActiveRemote remote = {providers.back().get(), config, config.displayName()};
         if (remote.provider && connectRemote(remote, summary))
             connected.push_back(remote);
@@ -764,16 +766,35 @@ static bool consoleSealKey(SealKey &key)
 
 static INIReader loadConfig()
 {
-    recoverConfigSeal(CONFIG_PATH);
     SealKey key;
     bool haveKey = consoleSealKey(key);
+    recoverConfigSeal(CONFIG_PATH, haveKey ? &key : NULL);
 
     {
         INIReader plain(CONFIG_PATH);
         bool wanted = plain.GetBoolean("Security", "SealCredentials", true);
         if (plain.ParseError() >= 0 && wanted && haveKey)
         {
-            int sealed = sealConfigFile(CONFIG_PATH, key, consoleRandom);
+            std::vector<std::string> skipped;
+            int sealed = sealConfigFile(CONFIG_PATH, key, consoleRandom, &skipped);
+            // A secret inih would read from several lines cannot be sealed
+            // without changing what it reads: it stays plain, and the user
+            // has to know, or "Sealed 2 credentials" reads as "all of them".
+            for (auto &field : skipped)
+            {
+                size_t eq = field.find('=');
+                std::string section = field.substr(0, eq), name = field.substr(eq + 1);
+                ConfigIssue issue;
+                issue.section = section;
+                issue.brief = "[" + section + "] " + name + "= not sealed";
+                issue.lines = {"A credential stays readable on the card:",
+                               "  [" + section + "] " + name + "=",
+                               "  It repeats, continues on the next line",
+                               "  or is too long. Write it once, on one",
+                               "  line, and start 3DSync again."};
+                issue.leftOut = false;
+                g_sealIssues.push_back(issue);
+            }
             if (sealed > 0)
                 printf(CONSOLE_GREEN "Sealed %d credential%s in 3DSync.ini to this\n"
                        "console." CONSOLE_RESET " The file no longer works on its own.\n\n",
@@ -809,11 +830,20 @@ static INIReader loadConfig()
         ConfigIssue issue;
         issue.section = section;
         issue.brief = "[" + section + "] " + name + "= won't open";
-        issue.lines = {"A sealed value cannot be opened here:", "  [" + section + "] " + name,
-                       "  It was sealed on another console, or",
-                       "  this one was reset. Paste the plain",
-                       "  value back, or make a new file with",
-                       "  the configurator."};
+        if (haveKey)
+            issue.lines = {"A sealed value cannot be opened here:", "  [" + section + "] " + name,
+                           "  It was sealed on another console, or",
+                           "  this one was reset. Paste the plain",
+                           "  value back, or make a new file with",
+                           "  the configurator."};
+        else
+            // Not the file's fault: pasting the value back would only have it
+            // fail the same way next time.
+            issue.lines = {"A sealed value cannot be opened:", "  [" + section + "] " + name,
+                           "  This console's key could not be read",
+                           "  (CFG service). Restart the console; if",
+                           "  it persists, run a debug sync (Y) and",
+                           "  report the log."};
         issue.leftOut = false;
         g_sealIssues.push_back(issue);
     }

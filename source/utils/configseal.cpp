@@ -83,28 +83,72 @@ static void finishFromSealed(const std::string &path, const std::string &sealedP
         remove(sealedPath.c_str());
 }
 
-void recoverConfigSeal(const std::string &path)
+bool sealedCopyBelongsTo(const std::string &current, const std::string &sealed,
+                         const SealKey *key)
+{
+    // Overwritten completely; only the removal of the copy was missed.
+    if (current == sealed)
+        return true;
+    // Not overwritten at all: the same file once every sealed value in both is
+    // opened (a secret that was plain in one is sealed in the other).
+    std::string openCurrent, openSealed;
+    if (key && openIniText(current, *key, openCurrent) && openIniText(sealed, *key, openSealed) &&
+        openCurrent == openSealed)
+        return true;
+    // Partly overwritten: the file starts with the copy's bytes, and those go
+    // past the first value sealed in it — a random nonce that only this seal
+    // wrote.  A file put there since cannot contain it.
+    size_t same = 0;
+    while (same < current.size() && same < sealed.size() && current[same] == sealed[same])
+        same++;
+    size_t first = sealed.find("enc:v1:");
+    // The prefix, plus enough of the nonce's base64 (16 characters = 12 bytes)
+    // that nothing else could match it by chance.
+    return first != std::string::npos && same >= first + 7 + 16;
+}
+
+bool recoverConfigSeal(const std::string &path, const SealKey *key)
 {
     std::string sealedPath = path + ".sealed", tmpPath = path + ".3dstmp";
+    bool kept = true;
     if (access(sealedPath.c_str(), F_OK) == 0)
     {
-        printf("Finishing an interrupted update of 3DSync.ini\n");
-        finishFromSealed(path, sealedPath);
+        std::string current, sealed;
+        bool haveCurrent = readWhole(path, current);
+        if (!readWhole(sealedPath, sealed))
+            debugErrno("reading", sealedPath);
+        else if (!haveCurrent || sealedCopyBelongsTo(current, sealed, key))
+        {
+            printf("Finishing an interrupted update of 3DSync.ini\n");
+            finishFromSealed(path, sealedPath);
+        }
+        else
+        {
+            // The user has put another file there since: theirs wins.
+            printf("3DSync.ini was replaced since its last\n"
+                   "update; a leftover copy was discarded.\n");
+            remove(sealedPath.c_str());
+            kept = false;
+        }
     }
     if (access(tmpPath.c_str(), F_OK) == 0)
     {
         debugf("dropping an incomplete %s\n", tmpPath.c_str());
         remove(tmpPath.c_str());
     }
+    return kept;
 }
 
-int sealConfigFile(const std::string &path, const SealKey &key, SealRandom random)
+int sealConfigFile(const std::string &path, const SealKey &key, SealRandom random,
+                   std::vector<std::string> *skipped)
 {
     std::string text;
     if (!readWhole(path, text))
         return 0; // no file: nothing to seal, and the caller reports it
 
     SealResult r = sealIniText(text, key, random);
+    if (skipped)
+        *skipped = r.skippedFields;
     if (r.sealed == 0)
         return 0;
 

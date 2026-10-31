@@ -597,3 +597,8 @@ main {
 .import-status.warn li.problem {
     color: #ffcc80;
 }
+
+/* WebDAV and FTP: VerifyTLS=false. */
+.cert-option {
+    margin: 0.2rem 0 0.8rem 0;
+}
