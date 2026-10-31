@@ -16,6 +16,6 @@
 // the format "major.minor.micro" — the Makefile splits it on the dots.
 // ---------------------------------------------------------------------------
 
-#define APP_VERSION "0.8.2"
+#define APP_VERSION "0.8.3"
 
 #endif
