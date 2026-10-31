@@ -184,13 +184,16 @@ private:
 class MockUi : public SyncUi
 {
 public:
-    // Consumed in order; the last answer repeats once exhausted.
-    std::vector<ConflictChoice> answers;
+    // Consumed in order; the last answer repeats once exhausted.  A side's
+    // name keeps that side ("3DS", "Mock"); "skip" and "cancel" do what they
+    // say.  A name that was not offered is a skip, which a test will notice.
+    std::vector<std::string> answers;
     // Cancel once cancelRequested() has been polled this many times (-1: never).
     int cancelAfterPolls = -1;
 
     int polls = 0;
     std::vector<std::string> conflictsRaised;
+    std::vector<std::vector<std::string> > sidesOffered;
     bool cancelled = false;
 
     bool cancelRequested() override
@@ -203,14 +206,22 @@ public:
 
     void requestCancel() override { cancelled = true; }
 
-    ConflictChoice resolveConflict(const std::string &localPath) override
+    ConflictChoice resolveConflict(const std::string &localPath,
+                                   const std::vector<std::string> &sides) override
     {
         conflictsRaised.push_back(localPath);
+        sidesOffered.push_back(sides);
         if (answers.empty())
-            return CONFLICT_SKIP;
+            return ConflictChoice::skip();
         size_t index = _answerIndex < answers.size() ? _answerIndex : answers.size() - 1;
         _answerIndex++;
-        return answers[index];
+        const std::string &answer = answers[index];
+        if (answer == "cancel")
+            return ConflictChoice::cancel();
+        for (size_t i = 0; i < sides.size(); i++)
+            if (sides[i] == answer)
+                return ConflictChoice::keep((int)i);
+        return ConflictChoice::skip();
     }
 
 private:

@@ -68,12 +68,16 @@ public:
     WorkerSyncUi();
     bool cancelRequested() override;
     void requestCancel() override;
-    ConflictChoice resolveConflict(const std::string &localPath) override;
+    ConflictChoice resolveConflict(const std::string &localPath,
+                                   const std::vector<std::string> &sides) override;
 
 private:
     bool _cancelled;
     bool _announced;
-    int _applyAllChoice; // -1, or the ConflictChoice for every later conflict
+    // "For all" (L): skip every later conflict, or keep this side in each one
+    // it is part of.  Empty and false until the user asks for it.
+    bool _applyAllSkip;
+    std::string _applyAllSide;
 };
 
 } // namespace frontend

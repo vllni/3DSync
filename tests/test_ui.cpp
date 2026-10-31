@@ -366,13 +366,59 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
 }
 
-TEST(layout, buttons_are_on_screen_apart_and_big_enough)
+TEST(layout, a_conflict_between_more_than_two_steps_with_r)
 {
+    BottomModel m;
+    m.mode = SCREEN_CONFLICT;
+    m.conflictSides = {"3DS", "Drive"};
+    const uint32_t scroll = K_DUP | K_DDOWN;
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_X | K_L | K_START | scroll);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep 3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Keep Drive");
+    // "Keep Dropbox" does not fit half the row: both drop "Keep", not one.
+    m.conflictSides = {"3DS", "Dropbox"};
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Dropbox");
+
+    m.conflictSides = {"3DS", "Dropbox", "WebDAV"};
+    m.conflictPick = 2;
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_R | K_X | K_L | K_START | scroll);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep WebDAV");
+}
+
+// Every screen, and the conflict screen with the side counts and name lengths
+// it can be given.
+static std::vector<BottomModel> everyLayout()
+{
+    std::vector<BottomModel> out;
     ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG};
     for (ScreenMode mode : modes)
     {
         BottomModel m;
         m.mode = mode;
+        out.push_back(m);
+    }
+    std::vector<std::vector<std::string> > sides = {
+        {"3DS", "Dropbox"},
+        {"Dropbox", "WebDAV"},
+        {"3DS", "SMB (a long label here)"},
+        {"3DS", "Dropbox", "Drive", "SMB", "FTP", "WebDAV (a long label here)"}};
+    for (auto &s : sides)
+        for (int pick = 0; pick < (int)s.size(); pick++)
+        {
+            BottomModel m;
+            m.mode = SCREEN_CONFLICT;
+            m.conflictSides = s;
+            m.conflictPick = pick;
+            out.push_back(m);
+        }
+    return out;
+}
+
+TEST(layout, buttons_are_on_screen_apart_and_big_enough)
+{
+    for (const BottomModel &m : everyLayout())
+    {
         std::vector<Button> b = bottomButtons(m);
         for (size_t i = 0; i < b.size(); i++)
         {
@@ -394,17 +440,19 @@ TEST(layout, no_label_is_cut_short)
 {
     // The key badge, a gap and the label, with a little padding either side,
     // must fit — otherwise the label ends in "…" and says nothing.
-    ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG};
-    for (ScreenMode mode : modes)
+    for (const BottomModel &m : everyLayout())
     {
-        BottomModel m;
-        m.mode = mode;
         for (auto &b : bottomButtons(m))
         {
             if (b.label.empty())
                 continue;
+            // A side's own name is the one label that cannot be made to fit
+            // in every case; it is clipped, and "Keep" is dropped first.
+            if (b.label.find("a long label") != std::string::npos)
+                continue;
             bool face = b.key == K_A || b.key == K_B || b.key == K_X || b.key == K_Y;
-            int badge = face ? 18 : textWidth(kFontSmall, b.key == K_START ? "START" : "L") + 12;
+            const char *badgeText = b.key == K_START ? "START" : (b.key == K_R ? "R" : "L");
+            int badge = face ? 18 : textWidth(kFontSmall, badgeText) + 12;
             int need = badge + 7 + textWidth(kFontBold, b.label) + 14;
             if (need > b.rect.w)
                 testFail(__FILE__, __LINE__, "label does not fit: " + b.label);

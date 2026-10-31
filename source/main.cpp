@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 #include <set>
 #include <iostream>
 #include <string.h>
@@ -231,10 +232,12 @@ static void printExperimentalNotice(const char *backendName)
 }
 
 // ---------------------------------------------------------------------------
-// syncProvider  — run every configured entry against one remote
+// connectRemote  — open one remote before any entry is synced
 // ---------------------------------------------------------------------------
-static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &entries,
-                         Manifest &manifest, SyncSummary &summary, SyncUi &ui)
+// Every remote takes part in each entry at once (see syncEntry()), so all of
+// them are connected first.  One that cannot be reached is left out of the run.
+// ---------------------------------------------------------------------------
+static bool connectRemote(SyncProvider &provider, SyncSummary &summary)
 {
     printf("\n=== %s ===\n", provider.name());
     frontend::setActivity(provider.name(), "Connecting\xE2\x80\xA6");
@@ -247,7 +250,7 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
         debugf("%s: connect() failed, fatal=%d\n", provider.name(),
                provider.hasFatalError() ? 1 : 0);
         summary.problems.push_back(std::string(provider.name()) + " (not reached)");
-        return;
+        return false;
     }
     debugf("%s: connected, manifest prefix \"%s\"\n", provider.name(),
            provider.manifestPrefix().c_str());
@@ -276,54 +279,66 @@ static void syncProvider(SyncProvider &provider, const std::vector<SyncEntry> &e
             }
         }
     }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// syncAllEntries  — run every configured entry across the connected remotes
+// ---------------------------------------------------------------------------
+// A remote that hits a fatal error is reported once and left out of the
+// entries after it; the others carry on.
+// ---------------------------------------------------------------------------
+static void syncAllEntries(std::vector<SyncProvider *> remotes,
+                           const std::vector<SyncEntry> &entries, Manifest &manifest,
+                           SyncSummary &summary, SyncUi &ui)
+{
+    // Drops the remotes that failed, saying so once for each.
+    auto dropFailed = [&]() {
+        for (size_t i = 0; i < remotes.size();)
+        {
+            if (!remotes[i]->hasFatalError())
+            {
+                i++;
+                continue;
+            }
+            printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
+                   remotes[i]->name());
+            summary.problems.push_back(std::string(remotes[i]->name()) +
+                                       " (stopped by an error)");
+            remotes.erase(remotes.begin() + i);
+        }
+    };
 
     for (auto &entry : entries)
     {
+        if (ui.cancelRequested() || remotes.empty())
+            break;
         bool uploadOnly = (entry.direction == SYNC_UPLOAD_ONLY);
-        frontend::setActivity(provider.name(), entry.localBase);
 
-        if (uploadOnly)
+        std::string names;
+        for (SyncProvider *r : remotes)
+            names += (names.empty() ? "" : ", ") + std::string(r->name());
+        frontend::setActivity(names, entry.localBase);
+        printf("\n%s [%s]\n", uploadOnly ? "Uploading" : "Syncing", entry.localBase.c_str());
+
+        std::vector<Participant> participants;
+        for (SyncProvider *r : remotes)
         {
-            printf("\nUploading [%s] -> %s:%s\n", entry.localBase.c_str(),
-                   provider.name(), entry.remoteName.c_str());
             // Providers that shipped their own one-way upload keep using it so
             // the remote layout their users already have does not change.
-            if (provider.legacyUpload(entry.localBase, entry.remoteName, entry.localFiles, ui))
-            {
-                if (provider.hasFatalError())
-                {
-                    printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
-                           provider.name());
-                    summary.problems.push_back(std::string(provider.name()) + " (stopped by an error)");
-                    break;
-                }
+            if (uploadOnly && r->legacyUpload(entry.localBase, entry.remoteName,
+                                              entry.localFiles, ui))
                 continue;
-            }
-        }
-        else
-        {
-            printf("\nSyncing [%s] <-> %s:%s\n", entry.localBase.c_str(),
-                   provider.name(), entry.remoteName.c_str());
+            participants.push_back(Participant(*r, r->name(), r->manifestPrefix()));
         }
 
-        if (!performSync(provider, manifest, entry, summary, uploadOnly, ui) &&
-            !provider.hasFatalError())
-        {
-            debugf("%s: %s stopped short without a fatal error — treating as "
-                   "cancellation\n", provider.name(), entry.remoteName.c_str());
-            ui.requestCancel();
-        }
+        if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))
+            debugf("%s: stopped at the user's request\n", entry.remoteName.c_str());
+        dropFailed();
 
         if (ui.cancelRequested())
         {
             printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
-            break;
-        }
-        if (provider.hasFatalError())
-        {
-            printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
-                   provider.name());
-            summary.problems.push_back(std::string(provider.name()) + " (stopped by an error)");
             break;
         }
     }
@@ -585,56 +600,45 @@ static void runSync(const INIReader &reader)
     manifest.load();
     SyncSummary summary;
 
-    // --- Dropbox ---
-    if (hasDropbox && !ui.cancelRequested())
-    {
-        Dropbox dropbox(dropboxAppKey, dropboxAppSecret, dropboxRefreshToken,
-                        dropboxPath, dropboxToken);
-        syncProvider(dropbox, syncEntries, manifest, summary, ui);
-    }
-
-    // --- Google Drive ---
-    if (hasGoogleDrive && !ui.cancelRequested())
-    {
-        GoogleDrive drive(googleDriveClientId, googleDriveClientSecret,
-                          googleDriveRefreshToken, googleDriveFolderId,
-                          googleDriveToken);
-        syncProvider(drive, syncEntries, manifest, summary, ui);
-    }
-
-    // --- SMB2/3 file server (NAS, Windows share) ---
-    if (hasSmb && !ui.cancelRequested())
-    {
-        SmbRemote smb(smbServer, smbShare,
-                      reader.Get("SMB", "user", ""),
-                      reader.Get("SMB", "password", ""),
-                      reader.Get("SMB", "domain", ""),
-                      reader.Get("SMB", "path", ""));
-        syncProvider(smb, syncEntries, manifest, summary, ui);
-    }
-
-    // --- FTP / FTPS ---
-    if (hasFtp && !ui.cancelRequested())
+    // In the order the menu card names them, by SyncProvider::name().
+    std::vector<std::unique_ptr<SyncProvider> > providers;
+    if (hasDropbox)
+        providers.push_back(std::unique_ptr<SyncProvider>(
+            new Dropbox(dropboxAppKey, dropboxAppSecret, dropboxRefreshToken, dropboxPath,
+                        dropboxToken)));
+    if (hasGoogleDrive)
+        providers.push_back(std::unique_ptr<SyncProvider>(
+            new GoogleDrive(googleDriveClientId, googleDriveClientSecret,
+                            googleDriveRefreshToken, googleDriveFolderId, googleDriveToken)));
+    // SMB2/3 file server (NAS, Windows share)
+    if (hasSmb)
+        providers.push_back(std::unique_ptr<SyncProvider>(
+            new SmbRemote(smbServer, smbShare, reader.Get("SMB", "user", ""),
+                          reader.Get("SMB", "password", ""), reader.Get("SMB", "domain", ""),
+                          reader.Get("SMB", "path", ""))));
+    if (hasFtp)
     {
         std::string mode = reader.Get("FTP", "mode", "passive");
-        FtpRemote ftp(ftpHost,
-                      (int)reader.GetInteger("FTP", "port", 0),
-                      reader.Get("FTP", "user", "anonymous"),
-                      reader.Get("FTP", "password", ""),
-                      reader.Get("FTP", "path", ""),
-                      parseTlsMode(reader.Get("FTP", "tls", "try")),
-                      mode == "active");
-        syncProvider(ftp, syncEntries, manifest, summary, ui);
+        providers.push_back(std::unique_ptr<SyncProvider>(
+            new FtpRemote(ftpHost, (int)reader.GetInteger("FTP", "port", 0),
+                          reader.Get("FTP", "user", "anonymous"),
+                          reader.Get("FTP", "password", ""), reader.Get("FTP", "path", ""),
+                          parseTlsMode(reader.Get("FTP", "tls", "try")), mode == "active")));
     }
+    if (hasWebdav)
+        providers.push_back(std::unique_ptr<SyncProvider>(
+            new WebDavRemote(webdavUrl, reader.Get("WebDAV", "user", ""),
+                             reader.Get("WebDAV", "password", ""))));
 
-    // --- WebDAV ---
-    if (hasWebdav && !ui.cancelRequested())
+    std::vector<SyncProvider *> connected;
+    for (auto &p : providers)
     {
-        WebDavRemote webdav(webdavUrl,
-                            reader.Get("WebDAV", "user", ""),
-                            reader.Get("WebDAV", "password", ""));
-        syncProvider(webdav, syncEntries, manifest, summary, ui);
+        if (ui.cancelRequested())
+            break;
+        if (connectRemote(*p, summary))
+            connected.push_back(p.get());
     }
+    syncAllEntries(connected, syncEntries, manifest, summary, ui);
 
     if (!manifest.save())
         printf(CONSOLE_RED "Sync state could not be saved — the next run will\n"

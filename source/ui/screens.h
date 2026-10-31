@@ -85,6 +85,11 @@ struct BottomModel
 
     // SCREEN_CONFLICT
     std::string conflictPath;
+    // The sides that changed it, "3DS" first when it is one.  With two, A and
+    // B keep one each; with more, R steps conflictPick through them and A
+    // keeps the one shown.
+    std::vector<std::string> conflictSides;
+    int conflictPick;
     bool applyToAll;
 
     // SCREEN_SAVE_LOG

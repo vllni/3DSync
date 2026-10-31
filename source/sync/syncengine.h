@@ -1,6 +1,7 @@
 #ifndef SYNC_SYNCENGINE_H
 #define SYNC_SYNCENGINE_H
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -36,13 +37,26 @@ struct SyncEntry
 // Both arrive through SyncUi, so the decision table below can be driven by the
 // 3DS console in the app and by a scripted stand-in in the tests.
 // ---------------------------------------------------------------------------
-enum ConflictChoice
+enum ConflictAction
 {
-    CONFLICT_KEEP_LOCAL,
-    CONFLICT_KEEP_REMOTE,
+    CONFLICT_KEEP, // keep the side at ConflictChoice::side
     CONFLICT_SKIP,
     CONFLICT_CANCEL
 };
+
+struct ConflictChoice
+{
+    ConflictAction action;
+    int side; // index into the sides offered, for CONFLICT_KEEP
+
+    static ConflictChoice keep(int side) { return {CONFLICT_KEEP, side}; }
+    static ConflictChoice skip() { return {CONFLICT_SKIP, -1}; }
+    static ConflictChoice cancel() { return {CONFLICT_CANCEL, -1}; }
+};
+
+// The name the 3DS goes by among the sides of a conflict.  It is always the
+// first side offered when it is one of them.
+extern const char *const LOCAL_SIDE;
 
 class SyncUi
 {
@@ -56,8 +70,11 @@ public:
     // cancellation matches the engine's.
     virtual void requestCancel() = 0;
 
-    // Both sides of localPath changed since the last sync.
-    virtual ConflictChoice resolveConflict(const std::string &localPath) = 0;
+    // localPath changed on more than one side since they last agreed.  sides
+    // names each of them, LOCAL_SIDE or a participant's label; there are at
+    // least two.
+    virtual ConflictChoice resolveConflict(const std::string &localPath,
+                                           const std::vector<std::string> &sides) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -72,6 +89,9 @@ struct SyncSummary
     {
         std::string path;
         std::string action;
+        // Which remote(s) it happened with: "Dropbox", or "SMB, WebDAV" for
+        // one upload to each.  Empty for "skipped", which concerns them all.
+        std::string remote;
     };
     std::vector<FileAction> changes;
     // Transfers that failed ("upload" / "download" and the local path).  They
@@ -94,15 +114,47 @@ std::vector<std::string> summaryLines(const SyncSummary &summary);
 std::string summaryResult(const SyncSummary &summary);
 
 // ---------------------------------------------------------------------------
-// performSync  — sync one SyncEntry against one remote
+// syncEntry  — sync one SyncEntry across every remote that holds it
 // ---------------------------------------------------------------------------
-// uploadOnly mirrors local to remote: nothing is ever downloaded, no conflict
-// is ever raised (the 3DS wins), and files that exist only on the remote are
-// left untouched.
+// An n-way sync: every participant is listed first, then each file is decided
+// once with all sides in view.  The side that changed wins and its version is
+// copied to every other; when several changed, the user picks one.  Order does
+// not matter, a remote that missed a change is brought up to date rather than
+// taken for one that made it, and two remotes changing the same file are a
+// conflict between them instead of one silently overwriting the other.
 //
-// Returns false if a fatal provider error occurred or cancellation was
-// requested.
+// A file missing from a side is fetched again, never deleted elsewhere.
 // ---------------------------------------------------------------------------
+struct Participant
+{
+    SyncProvider *provider;
+    std::string label;     // for the log, prompts and summary: "SMB"
+    std::string keyPrefix; // manifest key scope, without the '|'
+    // Only ever receives: it is never a source of a change, is never asked
+    // about, and files that exist only there are left alone.  Every remote
+    // is one for an upload-only entry.
+    bool sink;
+
+    // Filled in by syncEntry().
+    std::string root;
+    std::map<std::string, RemoteFileInfo> files;
+    bool listed;
+
+    Participant(SyncProvider &p, const std::string &label, const std::string &keyPrefix,
+                bool sink = false)
+        : provider(&p), label(label), keyPrefix(keyPrefix), sink(sink), listed(false)
+    {
+    }
+};
+
+// Returns false once cancellation was requested.  A participant that hits a
+// fatal error is dropped for the rest of the entry and the others carry on:
+// the caller checks hasFatalError() on each afterwards.
+bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
+               const SyncEntry &entry, SyncSummary &summary, SyncUi &ui);
+
+// syncEntry() with a single remote.  uploadOnly makes it a sink.  Returns false
+// if a fatal provider error occurred or cancellation was requested.
 bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &entry,
                  SyncSummary &summary, bool uploadOnly, SyncUi &ui);
 

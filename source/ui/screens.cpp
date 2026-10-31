@@ -44,7 +44,7 @@ static const Color kLogColors[] = {
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
       lastResultOk(true), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      applyToAll(false), logKilobytes(0), logTrimmed(false), heldKeys(0), logFirst(0),
+      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -93,7 +93,7 @@ static int contentWidth(const Button &b)
 static const int COL_X = 6, COL_W = 270;
 static const int ROW1_Y = 160, ROW2_Y = 200, BTN_H = 34, GAP = 6;
 
-static Button makeButton(int x, int y, int w, uint32_t key, const char *label,
+static Button makeButton(int x, int y, int w, uint32_t key, const std::string &label,
                          ButtonStyle style = BUTTON_NORMAL, bool enabled = true)
 {
     Button b;
@@ -112,6 +112,16 @@ static Button makeButton(int x, int y, int w, uint32_t key, const char *label,
 // n equal buttons across the column at height y, starting at slot `from`.
 static int slotX(int i, int n) { return COL_X + i * (COL_W + GAP) / n; }
 static int slotW(int n) { return (COL_W - (n - 1) * GAP) / n; }
+
+// "Keep Dropbox", or just "Dropbox" where that would not fit with a little
+// padding either side.
+static std::string keepLabel(uint32_t key, const std::string &side, int width)
+{
+    Button b = makeButton(0, 0, width, key, "Keep " + side);
+    if (contentWidth(b) + 14 > width)
+        b.label = side;
+    return b.label;
+}
 
 std::vector<Button> bottomButtons(const BottomModel &m)
 {
@@ -132,9 +142,37 @@ std::vector<Button> bottomButtons(const BottomModel &m)
                                BUTTON_DANGER, !m.cancelling));
         break;
     case SCREEN_CONFLICT:
-        b.push_back(makeButton(slotX(0, 2), ROW1_Y, slotW(2), K_A, "Keep 3DS", BUTTON_PRIMARY));
-        b.push_back(makeButton(slotX(1, 2), ROW1_Y, slotW(2), K_B, "Keep remote",
-                               BUTTON_PRIMARY));
+        if (m.conflictSides.size() <= 2)
+        {
+            const std::vector<std::string> &s = m.conflictSides;
+            std::string first = s.size() > 0 ? s[0] : "3DS";
+            std::string second = s.size() > 1 ? s[1] : "remote";
+            std::string a = keepLabel(K_A, first, slotW(2));
+            std::string b2 = keepLabel(K_B, second, slotW(2));
+            // Both say "Keep", or neither does.
+            if (a == first || b2 == second)
+            {
+                a = first;
+                b2 = second;
+            }
+            b.push_back(makeButton(slotX(0, 2), ROW1_Y, slotW(2), K_A, a, BUTTON_PRIMARY));
+            b.push_back(makeButton(slotX(1, 2), ROW1_Y, slotW(2), K_B, b2, BUTTON_PRIMARY));
+        }
+        else
+        {
+            // Too many sides for a key each: R steps through them, A keeps the
+            // one it names.
+            Button next = makeButton(0, ROW1_Y, 0, K_R, "Next");
+            next.rect.w = contentWidth(next) + 24;
+            next.rect.x = COL_X + COL_W - next.rect.w;
+            int pick = m.conflictPick >= 0 && m.conflictPick < (int)m.conflictSides.size()
+                           ? m.conflictPick
+                           : 0;
+            int w = COL_W - next.rect.w - GAP;
+            b.push_back(makeButton(COL_X, ROW1_Y, w, K_A,
+                                   keepLabel(K_A, m.conflictSides[pick], w), BUTTON_PRIMARY));
+            b.push_back(next);
+        }
         {
             // Three to a row is too tight for equal thirds once START's badge
             // is in one of them, so each gets its content plus a share of
@@ -425,12 +463,25 @@ static void drawConflictCard(Canvas &c, const BottomModel &m)
     c.roundRect(CARD_X, CARD_Y, CARD_W, ROW1_Y - GAP - CARD_Y, 12, C_PANEL);
     c.fill(CARD_X, CARD_Y + 12, 3, ROW1_Y - GAP - CARD_Y - 24, C_WARN);
     c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Conflict", C_WARN);
-    c.text(kFontSmall, CARD_IN, CARD_Y + 33, "Both sides changed since the last sync.", C_DIM, CARD_TEXT_W);
-    drawLines(c, kFontBody, CARD_IN, CARD_Y + 52, 17,
-              wrapText(kFontBody, m.conflictPath, CARD_TEXT_W, 3), C_TEXT);
+
+    std::string who = "Both sides changed since the last sync.";
+    const std::vector<std::string> &s = m.conflictSides;
+    if (!s.empty())
+    {
+        who = "Changed on ";
+        for (size_t i = 0; i < s.size(); i++)
+            who += (i == 0 ? "" : (i + 1 == s.size() ? " and " : ", ")) + s[i];
+        who += ". Keep which?";
+    }
+    std::vector<std::string> whoLines = wrapText(kFontSmall, who, CARD_TEXT_W, 2);
+    drawLines(c, kFontSmall, CARD_IN, CARD_Y + 33, 14, whoLines, C_DIM);
+
+    int extra = 14 * ((int)whoLines.size() - 1);
+    drawLines(c, kFontBody, CARD_IN, CARD_Y + 52 + extra, 17,
+              wrapText(kFontBody, m.conflictPath, CARD_TEXT_W, extra ? 2 : 3), C_TEXT);
     if (m.applyToAll)
         c.text(kFontSmall, CARD_IN, ROW1_Y - GAP - 20,
-               "Applies to every remaining conflict.", C_ACCENT, CARD_TEXT_W);
+               "Used again for every later conflict.", C_ACCENT, CARD_TEXT_W);
 }
 
 static void drawSaveLogCard(Canvas &c, const BottomModel &m)

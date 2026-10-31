@@ -36,7 +36,7 @@ label says which, so either works:
 |---|---|
 | Menu | **A** sync, **Y** sync with debug output, **START** exit |
 | During a sync | **START** stops after the current file |
-| Conflict | **A** keep the 3DS version, **B** keep the remote one, **X** skip, **L** apply the answer to every remaining conflict, **START** stop |
+| Conflict | **A** keep the first version named, **B** the second, **X** skip, **L** apply the answer to every remaining conflict, **START** stop. With three or more versions (several remotes changed the file), **R** steps through them and **A** keeps the one shown |
 | End of a debug run | **A** save the log, **B** discard it |
 
 The log can be scrolled at any time, including while a sync is running:
@@ -282,14 +282,20 @@ Bidirectional paths (`[Paths]` / `[ShallowPaths]`) compare each file against:
    | SMB | size + modification time |
    | FTP | size + `MDTM` |
 
-3. The **manifest** — a local JSON file that records the local mtime/size and the remote tag from the last successful sync.
+3. The **manifest** — a local JSON file that records the 3DS's copy (mtime, size) and each remote's tag from the last successful sync, plus a version number saying which remote holds the latest.
+
+With several remotes configured, every file is decided once with all of them
+in view. The side that changed wins and its version is copied to all the
+others in the same run, whichever order the remotes are in. A remote that was
+unreachable while the file changed is simply brought up to date the next time.
+If more than one side changed the file, one prompt lists them all.
 
 | Local changed? | Remote changed? | Action |
 |:-:|:-:|---|
 | No | No | Skip (up to date) |
 | Yes | No | Upload local → remote, update manifest |
 | No | Yes | Download from remote → local, update manifest |
-| Yes | Yes | **Conflict** — 3DS shows a prompt: press **A** to keep the 3DS version (upload) or **B** to keep the remote version (download); see [Controls](#controls) |
+| Yes | Yes | **Conflict** — 3DS shows a prompt naming every side that changed, and the version kept is copied to the others; see [Controls](#controls) |
 | Local missing | Remote exists | Download from remote |
 | Local exists | Remote missing | Upload to remote |
 | Both missing | — | Remove stale manifest entry |
@@ -299,7 +305,8 @@ On first run (no manifest entry yet), the local file is uploaded and the manifes
 
 Google Drive and Dropbox can verify a local file by content — their tags are an
 MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
-save whose mtime never moves (some emulators never update it) is still detected.
+save whose mtime never moves (some emulators never update it) is still detected,
+and a remote that already holds the same bytes as the 3DS is not a conflict.
 On SMB, FTP and WebDAV an unchanged mtime *and* size is taken as unchanged.
 
 ### Subfolder structure on the remote
@@ -319,14 +326,16 @@ changed.
 ```json
 {
   "drive|/3ds/Checkpoint/saves/TitleA/001.sav": {"mtime": 1716905520, "size": 512, "tag": "abc123", "id": "driveFileId"},
-  "smb://192.168.1.10/3ds|/roms/nds/saves/game.sav": {"mtime": 1716910000, "size": 32768, "tag": "32768:1716910000", "id": "sync/roms/game.sav"}
+  "smb://192.168.1.10/3ds|/roms/nds/saves/game.sav": {"mtime": 1716910000, "size": 32768, "tag": "32768:1716910000", "id": "sync/roms/game.sav", "gen": 2},
+  "local|/roms/nds/saves/game.sav": {"mtime": 1716910000, "size": 32768, "tag": "", "id": "", "gen": 2}
 }
 ```
 
 Each key is the remote's identifier and the full local path, so several remotes
 can sync the same folder without overwriting each other's state. Manifests
-written by older versions (bare local paths, an `md5` field) are read and
-upgraded automatically.
+written by older versions (bare local paths, an `md5` field, no `local|` entries
+or `gen`) are read and upgraded automatically, and an older 3DSync can still
+read a newer manifest.
 
 Delete this file to force a full re-upload on the next run.
 
