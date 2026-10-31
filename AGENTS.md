@@ -63,6 +63,7 @@ source/             C++ application source
     font.h, fontdata.cpp  Glyph tables; fontdata.cpp is generated
   libs/inih/        INI parser (inih + INIReader)
 tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
+tools/make_banner.py  Draws meta/banner_3ds.png (HOME Menu banner) from a bold font
 tests/              Host unit tests (see "Tests"), and preview.cpp
 testinfra/          Compose stack of SMB, FTP and WebDAV servers to sync a
                     real 3DS against; its README has the settings per case
