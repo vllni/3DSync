@@ -1,5 +1,5 @@
 $(function () {
-    const DEFAULT_DROPBOX_CLIENT_ID = 'y88zxdudhuoo41q';
+    const DEFAULT_DROPBOX_CLIENT_ID = IniFile.DEFAULT_DROPBOX_APP_KEY;
     const LOGIN_CHANNEL = '3dsync-login';
 
     // --- Nothing secret in browser storage ---
@@ -52,8 +52,6 @@ $(function () {
         }, 3000);
     }
 
-    let paths = [];
-
     let stepperInstace = new MStepper(document.querySelector('.stepper'), {
         firstActive: 0,
         autoFormCreation: false,
@@ -99,17 +97,18 @@ $(function () {
     markReachableSteps();
 
     // --- Remotes ---
-    // remotes holds every saved remote, in the order they were added; draft
+    // config.remotes holds every saved remote, in the order they were added; draft
     // is the one open in the editor, a copy until it is saved.  All of it,
     // passwords and tokens included, lives in this tab only, and a reload
     // forgets it.
     const TYPES = {
-        dropbox: { section: 'Dropbox', name: 'Dropbox', icon: '<i class="fa fa-dropbox"></i>' },
-        googledrive: { section: 'GoogleDrive', name: 'Drive', icon: '<i class="material-icons">add_to_drive</i>' },
-        smb: { section: 'SMB', name: 'SMB', icon: '<i class="material-icons">storage</i>' },
-        ftp: { section: 'FTP', name: 'FTP', icon: '<i class="material-icons">folder_shared</i>' },
-        webdav: { section: 'WebDAV', name: 'WebDAV', icon: '<i class="material-icons">cloud_queue</i>' }
+        dropbox: { icon: '<i class="fa fa-dropbox"></i>' },
+        googledrive: { icon: '<i class="material-icons">add_to_drive</i>' },
+        smb: { icon: '<i class="material-icons">storage</i>' },
+        ftp: { icon: '<i class="material-icons">folder_shared</i>' },
+        webdav: { icon: '<i class="material-icons">cloud_queue</i>' }
     };
+    Object.keys(TYPES).forEach(function (type) { $.extend(TYPES[type], IniFile.TYPES[type]); });
 
     // The inputs of each form, saved with the remote so it can be edited again.
     const FORM_FIELDS = {
@@ -120,26 +119,21 @@ $(function () {
         webdav: ['webdav-url', 'webdav-user', 'webdav-password']
     };
 
-    let remotes = []; // { uid, type, label, role, fields, auth, entries }
-    let excluded = {}; // uid -> { lowercased folder name: true } it does not sync
+    // What the steps build, and what the file is written from (IniFile in
+    // inifile.js describes it): config.remotes as they are saved in step 1,
+    // folders and file types as step 2 confirms them.
+    let config = { remotes: [], folders: [], filter: '', extras: [] };
     let draft = null;
     let draftSnapshot = '';
     let nextUid = 1;
 
     // What the 3DS calls it: "SMB", or "SMB (backup)" for a labelled one.
-    function displayName(remote) {
-        let name = TYPES[remote.type].name;
-        return remote.label ? name + ' (' + remote.label + ')' : name;
-    }
-
-    function sectionName(remote) {
-        return TYPES[remote.type].section + (remote.label ? ':' + remote.label : '');
-    }
+    const displayName = IniFile.displayName;
 
     function remoteDetail(remote) {
         let f = remote.fields;
         switch (remote.type) {
-            case 'dropbox': return 'Logged in';
+            case 'dropbox': return remote.auth ? 'Logged in' : 'Not logged in';
             case 'googledrive': return f['gdrive-folder-id'] ? 'Folder ' + f['gdrive-folder-id'] : 'My Drive';
             case 'smb': return '\\\\' + f['smb-server'] + '\\' + f['smb-share']
                 + (f['smb-path'] ? '\\' + f['smb-path'].replace(/\//g, '\\') : '');
@@ -152,7 +146,7 @@ $(function () {
 
     function renderRemotes() {
         let $list = $('#remote-list').empty();
-        remotes.forEach(function (remote) {
+        config.remotes.forEach(function (remote) {
             let $row = $('<div class="remote-row"></div>').toggleClass('editing', !!draft && draft.uid === remote.uid);
             $row.append($('<span class="remote-row-icon" aria-hidden="true"></span>').html(TYPES[remote.type].icon));
             let $text = $('<span class="remote-row-text"></span>');
@@ -171,14 +165,13 @@ $(function () {
             $remove.on('click', function (e) {
                 e.preventDefault();
                 if (draft && draft.uid === remote.uid) closeEditor();
-                remotes = remotes.filter(function (r) { return r.uid !== remote.uid; });
-                delete excluded[remote.uid];
+                config.remotes = config.remotes.filter(function (r) { return r.uid !== remote.uid; });
                 renderRemotes();
             });
             $row.append($edit, $remove);
             $list.append($row);
         });
-        $('#remote-list-empty').toggle(remotes.length === 0);
+        $('#remote-list-empty').toggle(config.remotes.length === 0);
     }
 
     function editorState() {
@@ -228,7 +221,7 @@ $(function () {
     function openEditor(type, remote) {
         if (editorDirty() && !confirm('Discard the changes to ' + $('#remote-editor-title').text() + '?')) return;
         draft = remote ? $.extend(true, {}, remote)
-            : { uid: nextUid++, type: type, label: '', role: 'sync', fields: {}, auth: null, isNew: true };
+            : { uid: nextUid++, type: type, label: '', role: 'sync', fields: {}, auth: null, excluded: {}, isNew: true };
         resetForm(type);
         if (remote) {
             loadFields(type, remote.fields);
@@ -240,6 +233,11 @@ $(function () {
                 $('#dropbox-expert-mode').prop('checked', true);
             }
         }
+        // Sealed values stay hidden; the field says one is kept.
+        Object.keys(IniFile.INI_FIELDS[type]).forEach(function (key) {
+            let sealed = (draft.carry || []).some(function (c) { return c[0].toLowerCase() === key && IniFile.isSealed(c[1]); });
+            $('#' + IniFile.INI_FIELDS[type][key]).attr('placeholder', sealed ? SEALED_NOTE : null);
+        });
         $('#dropbox-expert-panel').toggle($('#dropbox-expert-mode').prop('checked'));
         $('#remote-label').val(draft.label);
         setFieldError($('#remote-label'), null);
@@ -285,10 +283,10 @@ $(function () {
     });
 
     function sameType() {
-        return remotes.filter(function (r) { return r.type === draft.type && r.uid !== draft.uid; });
+        return config.remotes.filter(function (r) { return r.type === draft.type && r.uid !== draft.uid; });
     }
 
-    // Two remotes of one type are told apart by the label; the 3DS lowercases
+    // Two config.remotes of one type are told apart by the label; the 3DS lowercases
     // section names, so labels differing only in case would be the same one.
     function labelProblem(label) {
         if (label !== '' && !/^[A-Za-z0-9_-]+$/.test(label)) return 'Letters, digits, - and _ only';
@@ -343,15 +341,28 @@ $(function () {
             $('#remote-editor .invalid').first().focus();
             return false;
         }
+        entries = IniFile.withCarried(entries, draft);
+        // A sealed value opens only under the section it was sealed in.
+        let section = (TYPES[draft.type].section + (label ? ':' + label : '')).toLowerCase();
+        let sealedLeft = entries.filter(function (e) {
+            return IniFile.isSealed(e[1]) && (draft.carry || []).indexOf(e) >= 0;
+        });
+        if (sealedLeft.length && section !== draft.sealedSection) {
+            setFieldError($('#remote-label'), 'Changing it would stop the sealed '
+                + sealedLeft.map(function (e) { return e[0]; }).join(', ') + ' from opening');
+            editorHint('Keep the label, or enter the sealed ' + sealedLeft.map(function (e) { return e[0]; }).join(', ')
+                + ' again (log in again for a token).');
+            return false;
+        }
         draft.label = label;
         draft.role = $('#remote-role').val();
         draft.fields = captureFields(draft.type);
         draft.entries = entries;
         delete draft.isNew;
         let saved = draft;
-        let at = remotes.findIndex(function (r) { return r.uid === saved.uid; });
-        if (at >= 0) remotes[at] = saved;
-        else remotes.push(saved);
+        let at = config.remotes.findIndex(function (r) { return r.uid === saved.uid; });
+        if (at >= 0) config.remotes[at] = saved;
+        else config.remotes.push(saved);
         closeEditor();
         return true;
     }
@@ -377,7 +388,7 @@ $(function () {
                 return;
             }
         }
-        if (remotes.length === 0) {
+        if (config.remotes.length === 0) {
             continueHint('Add a remote first.');
             return;
         }
@@ -392,8 +403,77 @@ $(function () {
 
     renderRemotes();
 
+    // --- Import a 3DSync.ini made before ---
+    // The file is read in this tab and never sent anywhere.  fromIni() turns
+    // it into a config like the one the steps build, and the page is redrawn
+    // from that.  Sealed values ("enc:v1:…") only open on the console that
+    // sealed them, so they are never shown: the field stays blank and the
+    // value is written back as it was unless something new replaces it.
+    const SEALED_NOTE = 'Sealed on your 3DS — leave blank to keep it';
+
+    function loadConfig(loaded) {
+        closeEditor();
+        config = loaded;
+        nextUid = config.remotes.reduce(function (n, r) { return Math.max(n, r.uid + 1); }, nextUid);
+        // Step 2: a preset where name and path match exactly, a custom row
+        // for everything else.
+        $('#paths-presets input').prop('checked', false);
+        $('#paths-custom > .row').remove();
+        folderFilters = {};
+        config.folders.forEach(function (f) {
+            let $preset = $('#paths-presets input').filter(function () {
+                return $(this).next().text() === f.name && $(this).data('path') === f.path;
+            });
+            if ($preset.length && f.recursive && f.direction === 'both') $preset.prop('checked', true);
+            else addCustomPath(f.name, f.path, f.recursive, f.direction);
+            if (f.filter) folderFilters[f.name.toLowerCase()] = f.filter;
+        });
+        $('#file-filter').val(config.filter);
+        M.updateTextFields();
+        renderRemotes();
+        renderRouting();
+    }
+
+    function showImportReport(fileName, report) {
+        let $status = $('#import-status').empty().toggleClass('warn', report.problems.length > 0);
+        let summary = report.remotes || report.folders
+            ? 'Imported ' + fileName + ': ' + report.remotes + ' remote' + (report.remotes === 1 ? '' : 's') + ', '
+            + report.folders + ' folder' + (report.folders === 1 ? '' : 's') + '.'
+            : 'Nothing imported from ' + fileName + '.';
+        $status.append($('<div></div>').text(summary));
+        let $list = $('<ul class="browser-default"></ul>');
+        if (report.sealed)
+            $list.append($('<li></li>').text(report.sealed + ' password' + (report.sealed === 1 ? ' or token was' : 's or tokens were')
+                + ' sealed by your 3DS, so ' + (report.sealed === 1 ? 'it is' : 'they are') + ' not shown. '
+                + 'They are written back as they are; type or log in again to replace one.'));
+        if (report.kept.length)
+            $list.append($('<li></li>').text('Kept unchanged: ' + report.kept.join(', ') + '.'));
+        report.problems.forEach(function (p) {
+            $list.append($('<li class="problem"></li>').text(p));
+        });
+        if ($list.children().length) $status.append($list);
+    }
+
+    $('#import-file').on('change', function () {
+        let file = this.files[0];
+        this.value = ''; // the same file can be picked again
+        if (!file) return;
+        if (config.remotes.length && !confirm('Replace the remotes and folders on this page with those in ' + file.name + '?'))
+            return;
+        let reader = new FileReader();
+        reader.onload = function () {
+            let result = IniFile.fromIni(String(reader.result));
+            if (result.config) loadConfig(result.config);
+            showImportReport(file.name, result.report);
+        };
+        reader.onerror = function () {
+            showImportReport(file.name, { remotes: 0, folders: 0, sealed: 0, kept: [], problems: ['The file could not be read.'] });
+        };
+        reader.readAsText(file);
+    });
+
     // --- Logins (Dropbox, Google Drive) ---
-    // In a popup, so the remotes already added survive: a full-page redirect
+    // In a popup, so the config.remotes already added survive: a full-page redirect
     // would reload this page and forget them.  The popup comes back to this
     // page, which passes the answer on (runAsLoginPopup() above).
     const pendingLogins = {}; // state -> { provider, uid, verifier, clientId, clientSecret }
@@ -417,7 +497,8 @@ $(function () {
     }
 
     function renderLoginStatus() {
-        if (draft && draft.auth) showLogin(draft.type, 'ok', 'Logged in');
+        if (draft && draft.auth) showLogin(draft.type, 'ok', draft.auth.refreshToken === ''
+            ? 'Logged in — the token is sealed on your 3DS and kept as it is' : 'Logged in');
     }
 
     // Opened straight from the click, before anything is awaited: browsers
@@ -919,6 +1000,9 @@ $(function () {
 
     async function testDropbox() {
         if (!draft.auth) throw testError('fail', 'Log in with Dropbox first.');
+        if (draft.auth.refreshToken === '')
+            throw testError('unknown', 'The token is sealed on your 3DS, so it cannot be tested here. Log in '
+                + 'again to test it.');
         // What the 3DS does on every run: trade the refresh token for an
         // access token.
         let r = await postForm('https://api.dropbox.com/oauth2/token', {
@@ -944,6 +1028,9 @@ $(function () {
 
     async function testGoogleDrive() {
         if (!draft.auth) throw testError('fail', 'Log in with Google Drive first.');
+        if (draft.auth.refreshToken === '')
+            throw testError('unknown', 'The token is sealed on your 3DS, so it cannot be tested here. Log in '
+                + 'again to test it.');
         let r = await postForm('https://oauth2.googleapis.com/token', {
             grant_type: 'refresh_token',
             refresh_token: draft.auth.refreshToken,
@@ -1047,10 +1134,10 @@ $(function () {
     });
 
     // --- Remotes per folder ---
-    // With two remotes or more, a table of folder by remote, all ticked to
+    // With two config.remotes or more, a table of folder by remote, all ticked to
     // begin with.  What is stored is what was unticked, by folder name, so a
     // folder added later is synced everywhere until told otherwise.  It
-    // becomes Only= on the remotes that leave a folder out.
+    // becomes Only= on the config.remotes that leave a folder out.
 
     // The names of the folders chosen in this step right now, as typed.
     function currentFolderNames() {
@@ -1126,15 +1213,15 @@ $(function () {
     }
 
     function syncsFolder(remote, name) {
-        return remotes.length < 2 || !(excluded[remote.uid] || {})[name.toLowerCase()];
+        return config.remotes.length < 2 || IniFile.syncsFolder(remote, name);
     }
 
     function renderRouting() {
         let names = currentFolderNames();
-        $('#routing-section').toggle(remotes.length > 1);
+        $('#routing-section').toggle(config.remotes.length > 1);
         let $table = $('<table></table>');
         let $head = $('<tr></tr>').append($('<th>Folder</th>'));
-        remotes.forEach(function (remote) {
+        config.remotes.forEach(function (remote) {
             $head.append($('<th></th>').text(displayName(remote)));
         });
         $table.append($('<thead></thead>').append($head));
@@ -1142,7 +1229,7 @@ $(function () {
         names.forEach(function (name) {
             let $row = $('<tr></tr>').append($('<td></td>').text(name));
             let uploadOnly = folderDirection(name) === 'upload';
-            remotes.forEach(function (remote) {
+            config.remotes.forEach(function (remote) {
                 // A source is never written to, so it has no part in an
                 // upload-only folder whatever is ticked.
                 if (uploadOnly && remote.role === 'source') {
@@ -1154,7 +1241,7 @@ $(function () {
                     .prop('checked', syncsFolder(remote, name))
                     .attr('aria-label', name + ' on ' + displayName(remote))
                     .on('change', function () {
-                        let set = excluded[remote.uid] = excluded[remote.uid] || {};
+                        let set = remote.excluded = remote.excluded || {};
                         if (this.checked) delete set[name.toLowerCase()];
                         else set[name.toLowerCase()] = true;
                         $('#routing-note').text('').removeClass('warn');
@@ -1171,93 +1258,37 @@ $(function () {
 
     $('#paths-presets, #paths-custom').on('input change', 'input, select', renderRouting);
 
-    // The folders a remote is limited to, or null when it syncs all of them.
-    function onlyFolders(remote) {
-        let names = paths.map(function (p) { return p[0]; });
-        let kept = names.filter(function (name) { return syncsFolder(remote, name); });
-        return kept.length === names.length ? null : kept;
-    }
-
     // What keeps the routing from being written, or null.
     function routingProblem() {
         // A source is never written to, so it takes no part in one.
-        for (let i = 0; i < paths.length; i++) {
-            let name = paths[i][0];
-            if (paths[i][3] === 'upload' &&
-                !remotes.some(function (r) { return r.role !== 'source' && syncsFolder(r, name); }))
+        let folders = config.folders;
+        for (let i = 0; i < folders.length; i++) {
+            let name = folders[i].name;
+            if (folders[i].direction === 'upload' &&
+                !config.remotes.some(function (r) { return r.role !== 'source' && syncsFolder(r, name); }))
                 return '"' + name + '" is upload-only, and a Source remote is never written to. '
                     + 'Sync it both ways, or send it to another remote.';
         }
-        if (remotes.length < 2) return null;
-        for (let i = 0; i < paths.length; i++) {
-            let name = paths[i][0];
-            if (!remotes.some(function (r) { return syncsFolder(r, name); }))
+        if (config.remotes.length < 2) return null;
+        for (let i = 0; i < folders.length; i++) {
+            let name = folders[i].name;
+            if (!config.remotes.some(function (r) { return syncsFolder(r, name); }))
                 return 'No remote syncs "' + name + '". Tick at least one.';
         }
-        for (let i = 0; i < remotes.length; i++) {
-            let only = onlyFolders(remotes[i]);
+        for (let i = 0; i < config.remotes.length; i++) {
+            let only = IniFile.onlyFolders(config, config.remotes[i]);
             if (only === null) continue;
             // A remote with nothing ticked would get an empty Only=, which the
             // 3DS reads as "every folder".
             if (only.length === 0)
-                return displayName(remotes[i]) + ' syncs no folder. Tick one, or remove it in step 1.';
+                return displayName(config.remotes[i]) + ' syncs no folder. Tick one, or remove it in step 1.';
             // Only= is a list split on commas and spaces.
             let bad = only.find(function (name) { return /[\s,;]/.test(name); });
             if (bad !== undefined)
-                return '"' + bad + '" cannot be listed for ' + displayName(remotes[i]) + ': rename the folder '
+                return '"' + bad + '" cannot be listed for ' + displayName(config.remotes[i]) + ': rename the folder '
                     + 'without spaces or commas, or tick it for every remote.';
         }
         return null;
-    }
-
-    // --- Config generation ---
-    function remoteSectionString(remote, masked) {
-        let secret = /^(password|clientsecret|appsecret|refreshtoken|token)$/i;
-        let lines = ['[' + sectionName(remote) + ']'];
-        remote.entries.forEach(function (kv) {
-            lines.push(kv[0] + '=' + (masked && secret.test(kv[0]) ? '••••••••' : kv[1]));
-        });
-        if (remote.role !== 'sync') lines.push('Role=' + remote.role);
-        let only = onlyFolders(remote);
-        if (only !== null) lines.push('Only=' + only.join(', '));
-        return lines.join('\n') + '\n';
-    }
-
-    function getConfigString(masked) {
-        let strPaths = '';
-        let strShallowPaths = '';
-        let strUploadPaths = '';
-        let strUploadShallowPaths = '';
-        paths.forEach(function (path) {
-            let name = path[0];
-            let localPath = path[1];
-            let recursive = path[2];
-            let direction = path[3]; // 'both' or 'upload'
-            if (direction === 'upload') {
-                if (recursive) strUploadPaths += name + '=' + localPath + '\n';
-                else strUploadShallowPaths += name + '=' + localPath + '\n';
-            } else {
-                if (recursive) strPaths += name + '=' + localPath + '\n';
-                else strShallowPaths += name + '=' + localPath + '\n';
-            }
-        });
-        let pathSections = '';
-        if (strPaths) pathSections += '\n[Paths]\n' + strPaths;
-        if (strShallowPaths) pathSections += '\n[ShallowPaths]\n' + strShallowPaths;
-        if (strUploadPaths) pathSections += '\n[UploadPaths]\n' + strUploadPaths;
-        if (strUploadShallowPaths) pathSections += '\n[UploadShallowPaths]\n' + strUploadShallowPaths;
-        // Written only when filled: no [Filter] section means all files.
-        let filterLines = '';
-        let fileFilter = $('#file-filter').val().trim();
-        if (fileFilter) filterLines += 'Extensions=' + fileFilter + '\n';
-        paths.forEach(function (path) {
-            let own = (folderFilters[path[0].toLowerCase()] || '').trim();
-            if (own) filterLines += path[0] + '=' + own + '\n';
-        });
-        if (filterLines) pathSections += '\n[Filter]\n' + filterLines;
-
-        return remotes.map(function (remote) { return remoteSectionString(remote, masked); }).join('\n')
-            + pathSections;
     }
 
     // A few hundred bytes: a Blob and a link with the download attribute is all
@@ -1266,7 +1297,7 @@ $(function () {
     // third-party helper page or service worker to stream.
     $('#download-config').on('click', function (e) {
         e.preventDefault();
-        let blob = new Blob([getConfigString(false)], { type: 'application/octet-stream' });
+        let blob = new Blob([IniFile.toIni(config, false)], { type: 'application/octet-stream' });
         let url = URL.createObjectURL(blob);
         let link = document.createElement('a');
         link.href = url;
@@ -1279,9 +1310,10 @@ $(function () {
         setTimeout(function () { URL.revokeObjectURL(url); }, 40000);
     });
 
-    $('#add-custom-path').on('click', function (e) {
-        e.preventDefault();
-        let id = Date.now();
+    let pathRowSeq = 0;
+
+    function addCustomPath(name, path, recursive, direction) {
+        let id = 'path' + (++pathRowSeq);
         let $input = $('<div class="row">' +
             '<div class="input-field col s3"><input id="' + id + '-n" class="white-text" type="text"><label for="' + id + '-n" class="white-text">Name</label><span class="helper-text" data-error="Invalid name"></span></div>' +
             '<div class="input-field col s4"><input id="' + id + '" class="white-text path-custom" type="text"><label for="' + id + '" class="white-text">Path</label><span class="helper-text" data-error="Invalid path"></span></div>' +
@@ -1293,7 +1325,16 @@ $(function () {
             $(this).parent().parent().remove();
             renderRouting();
         });
-        $(this).before($input);
+        $input.find('#' + id + '-n').val(name || '');
+        $input.find('#' + id).val(path || '');
+        $input.find('.path-recursive').prop('checked', recursive !== false);
+        $input.find('.path-direction').val(direction || 'both');
+        $('#add-custom-path').before($input);
+    }
+
+    $('#add-custom-path').on('click', function (e) {
+        e.preventDefault();
+        addCustomPath();
         renderRouting();
     });
 
@@ -1320,7 +1361,7 @@ $(function () {
 
     $('#folders-confirm').on('click', function (e) {
         e.preventDefault();
-        paths = [];
+        let folders = [];
         let error = false;
         $('#paths-presets input:checked, #paths-custom input.path-custom').each(function () {
             let $this = $(this);
@@ -1355,12 +1396,14 @@ $(function () {
                             $name.removeClass('invalid');
                             let isRecursive = $this.closest('.row').find('.path-recursive').prop('checked');
                             let direction = $this.closest('.row').find('.path-direction').val() || 'both';
-                            paths.push([$name.val(), pathSync, isRecursive, direction]);
+                            folders.push({ name: $name.val(), path: pathSync, recursive: isRecursive,
+                                direction: direction });
                         }
                     }
                 }
             } else {
-                paths.push([$this.next().text(), $this.data('path'), true, 'both']);
+                folders.push({ name: $this.next().text(), path: $this.data('path'), recursive: true,
+                    direction: 'both' });
             }
         });
         // The 3DS splits the list on commas and spaces only, so "sav;bin"
@@ -1373,6 +1416,9 @@ $(function () {
         if (filterProblem) error = true;
         renderRouting();
         if (folderFiltersProblem()) error = true;
+        folders.forEach(function (f) { f.filter = (folderFilters[f.name.toLowerCase()] || '').trim(); });
+        config.folders = folders;
+        config.filter = $filter.val();
         let routing = error ? null : routingProblem();
         $('#routing-note').text(routing || '').toggleClass('warn', !!routing);
         if (routing) {
@@ -1380,7 +1426,7 @@ $(function () {
             error = true;
         }
         if (error === false) {
-            $('#config-preview').text(getConfigString(true));
+            $('#config-preview').text(IniFile.toIni(config, true));
             stepperInstace.nextStep();
         }
     });
