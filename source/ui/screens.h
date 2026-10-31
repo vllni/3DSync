@@ -94,9 +94,10 @@ struct BottomModel
 
     // SCREEN_CONFLICT
     std::string conflictPath;
-    // The sides that changed it, "3DS" first when it is one.  With two, A and
-    // B keep one each.  With more they are a list: conflictPick is the
-    // highlighted one, which A keeps; tapping a row, R and the D-pad move it.
+    // The sides that changed it, "3DS" first when it is one, as a list:
+    // conflictPick is the highlighted one, which A keeps; tapping a row, R
+    // and the D-pad move it.  It starts on the first, so A alone keeps the
+    // 3DS's version whenever that is one of them.
     std::vector<std::string> conflictSides;
     int conflictPick;
     bool applyToAll;
@@ -145,7 +146,8 @@ const Rect STRIP_DOWN = {282, 204, 34, 32};
 // Every touch target for this model, the scroll arrows included.
 std::vector<Button> bottomButtons(const BottomModel &m);
 
-// Whether the conflict prompt shows its sides as a list (more than two).
+// Whether the bottom screen shows the conflict list, whose D-pad Up/Down are
+// the list's rather than the log's.
 bool conflictUsesList(const BottomModel &m);
 // conflictPick clamped to the sides, and the first side of the list on screen:
 // the window follows the highlight once there are more than fit.

@@ -198,9 +198,9 @@ static bool frame(u32 &pressed)
 
     // The log scrolls in every mode: D-pad Up/Down a row (repeating while
     // held), Left/Right a page, the circle pad smoothly, and the touch strip.
-    // The one exception is a conflict between more than two sides, whose list
-    // takes the D-pad's Up/Down; the strip, Left/Right and the circle pad
-    // still scroll the log there.
+    // The one exception is a conflict, whose list of sides takes the D-pad's
+    // Up/Down; the strip, Left/Right and the circle pad still scroll the log
+    // there.
     u32 listKeys = conflictUsesList(m) ? (repeat & (KEY_DUP | KEY_DDOWN)) : 0;
     u32 scrollKeys = ((repeat & ~listKeys) | t.pressed) & SCROLL_KEYS;
     long rows = 0;
@@ -362,14 +362,13 @@ static void handleRunKeys(u32 keys)
         break;
     case SCREEN_CONFLICT:
     {
-        // Two sides: A and B.  More: a list whose highlighted side A keeps;
-        // a tapped row, R (wrapping) and D-pad Up/Down move the highlight.
+        // A list whose highlighted side A keeps; a tapped row, R (wrapping)
+        // and D-pad Up/Down move the highlight.
         int sides = (int)g_shared.conflictSides.size();
-        bool list = conflictUsesList(g_shared);
         int pick = conflictPickClamped(g_shared);
         if (keys & KEY_L)
             g_shared.applyToAll = !g_shared.applyToAll;
-        else if (list && (keys & K_LIST_ROWS))
+        else if (keys & K_LIST_ROWS)
         {
             for (int i = 0; i < CONFLICT_LIST_ROWS; i++)
                 if (keys & (K_LIST_ROW0 << i))
@@ -380,16 +379,14 @@ static void handleRunKeys(u32 keys)
                     break;
                 }
         }
-        else if (list && (keys & KEY_R))
+        else if ((keys & KEY_R) && sides > 0)
             g_shared.conflictPick = (pick + 1) % sides;
-        else if (list && (keys & KEY_DUP))
+        else if (keys & KEY_DUP)
             g_shared.conflictPick = pick > 0 ? pick - 1 : 0;
-        else if (list && (keys & KEY_DDOWN))
+        else if (keys & KEY_DDOWN)
             g_shared.conflictPick = pick + 1 < sides ? pick + 1 : pick;
         else if (keys & KEY_A)
-            answerLocked(list ? pick : 0);
-        else if ((keys & KEY_B) && !list)
-            answerLocked(1);
+            answerLocked(pick);
         else if (keys & KEY_X)
             answerLocked(ANSWER_SKIP);
         else if (keys & KEY_START)

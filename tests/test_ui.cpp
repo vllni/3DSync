@@ -361,25 +361,24 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     m.mode = SCREEN_RUNNING;
     CHECK_EQ(keysOf(bottomButtons(m)), K_START | scroll);
     m.mode = SCREEN_CONFLICT;
-    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_X | K_L | K_START | scroll);
+    m.conflictSides = {"3DS", "Dropbox"};
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 << 1 | K_X | K_L | K_START | scroll);
     m.mode = SCREEN_SAVE_LOG;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
 }
 
-TEST(layout, a_conflict_between_two_sides_keeps_a_and_b)
+TEST(layout, a_two_sided_conflict_is_a_list_starting_on_the_3ds)
 {
     BottomModel m;
     m.mode = SCREEN_CONFLICT;
-    m.conflictSides = {"3DS", "Drive"};
-    const uint32_t scroll = K_DUP | K_DDOWN;
-    CHECK(!conflictUsesList(m));
-    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_X | K_L | K_START | scroll);
-    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep 3DS");
-    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Keep Drive");
-    // "Keep Dropbox" does not fit half the row: both drop "Keep", not one.
     m.conflictSides = {"3DS", "Dropbox"};
-    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "3DS");
-    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_B).label, "Dropbox");
+    CHECK(conflictUsesList(m));
+    // A alone keeps the 3DS's version, as it did when the prompt had A and B.
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep 3DS");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0 << 1).label, "Dropbox");
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_B, 0u);
+    m.conflictPick = 1;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "Keep Dropbox");
 }
 
 TEST(layout, a_conflict_between_more_sides_is_a_list)

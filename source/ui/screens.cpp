@@ -118,7 +118,7 @@ static const int LIST_Y = 74, LIST_ROW_H = 30;
 
 bool conflictUsesList(const BottomModel &m)
 {
-    return m.mode == SCREEN_CONFLICT && m.conflictSides.size() > 2;
+    return m.mode == SCREEN_CONFLICT;
 }
 
 int conflictPickClamped(const BottomModel &m)
@@ -169,26 +169,9 @@ std::vector<Button> bottomButtons(const BottomModel &m)
                                BUTTON_DANGER, !m.cancelling));
         break;
     case SCREEN_CONFLICT:
-        if (m.conflictSides.size() <= 2)
         {
-            const std::vector<std::string> &s = m.conflictSides;
-            std::string first = s.size() > 0 ? s[0] : "3DS";
-            std::string second = s.size() > 1 ? s[1] : "remote";
-            std::string a = keepLabel(K_A, first, slotW(2));
-            std::string b2 = keepLabel(K_B, second, slotW(2));
-            // Both say "Keep", or neither does.
-            if (a == first || b2 == second)
-            {
-                a = first;
-                b2 = second;
-            }
-            b.push_back(makeButton(slotX(0, 2), ROW1_Y, slotW(2), K_A, a, BUTTON_PRIMARY));
-            b.push_back(makeButton(slotX(1, 2), ROW1_Y, slotW(2), K_B, b2, BUTTON_PRIMARY));
-        }
-        else
-        {
-            // A list in the space of the card and the first row: the
-            // highlighted side is the A button, the others only highlight
+            // The sides as a list in the space of the card and the first row:
+            // the highlighted side is the A button, the others only highlight
             // themselves when tapped.
             int pick = conflictPickClamped(m), first = conflictListFirst(m);
             int shown = (int)m.conflictSides.size() - first;
@@ -508,21 +491,34 @@ static void drawRunningCard(Canvas &c, const BottomModel &m)
     c.text(kFontSmall, CARD_IN, ROW2_Y - GAP - 22, hint, C_DIM, CARD_TEXT_W);
 }
 
-// More than two sides: a short card above the list, which takes the rest.
-static void drawConflictListCard(Canvas &c, const BottomModel &m)
+// A short card above the list of sides, which takes the rest.
+static void drawConflictCard(Canvas &c, const BottomModel &m)
 {
     int cardH = LIST_Y - 4 - CARD_Y;
     c.roundRect(CARD_X, CARD_Y, CARD_W, cardH, 10, C_PANEL);
     c.fill(CARD_X, CARD_Y + 7, 3, cardH - 14, C_WARN);
-    char who[64];
-    snprintf(who, sizeof(who), "Changed on %d sides. Keep which?",
-             (int)m.conflictSides.size());
+    // The sides by name when they fit the line, which two or three usually
+    // do; the list below names them anyway.
+    const std::vector<std::string> &s = m.conflictSides;
+    std::string who = "Changed on ";
+    for (size_t i = 0; i < s.size(); i++)
+        who += (i == 0 ? "" : (i + 1 == s.size() ? " and " : ", ")) + s[i];
+    who += ". Keep which?";
+    if (s.empty() || textWidth(kFontSmall, who) > CARD_TEXT_W)
+    {
+        char count[64];
+        snprintf(count, sizeof(count), "Changed on %d sides. Keep which?", (int)s.size());
+        who = s.size() > 1 ? count : "Changed on both sides. Keep which?";
+    }
     c.text(kFontSmall, CARD_IN, CARD_Y + 3, who, C_WARN, CARD_TEXT_W);
     std::vector<std::string> path = wrapText(kFontSmall, m.conflictPath, CARD_TEXT_W, 1);
     if (!path.empty())
         c.text(kFontSmall, CARD_IN, CARD_Y + 18, path[0], C_TEXT, CARD_TEXT_W);
 
-    c.roundRect(COL_X, LIST_Y, COL_W, CONFLICT_LIST_ROWS * LIST_ROW_H, 10, C_PANEL);
+    // As tall as the rows it holds, so two sides are not a half-empty box.
+    int rows = (int)s.size() < CONFLICT_LIST_ROWS ? (int)s.size() : CONFLICT_LIST_ROWS;
+    if (rows > 0)
+        c.roundRect(COL_X, LIST_Y, COL_W, rows * LIST_ROW_H, 10, C_PANEL);
 }
 
 // Sides scrolled out of the list, above or below: a small arrow at that end.
@@ -536,36 +532,6 @@ static void drawConflictListMarks(Canvas &c, const BottomModel &m)
         c.triangle(cx, LIST_Y + CONFLICT_LIST_ROWS * LIST_ROW_H - 6, 5, 1, C_DIM);
 }
 
-static void drawConflictCard(Canvas &c, const BottomModel &m)
-{
-    if (conflictUsesList(m))
-    {
-        drawConflictListCard(c, m);
-        return;
-    }
-    c.roundRect(CARD_X, CARD_Y, CARD_W, ROW1_Y - GAP - CARD_Y, 12, C_PANEL);
-    c.fill(CARD_X, CARD_Y + 12, 3, ROW1_Y - GAP - CARD_Y - 24, C_WARN);
-    c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Conflict", C_WARN);
-
-    std::string who = "Both sides changed since the last sync.";
-    const std::vector<std::string> &s = m.conflictSides;
-    if (!s.empty())
-    {
-        who = "Changed on ";
-        for (size_t i = 0; i < s.size(); i++)
-            who += (i == 0 ? "" : (i + 1 == s.size() ? " and " : ", ")) + s[i];
-        who += ". Keep which?";
-    }
-    std::vector<std::string> whoLines = wrapText(kFontSmall, who, CARD_TEXT_W, 2);
-    drawLines(c, kFontSmall, CARD_IN, CARD_Y + 33, 14, whoLines, C_DIM);
-
-    int extra = 14 * ((int)whoLines.size() - 1);
-    drawLines(c, kFontBody, CARD_IN, CARD_Y + 52 + extra, 17,
-              wrapText(kFontBody, m.conflictPath, CARD_TEXT_W, extra ? 2 : 3), C_TEXT);
-    if (m.applyToAll)
-        c.text(kFontSmall, CARD_IN, ROW1_Y - GAP - 20,
-               "Used again for every later conflict.", C_ACCENT, CARD_TEXT_W);
-}
 
 static void drawSaveLogCard(Canvas &c, const BottomModel &m)
 {
