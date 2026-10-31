@@ -100,6 +100,24 @@ TEST(secrets, only_credentials_are_sealable)
     CHECK(!isSealableSecret("Paths", "Password")); // a remote folder someone named "Password"
 }
 
+TEST(secrets, a_labelled_remote_has_the_secrets_of_its_type)
+{
+    CHECK(isSealableSecret("SMB:Backup", "Password"));
+    CHECK(isSealableSecret("dropbox:work", "RefreshToken"));
+    CHECK(!isSealableSecret("SMB:Backup", "User"));
+    CHECK(!isSealableSecret("Paths:x", "Password")); // not a remote type
+}
+
+TEST(secrets, a_value_moved_between_two_remotes_of_a_type_does_not_open)
+{
+    std::string sealed, opened;
+    sealValue(kKey, "SMB:enc", "Password", "pw", countingRandom, sealed);
+    CHECK(!openSealedValue(kKey, "SMB", "Password", sealed, opened));
+    CHECK(!openSealedValue(kKey, "SMB:backup", "Password", sealed, opened));
+    CHECK(openSealedValue(kKey, "smb:ENC", "password", sealed, opened));
+    CHECK_STR_EQ(opened, "pw");
+}
+
 // ---------------------------------------------------------------------------
 // sealIniText
 // ---------------------------------------------------------------------------
@@ -244,4 +262,14 @@ TEST(configseal, an_unfinished_copy_left_behind_is_dropped)
     recoverConfigSeal(dir.path() + "/3DSync.ini");
     CHECK_STR_EQ(dir.read("/3DSync.ini"), "[SMB]\nPassword=plain\n");
     CHECK(!dir.exists("/3DSync.ini.3dstmp"));
+}
+
+TEST(sealini, seals_a_labelled_remote)
+{
+    std::string ini = "[SMB:Enc]\nServer=nas\nPassword=3dsync\n";
+    SealResult r = sealIniText(ini, kKey, countingRandom);
+    CHECK_EQ(r.sealed, 1);
+    CHECK(r.text.find("3dsync") == std::string::npos);
+    INIReader reader(r.text.data(), r.text.size());
+    CHECK_STR_EQ(openedValue(reader, "SMB:Enc", "Password"), "3dsync");
 }

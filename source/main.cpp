@@ -22,6 +22,7 @@
 #include "modules/smbremote.h"
 #include "modules/syncprovider.h"
 #include "modules/webdavremote.h"
+#include "sync/remoteconfig.h"
 #include "sync/syncengine.h"
 #include "ui/frontend.h"
 #include "utils/debug.h"
@@ -117,6 +118,20 @@ static int countSyncPaths(const INIReader &reader)
         if (parsePathKey(kv.first, dir, recursive, prefix))
             n++;
     return n;
+}
+
+// The names of the configured sync paths ("saves"), lowercased as INIReader
+// keys them, for checking Only= without walking the SD card.
+static std::vector<std::string> configuredEntryNames(const INIReader &reader)
+{
+    std::vector<std::string> names;
+    SyncDirection dir;
+    bool recursive;
+    std::string prefix;
+    for (auto &kv : reader.GetValues())
+        if (parsePathKey(kv.first, dir, recursive, prefix))
+            names.push_back(kv.first.substr(prefix.size()));
+    return names;
 }
 
 // [Filter] Extensions=, shared by every entry.  Missing or empty: all files.
@@ -232,45 +247,57 @@ static void printExperimentalNotice(const char *backendName)
 }
 
 // ---------------------------------------------------------------------------
+// ActiveRemote  — a remote built from its section, for the length of a run
+// ---------------------------------------------------------------------------
+struct ActiveRemote
+{
+    SyncProvider *provider;
+    RemoteConfig config;
+    std::string name; // config.displayName(): "SMB" or "SMB (backup)"
+};
+
+// ---------------------------------------------------------------------------
 // connectRemote  — open one remote before any entry is synced
 // ---------------------------------------------------------------------------
 // Every remote takes part in each entry at once (see syncEntry()), so all of
 // them are connected first.  One that cannot be reached is left out of the run.
 // ---------------------------------------------------------------------------
-static bool connectRemote(SyncProvider &provider, SyncSummary &summary)
+static bool connectRemote(const ActiveRemote &remote, SyncSummary &summary)
 {
-    printf("\n=== %s ===\n", provider.name());
-    frontend::setActivity(provider.name(), "Connecting\xE2\x80\xA6");
+    SyncProvider &provider = *remote.provider;
+    const char *name = remote.name.c_str();
+    printf("\n=== %s ===\n", name);
+    frontend::setActivity(name, "Connecting\xE2\x80\xA6");
     if (provider.isExperimental())
         printExperimentalNotice(provider.name());
 
     if (!provider.connect())
     {
-        printf(CONSOLE_RED "%s: cannot connect — skipping.\n" CONSOLE_RESET, provider.name());
-        debugf("%s: connect() failed, fatal=%d\n", provider.name(),
-               provider.hasFatalError() ? 1 : 0);
-        summary.problems.push_back(std::string(provider.name()) + " (not reached)");
+        printf(CONSOLE_RED "%s: cannot connect — skipping.\n" CONSOLE_RESET, name);
+        debugf("%s: connect() failed, fatal=%d\n", name, provider.hasFatalError() ? 1 : 0);
+        summary.problems.push_back(remote.name + " (not reached)");
         return false;
     }
-    debugf("%s: connected, manifest prefix \"%s\"\n", provider.name(),
-           provider.manifestPrefix().c_str());
+    debugf("%s: connected, manifest prefix \"%s\"%s\n", name,
+           manifestScope(remote.config, provider.manifestPrefix()).c_str(),
+           remote.config.role == ROLE_BACKUP ? ", backup only" : "");
 
     // A wrong 3DS clock makes every mtime comparison suspect, so say so once.
     std::string serverTimeStr = provider.serverTime();
     if (serverTimeStr.empty())
-        debugf("%s: no server time reported, skew unchecked\n", provider.name());
+        debugf("%s: no server time reported, skew unchecked\n", name);
     else
     {
         time_t serverTime = parseServerTime(serverTimeStr);
         time_t localTime = time(NULL);
         if (serverTime == 0)
-            debugf("%s: cannot parse server time \"%s\"\n", provider.name(),
+            debugf("%s: cannot parse server time \"%s\"\n", name,
                    serverTimeStr.c_str());
         else
         {
             long skew = serverTime > localTime ? (long)(serverTime - localTime)
                                                : (long)(localTime - serverTime);
-            debugf("%s: server %s, skew %ld s\n", provider.name(),
+            debugf("%s: server %s, skew %ld s\n", name,
                    serverTimeStr.c_str(), skew);
             if (skew > 60)
             {
@@ -288,7 +315,7 @@ static bool connectRemote(SyncProvider &provider, SyncSummary &summary)
 // A remote that hits a fatal error is reported once and left out of the
 // entries after it; the others carry on.
 // ---------------------------------------------------------------------------
-static void syncAllEntries(std::vector<SyncProvider *> remotes,
+static void syncAllEntries(std::vector<ActiveRemote> remotes,
                            const std::vector<SyncEntry> &entries, Manifest &manifest,
                            SyncSummary &summary, SyncUi &ui)
 {
@@ -296,15 +323,14 @@ static void syncAllEntries(std::vector<SyncProvider *> remotes,
     auto dropFailed = [&]() {
         for (size_t i = 0; i < remotes.size();)
         {
-            if (!remotes[i]->hasFatalError())
+            if (!remotes[i].provider->hasFatalError())
             {
                 i++;
                 continue;
             }
             printf(CONSOLE_RED "\n%s: aborted, remaining entries skipped.\n" CONSOLE_RESET,
-                   remotes[i]->name());
-            summary.problems.push_back(std::string(remotes[i]->name()) +
-                                       " (stopped by an error)");
+                   remotes[i].name.c_str());
+            summary.problems.push_back(remotes[i].name + " (stopped by an error)");
             remotes.erase(remotes.begin() + i);
         }
     };
@@ -315,21 +341,37 @@ static void syncAllEntries(std::vector<SyncProvider *> remotes,
             break;
         bool uploadOnly = (entry.direction == SYNC_UPLOAD_ONLY);
 
+        std::vector<const ActiveRemote *> taking;
+        for (auto &r : remotes)
+        {
+            if (r.config.syncs(entry.remoteName))
+                taking.push_back(&r);
+            else
+                debugf("%s: not in its Only=, leaves out %s\n", r.name.c_str(),
+                       entry.remoteName.c_str());
+        }
+        if (taking.empty())
+            continue; // Only= routes this entry nowhere
+
         std::string names;
-        for (SyncProvider *r : remotes)
-            names += (names.empty() ? "" : ", ") + std::string(r->name());
+        for (const ActiveRemote *r : taking)
+            names += (names.empty() ? "" : ", ") + r->name;
         frontend::setActivity(names, entry.localBase);
         printf("\n%s [%s]\n", uploadOnly ? "Uploading" : "Syncing", entry.localBase.c_str());
 
         std::vector<Participant> participants;
-        for (SyncProvider *r : remotes)
+        for (const ActiveRemote *r : taking)
         {
             // Providers that shipped their own one-way upload keep using it so
             // the remote layout their users already have does not change.
-            if (uploadOnly && r->legacyUpload(entry.localBase, entry.remoteName,
-                                              entry.localFiles, ui))
+            if (uploadOnly && r->provider->legacyUpload(entry.localBase, entry.remoteName,
+                                                        entry.localFiles, ui))
                 continue;
-            participants.push_back(Participant(*r, r->name(), r->manifestPrefix()));
+            // A backup only ever receives, whatever the entry.
+            participants.push_back(
+                Participant(*r->provider, r->name,
+                            manifestScope(r->config, r->provider->manifestPrefix()),
+                            r->config.role == ROLE_BACKUP));
         }
 
         if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))
@@ -355,6 +397,8 @@ static void syncAllEntries(std::vector<SyncProvider *> remotes,
 static std::vector<std::string> g_initLog;
 // Credentials loadConfig() opened from their sealed form, as "section=name".
 static std::set<std::string> g_unsealedFields;
+// Sealed values loadConfig() could not open, for configIssues().
+static std::vector<ConfigIssue> g_sealIssues;
 
 static void initStep(const char *what, Result res)
 {
@@ -493,44 +537,85 @@ static void debugConfigSummary(const INIReader &reader)
 }
 
 // ---------------------------------------------------------------------------
-// configuredRemotes  — which [sections] are filled in enough to try
+// configuredRemotes / makeProvider  — the remotes 3DSync.ini describes
 // ---------------------------------------------------------------------------
-// Shared by runSync() and the idle screen, so the screen never lists a remote
-// the sync would skip or leaves out one it would run.
-struct ConfiguredRemotes
+// configuredRemotes() is shared by runSync() and the idle screen, so the screen
+// never lists a remote the sync would skip or leaves out one it would run.
+// ---------------------------------------------------------------------------
+static RemoteConfigs configuredRemotes(const INIReader &reader)
 {
-    bool dropbox, drive, smb, ftp, webdav;
+    return parseRemotes(reader.GetValues(), configuredEntryNames(reader));
+}
 
-    bool any() const { return dropbox || drive || smb || ftp || webdav; }
-
-    // In the order runSync() visits them, by SyncProvider::name().
-    std::string names() const
+// The backend for one remote section, read from that section alone, so a
+// labelled one ("[SMB:Backup]") takes the same keys as the unnamed one.
+static SyncProvider *makeProvider(const INIReader &reader, const RemoteConfig &remote)
+{
+    const std::string &s = remote.section;
+    switch (remote.type)
     {
-        std::string out;
-        const struct
-        {
-            bool on;
-            const char *name;
-        } all[] = {{dropbox, "Dropbox"}, {drive, "Drive"}, {smb, "SMB"},
-                   {ftp, "FTP"}, {webdav, "WebDAV"}};
-        for (auto &r : all)
-            if (r.on)
-                out += (out.empty() ? "" : ", ") + std::string(r.name);
-        return out;
+    case REMOTE_DROPBOX:
+        return new Dropbox(reader.Get(s, "appkey", ""), reader.Get(s, "appsecret", ""),
+                           reader.Get(s, "refreshtoken", ""), reader.Get(s, "path", ""),
+                           reader.Get(s, "token", ""));
+    case REMOTE_DRIVE:
+        return new GoogleDrive(reader.Get(s, "clientid", ""), reader.Get(s, "clientsecret", ""),
+                               reader.Get(s, "refreshtoken", ""),
+                               reader.Get(s, "folderid", ""), reader.Get(s, "token", ""));
+    case REMOTE_SMB:
+        return new SmbRemote(reader.Get(s, "server", ""), reader.Get(s, "share", ""),
+                             reader.Get(s, "user", ""), reader.Get(s, "password", ""),
+                             reader.Get(s, "domain", ""), reader.Get(s, "path", ""));
+    case REMOTE_FTP:
+        return new FtpRemote(reader.Get(s, "host", ""), (int)reader.GetInteger(s, "port", 0),
+                             reader.Get(s, "user", "anonymous"),
+                             reader.Get(s, "password", ""), reader.Get(s, "path", ""),
+                             parseTlsMode(reader.Get(s, "tls", "try")),
+                             reader.Get(s, "mode", "passive") == "active");
+    case REMOTE_WEBDAV:
+        return new WebDavRemote(reader.Get(s, "url", ""), reader.Get(s, "user", ""),
+                                reader.Get(s, "password", ""));
     }
-};
+    return NULL;
+}
 
-static ConfiguredRemotes configuredRemotes(const INIReader &reader)
+// ---------------------------------------------------------------------------
+// configIssues  — everything in 3DSync.ini the user has to fix
+// ---------------------------------------------------------------------------
+// The INI is read once, at startup, so this is too: main() shows it before the
+// menu, and every run repeats it in the log, where a saved debug log keeps it.
+// ---------------------------------------------------------------------------
+static std::vector<ConfigIssue> configIssues(const INIReader &reader,
+                                             const RemoteConfigs &remotes)
 {
-    ConfiguredRemotes r;
-    r.dropbox = !reader.Get("Dropbox", "token", "").empty() ||
-                !reader.Get("Dropbox", "refreshtoken", "").empty();
-    r.drive = !reader.Get("GoogleDrive", "token", "").empty() ||
-              !reader.Get("GoogleDrive", "refreshtoken", "").empty();
-    r.smb = !reader.Get("SMB", "server", "").empty() && !reader.Get("SMB", "share", "").empty();
-    r.ftp = !reader.Get("FTP", "host", "").empty();
-    r.webdav = !reader.Get("WebDAV", "url", "").empty();
-    return r;
+    std::vector<ConfigIssue> issues;
+    if (reader.ParseError() > 0)
+    {
+        // inih skips the line and reads on, so whatever was on it is missing.
+        char line[48];
+        snprintf(line, sizeof(line), "  Line %d was skipped; check its", reader.ParseError());
+        ConfigIssue issue;
+        issue.brief = "3DSync.ini has a syntax error";
+        issue.lines = {"3DSync.ini has a syntax error:", line,
+                       "  [Section] or Key=value form."};
+        issue.leftOut = false;
+        issues.push_back(issue);
+    }
+    issues.insert(issues.end(), g_sealIssues.begin(), g_sealIssues.end());
+    issues.insert(issues.end(), remotes.issues.begin(), remotes.issues.end());
+    return issues;
+}
+
+static void printConfigIssues(const std::vector<ConfigIssue> &issues)
+{
+    for (auto &issue : issues)
+    {
+        printf(CONSOLE_YELLOW "%s" CONSOLE_RESET "\n", issue.lines[0].c_str());
+        for (size_t i = 1; i < issue.lines.size(); i++)
+            printf("%s\n", issue.lines[i].c_str());
+    }
+    if (!issues.empty())
+        printf("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -549,31 +634,12 @@ static void runSync(const INIReader &reader)
         debugConfigSummary(reader);
     }
 
-    std::string dropboxToken = reader.Get("Dropbox", "token", "");
-    std::string dropboxAppKey = reader.Get("Dropbox", "appkey", "");
-    std::string dropboxAppSecret = reader.Get("Dropbox", "appsecret", "");
-    std::string dropboxRefreshToken = reader.Get("Dropbox", "refreshtoken", "");
-    std::string dropboxPath = reader.Get("Dropbox", "path", "");
+    RemoteConfigs remotes = configuredRemotes(reader);
+    std::vector<ConfigIssue> issues = configIssues(reader, remotes);
+    printConfigIssues(issues);
+    debugf("remotes configured: %s\n", remoteNames(remotes.remotes).c_str());
 
-    std::string googleDriveToken = reader.Get("GoogleDrive", "token", "");
-    std::string googleDriveClientId = reader.Get("GoogleDrive", "clientid", "");
-    std::string googleDriveClientSecret = reader.Get("GoogleDrive", "clientsecret", "");
-    std::string googleDriveRefreshToken = reader.Get("GoogleDrive", "refreshtoken", "");
-    std::string googleDriveFolderId = reader.Get("GoogleDrive", "folderid", "");
-
-    std::string smbServer = reader.Get("SMB", "server", "");
-    std::string smbShare = reader.Get("SMB", "share", "");
-    std::string ftpHost = reader.Get("FTP", "host", "");
-    std::string webdavUrl = reader.Get("WebDAV", "url", "");
-
-    ConfiguredRemotes remotes = configuredRemotes(reader);
-    bool hasDropbox = remotes.dropbox, hasGoogleDrive = remotes.drive, hasSmb = remotes.smb,
-         hasFtp = remotes.ftp, hasWebdav = remotes.webdav;
-
-    debugf("remotes configured: dropbox=%d drive=%d smb=%d ftp=%d webdav=%d\n",
-           hasDropbox, hasGoogleDrive, hasSmb, hasFtp, hasWebdav);
-
-    if (!remotes.any())
+    if (remotes.remotes.empty())
     {
         printf("No remote configured in 3DSync.ini\n");
         printf("Add a [Dropbox], [GoogleDrive], [SMB], [FTP]\n");
@@ -600,43 +666,22 @@ static void runSync(const INIReader &reader)
     manifest.load();
     SyncSummary summary;
 
-    // In the order the menu card names them, by SyncProvider::name().
-    std::vector<std::unique_ptr<SyncProvider> > providers;
-    if (hasDropbox)
-        providers.push_back(std::unique_ptr<SyncProvider>(
-            new Dropbox(dropboxAppKey, dropboxAppSecret, dropboxRefreshToken, dropboxPath,
-                        dropboxToken)));
-    if (hasGoogleDrive)
-        providers.push_back(std::unique_ptr<SyncProvider>(
-            new GoogleDrive(googleDriveClientId, googleDriveClientSecret,
-                            googleDriveRefreshToken, googleDriveFolderId, googleDriveToken)));
-    // SMB2/3 file server (NAS, Windows share)
-    if (hasSmb)
-        providers.push_back(std::unique_ptr<SyncProvider>(
-            new SmbRemote(smbServer, smbShare, reader.Get("SMB", "user", ""),
-                          reader.Get("SMB", "password", ""), reader.Get("SMB", "domain", ""),
-                          reader.Get("SMB", "path", ""))));
-    if (hasFtp)
-    {
-        std::string mode = reader.Get("FTP", "mode", "passive");
-        providers.push_back(std::unique_ptr<SyncProvider>(
-            new FtpRemote(ftpHost, (int)reader.GetInteger("FTP", "port", 0),
-                          reader.Get("FTP", "user", "anonymous"),
-                          reader.Get("FTP", "password", ""), reader.Get("FTP", "path", ""),
-                          parseTlsMode(reader.Get("FTP", "tls", "try")), mode == "active")));
-    }
-    if (hasWebdav)
-        providers.push_back(std::unique_ptr<SyncProvider>(
-            new WebDavRemote(webdavUrl, reader.Get("WebDAV", "user", ""),
-                             reader.Get("WebDAV", "password", ""))));
+    // A remote the user meant to have that is left out is a remote not synced.
+    for (auto &issue : issues)
+        if (issue.leftOut)
+            summary.problems.push_back(issue.brief);
 
-    std::vector<SyncProvider *> connected;
-    for (auto &p : providers)
+    // In the order the menu card names them.
+    std::vector<std::unique_ptr<SyncProvider> > providers;
+    std::vector<ActiveRemote> connected;
+    for (auto &config : remotes.remotes)
     {
         if (ui.cancelRequested())
             break;
-        if (connectRemote(*p, summary))
-            connected.push_back(p.get());
+        providers.push_back(std::unique_ptr<SyncProvider>(makeProvider(reader, config)));
+        ActiveRemote remote = {providers.back().get(), config, config.displayName()};
+        if (remote.provider && connectRemote(remote, summary))
+            connected.push_back(remote);
     }
     syncAllEntries(connected, syncEntries, manifest, summary, ui);
 
@@ -742,13 +787,19 @@ static INIReader loadConfig()
             continue;
         }
         // Never hand the provider the sealed text as if it were the secret:
-        // clear it, so the remote reads as unconfigured, and say why.
+        // clear it, so the remote reads as unconfigured, and say why — in
+        // the startup check, with everything else wrong in the file.
         reader.Set(section, name, "");
-        printf(CONSOLE_RED "3DSync.ini: [%s] %s cannot be opened\n" CONSOLE_RESET
-               "here. It was sealed on another console (or this\n"
-               "one was reset). Paste the plain value back into\n"
-               "the file, or make a new one with the configurator.\n\n",
-               section.c_str(), name.c_str());
+        ConfigIssue issue;
+        issue.section = section;
+        issue.brief = "[" + section + "] " + name + "= won't open";
+        issue.lines = {"A sealed value cannot be opened here:", "  [" + section + "] " + name,
+                       "  It was sealed on another console, or",
+                       "  this one was reset. Paste the plain",
+                       "  value back, or make a new file with",
+                       "  the configurator."};
+        issue.leftOut = false;
+        g_sealIssues.push_back(issue);
     }
     return reader;
 }
@@ -784,8 +835,27 @@ int main(int argc, char **argv)
     INIReader reader = loadConfig();
     if (reader.ParseError() < 0)
         printf("Can't load configuration\n");
-    frontend::setMenuInfo(reader.ParseError() >= 0, configuredRemotes(reader).names(),
-                          countSyncPaths(reader), configuredFilter(reader).describe());
+    RemoteConfigs remotes = configuredRemotes(reader);
+    std::vector<ConfigIssue> issues =
+        reader.ParseError() >= 0 ? configIssues(reader, remotes) : std::vector<ConfigIssue>();
+    frontend::setMenuInfo(reader.ParseError() >= 0, remoteNames(remotes.remotes),
+                          countSyncPaths(reader), configuredFilter(reader).describe(),
+                          (int)issues.size());
+
+    // Said once, before the menu: a remote that is set up wrongly is left out
+    // of every sync, which nothing else on screen would explain.
+    if (!issues.empty())
+    {
+        printConfigIssues(issues);
+        std::vector<std::string> lines;
+        for (auto &issue : issues)
+            lines.insert(lines.end(), issue.lines.begin(), issue.lines.end());
+        if (!frontend::showConfigIssues(lines, (int)issues.size()))
+        {
+            componentsExit();
+            return 0;
+        }
+    }
 
     while (true)
     {

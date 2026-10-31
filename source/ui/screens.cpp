@@ -43,8 +43,8 @@ static const Color kLogColors[] = {
 
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
-      lastResultOk(true), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), heldKeys(0), logFirst(0),
+      lastResultOk(true), configIssueCount(0), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
+      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), configScroll(0), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -217,6 +217,10 @@ std::vector<Button> bottomButtons(const BottomModel &m)
         b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_A, "Save log", BUTTON_PRIMARY));
         b.push_back(makeButton(slotX(1, 2), ROW2_Y, slotW(2), K_B, "Discard"));
         break;
+    case SCREEN_CONFIG_ISSUES:
+        b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_A, "Continue", BUTTON_PRIMARY));
+        b.push_back(makeButton(slotX(1, 2), ROW2_Y, slotW(2), K_START, "Exit"));
+        break;
     }
 
     Button up = makeButton(0, 0, 0, K_DUP, "");
@@ -375,8 +379,14 @@ static void drawHeader(Canvas &c, const BottomModel &m)
     switch (m.mode)
     {
     case SCREEN_MENU:
-        drawStatusPill(c, BOTTOM_W - 6, m.starting ? "Starting" : "Ready",
-                       m.starting ? C_FAINT : C_GOOD);
+        if (!m.starting && m.configIssueCount > 0)
+            drawStatusPill(c, BOTTOM_W - 6, "Check config", C_WARN);
+        else
+            drawStatusPill(c, BOTTOM_W - 6, m.starting ? "Starting" : "Ready",
+                           m.starting ? C_FAINT : C_GOOD);
+        break;
+    case SCREEN_CONFIG_ISSUES:
+        drawStatusPill(c, BOTTOM_W - 6, "Check config", C_WARN);
         break;
     case SCREEN_RUNNING:
         drawStatusPill(c, BOTTOM_W - 6, m.debugRun ? "Syncing \xC2\xB7 debug" : "Syncing",
@@ -533,6 +543,62 @@ static void drawConflictListMarks(Canvas &c, const BottomModel &m)
 }
 
 
+// ---------------------------------------------------------------------------
+// The config problems at startup
+// ---------------------------------------------------------------------------
+static const int CONFIG_ROW_H = 14, CONFIG_ROWS_Y = CARD_Y + 34;
+
+std::vector<ConfigIssueRow> configIssueRows(const BottomModel &m)
+{
+    std::vector<ConfigIssueRow> rows;
+    for (auto &line : m.configIssueLines)
+    {
+        bool heading = !line.empty() && line[0] != ' ';
+        // A gap above every problem but the first, so they read apart.
+        if (heading && !rows.empty())
+            rows.push_back({"", false});
+        for (auto &part : wrapText(kFontSmall, line, CARD_TEXT_W, 4))
+            rows.push_back({part, heading});
+    }
+    return rows;
+}
+
+int configScrollTo(const BottomModel &m, int rows, float fraction)
+{
+    int total = (int)configIssueRows(m).size();
+    int maxTop = total > CONFIG_ISSUE_ROWS ? total - CONFIG_ISSUE_ROWS : 0;
+    int top = fraction >= 0 ? (int)(maxTop * (fraction > 1 ? 1 : fraction) + 0.5f)
+                            : m.configScroll + rows;
+    return top < 0 ? 0 : (top > maxTop ? maxTop : top);
+}
+
+static void drawConfigIssuesCard(Canvas &c, const BottomModel &m)
+{
+    c.roundRect(CARD_X, CARD_Y, CARD_W, ROW2_Y - GAP - CARD_Y, 12, C_PANEL);
+    c.fill(CARD_X, CARD_Y + 12, 3, ROW2_Y - GAP - CARD_Y - 24, C_WARN);
+    char title[48];
+    snprintf(title, sizeof(title), m.configIssueCount == 1 ? "1 problem in 3DSync.ini"
+                                                          : "%d problems in 3DSync.ini",
+             m.configIssueCount);
+    c.text(kFontBold, CARD_IN, CARD_Y + 9, title, C_WARN, CARD_TEXT_W);
+
+    std::vector<ConfigIssueRow> rows = configIssueRows(m);
+    int top = configScrollTo(m, 0, -1);
+    for (int i = 0; i < CONFIG_ISSUE_ROWS && top + i < (int)rows.size(); i++)
+    {
+        const ConfigIssueRow &row = rows[top + i];
+        c.text(kFontSmall, CARD_IN, CONFIG_ROWS_Y + i * CONFIG_ROW_H, row.text,
+               row.heading ? C_TEXT : C_DIM, CARD_TEXT_W);
+    }
+    // More above or below: the strip shows it too, but the card should not
+    // look complete when it is not.
+    int cx = CARD_X + CARD_W - 12;
+    if (top > 0)
+        c.triangle(cx, CONFIG_ROWS_Y - 4, 4, -1, C_DIM);
+    if (top + CONFIG_ISSUE_ROWS < (int)rows.size())
+        c.triangle(cx, CONFIG_ROWS_Y + CONFIG_ISSUE_ROWS * CONFIG_ROW_H + 2, 4, 1, C_DIM);
+}
+
 static void drawSaveLogCard(Canvas &c, const BottomModel &m)
 {
     c.roundRect(CARD_X, CARD_Y, CARD_W, ROW2_Y - GAP - CARD_Y, 12, C_PANEL);
@@ -559,6 +625,7 @@ void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &butt
     case SCREEN_RUNNING: drawRunningCard(c, m); break;
     case SCREEN_CONFLICT: drawConflictCard(c, m); break;
     case SCREEN_SAVE_LOG: drawSaveLogCard(c, m); break;
+    case SCREEN_CONFIG_ISSUES: drawConfigIssuesCard(c, m); break;
     }
 
     drawScrollTrack(c, m);

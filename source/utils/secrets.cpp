@@ -49,7 +49,11 @@ bool isSealableSecret(const std::string &section, const std::string &name)
         "googledrive=token", "googledrive=clientsecret", "googledrive=refreshtoken",
         "smb=password",      "ftp=password",             "webdav=password",
     };
-    std::string key = lower(section) + "=" + lower(name);
+    // A labelled remote ("[SMB:Backup]") has the fields of its type.  The
+    // associated data stays the full section, so a value moved between two
+    // remotes of one type still does not open.
+    std::string type = lower(section.substr(0, section.find(':')));
+    std::string key = type + "=" + lower(name);
     for (const char *f : fields)
         if (key == f)
             return true;

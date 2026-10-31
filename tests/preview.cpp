@@ -194,6 +194,33 @@ int main()
     m.fileFilter = "";
     m.lastResult = "";
 
+    // Startup with problems in 3DSync.ini, scrolled a little way down.
+    {
+        BottomModel issues = m;
+        issues.mode = SCREEN_CONFIG_ISSUES;
+        issues.configIssueCount = 4;
+        issues.configIssueLines = {
+            "A remote is missing a setting:", "  [smb:enc]", "  Add Share= (the share name).",
+            "A remote has no login:", "  [dropbox]", "  Log in again with the configurator",
+            "  and copy its RefreshToken= here.", "Role= is neither sync nor backup in",
+            "  [ftp]", "  It syncs both ways until that is fixed.",
+            "Only= names a path that is not configured:", "  savs", "  in [smb:backup]",
+            "  Use a name from [Paths]."};
+        drawBottom(bottom, issues, bottomButtons(issues));
+        save("1e-config-issues", top, bottom);
+        issues.configScroll = configScrollTo(issues, 6, -1);
+        issues.logFirst = 0;
+        issues.logEnd = configIssueRows(issues).size();
+        issues.logTop = issues.configScroll;
+        issues.logVisible = CONFIG_ISSUE_ROWS;
+        drawBottom(bottom, issues, bottomButtons(issues));
+        save("1f-config-issues-scrolled", top, bottom);
+        BottomModel menu = m;
+        menu.configIssueCount = 4;
+        drawBottom(bottom, menu, bottomButtons(menu));
+        save("1g-menu-check-config", top, bottom);
+    }
+
     BottomModel none;
     none.starting = false;
     drawBottom(bottom, none, bottomButtons(none));
