@@ -59,10 +59,10 @@
       <p>
         The developer of 3DSync does <strong>not</strong> collect, receive, store, or process any personal
         data about you. The Service does not include analytics, tracking pixels or crash reporters. The
-        configurator's files are delivered by a small program the developer runs on Cloudflare Workers; it
-        only chooses which file to send for the address you open, never sees what you enter on the page, and
-        keeps no logs (see section 5). All processing described below occurs exclusively on your own
-        devices.
+        configurator's files are delivered by a small program the developer runs on Cloudflare Workers. It
+        chooses which file to send for the address you open and, when you use 3DSync's own Google sign-in,
+        passes the sign-in on to Google as described in section 2; it stores nothing and keeps no logs (see
+        section 5). Everything else described below happens on your own devices.
       </p>
 
       <h4 class="white-text">2. How the Configurator Web App Works</h4>
@@ -72,10 +72,21 @@
       </p>
       <ul class="browser-default">
         <li>
-          <strong>Google Drive:</strong> A login window opens on Google's own OAuth 2.0 consent screen.
-          Google issues an authorisation code, which the window hands back to the configurator page; the page
-          exchanges it directly from your browser for a refresh token by calling
-          <code>https://oauth2.googleapis.com/token</code>.
+          <strong>Google Drive, with 3DSync's own sign-in</strong> (the default): a login window opens on Google's
+          own OAuth 2.0 consent screen. Google issues an authorisation code, which the window hands back to the
+          configurator page. Google requires a client secret to exchange that code, and the secret cannot be
+          given to every browser, so the page sends the code to <code>https://3dsync.vllni.dev/api/google/token</code>,
+          which adds the secret, forwards the request to <code>https://oauth2.googleapis.com/token</code> and
+          returns Google's answer, including your refresh token, to your browser. Your 3DS later refreshes its
+          access the same way, sending the refresh token there. This program passes each request on as it
+          arrives: it does not store or log the code, the tokens or anything else about you, and it never sees
+          your files, which the 3DS exchanges with Google directly. To choose folders, the page shows Google's
+          own file picker, loaded from Google; only the items you pick there become visible to 3DSync.
+        </li>
+        <li>
+          <strong>Google Drive, with your own Google Cloud client</strong> (expert mode): as above, but the page
+          exchanges the code directly from your browser by calling <code>https://oauth2.googleapis.com/token</code>
+          with your own client secret, and nothing passes through 3DSync's site.
         </li>
         <li>
           <strong>Dropbox:</strong> A login window opens on Dropbox's own OAuth 2.0 consent screen. Dropbox
@@ -85,8 +96,9 @@
       </ul>
       <p>
         Tokens, passwords and the other settings you enter are kept only in the page's memory, solely to
-        assemble the config file. They are never transmitted to any server controlled by the developer, and
-        they are forgotten when you close or reload the page. The one value kept in your browser's
+        assemble the config file. Apart from the Google sign-in passed on as described above, they are never
+        transmitted to any server controlled by the developer, and they are forgotten when you close or reload
+        the page. The one value kept in your browser's
         <code>localStorage</code> is a Dropbox app key you enter in expert mode, which is not a secret.
         Once you click <em>Download</em>, the config file is saved to your computer.
       </p>
@@ -106,9 +118,12 @@
         </a>, including the Limited Use requirements.
       </p>
       <p>
-        Specifically, the Application requests the
-        <code>https://www.googleapis.com/auth/drive</code> scope solely to upload and download files
-        between your Nintendo 3DS SD card and your own Google Drive account. The Application:
+        Specifically, with 3DSync's own sign-in the Application requests the
+        <code>https://www.googleapis.com/auth/drive.file</code> scope, which covers only the folders and files
+        you choose in the configurator and those 3DSync creates itself. With your own Google Cloud client
+        (expert mode) it requests the <code>https://www.googleapis.com/auth/drive</code> scope. Either is used
+        solely to upload and download files between your Nintendo 3DS SD card and your own Google Drive
+        account. The Application:
       </p>
       <ul class="browser-default">
         <li>does not use Google user data to serve advertisements;</li>
@@ -143,7 +158,8 @@
       </p>
       <p>
         The configurator loads fonts and icons from the Google Fonts and Font Awesome CDNs; its scripts are
-        served from this site. Your browser may send standard HTTP request metadata
+        served from this site, apart from Google's file picker, which is loaded from Google when you choose
+        Drive folders. Your browser may send standard HTTP request metadata
         (such as your IP address) to those CDN providers when fetching these resources. Their use of that
         data is governed by their own privacy policies, not this one.
       </p>

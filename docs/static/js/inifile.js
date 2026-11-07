@@ -5,7 +5,7 @@
 //
 //   config = {
 //     remotes: [{ uid, type, label, role, fields, auth, entries, carry,
-//                 sealedSection, excluded }],
+//                 sealedSection, excluded, driveFolders }],
 //     folders: [{ name, path, recursive, direction, filter }],
 //     filter: '',      // [Filter] Extensions=
 //     extras: []       // sections the page has no form for, as read
@@ -17,6 +17,13 @@
 // OAuth login.  carry holds what an imported file had that the form does not
 // produce: sealed values, which are never shown, and keys it has no field
 // for.  A folder's filter of '' means it takes config.filter.
+//
+// A Google Drive remote signs in either with 3DSync's own client (no
+// ClientSecret= in the file; the 3DS refreshes through the site's Worker, and
+// the scope is drive.file) or, in expert mode, with the user's own client.
+// fields['gdrive-expert-mode'] says which.  driveFolders maps a folder name
+// (lowercased) to the Drive folder chosen for it, { id, title }, written as
+// Folder.<name>= in the remote's section.
 (function (root) {
     'use strict';
 
@@ -120,8 +127,18 @@
             + pairs.map(function (kv) { return line(kv[0], kv[1], masked) + '\n'; }).join('');
     }
 
+    // Folder.<name>= for every folder the remote syncs that has a Drive
+    // folder chosen; one for a folder no longer configured is not written.
+    function driveFolderPairs(config, remote) {
+        let chosen = remote.driveFolders || {};
+        return config.folders.filter(function (f) {
+            return chosen[f.name.toLowerCase()] && syncsFolder(remote, f.name);
+        }).map(function (f) { return ['Folder.' + f.name, chosen[f.name.toLowerCase()].id]; });
+    }
+
     function remoteText(config, remote, masked) {
         let pairs = remote.entries.slice();
+        if (remote.type === 'googledrive') pairs = pairs.concat(driveFolderPairs(config, remote));
         if (remote.role !== 'sync') pairs.push(['Role', remote.role]);
         let only = onlyFolders(config, remote);
         if (only !== null) pairs.push(['Only', only.join(', ')]);
@@ -212,7 +229,8 @@
         let label = section.name.indexOf(':') >= 0 ? section.name.slice(section.name.indexOf(':') + 1) : '';
         let remote = {
             uid: uid, type: type, label: label, role: 'sync', fields: {}, auth: null,
-            entries: [], carry: [], sealedSection: section.name.toLowerCase(), excluded: {}, only: null
+            entries: [], carry: [], sealedSection: section.name.toLowerCase(), excluded: {}, only: null,
+            driveFolders: {}
         };
         let name = displayName(remote);
         let fields = INI_FIELDS[type];
@@ -229,6 +247,11 @@
             }
             if (key === 'only') {
                 remote.only = value.split(/[\s,]+/).filter(Boolean).map(function (n) { return n.toLowerCase(); });
+                return;
+            }
+            // Written again from driveFolders, for the folders that still exist.
+            if (type === 'googledrive' && key.indexOf('folder.') === 0 && key.length > 7) {
+                remote.driveFolders[key.slice(7)] = { id: value, title: '' };
                 return;
             }
             remote.entries.push(pair);
@@ -250,11 +273,16 @@
             remote.fields['dropbox-expert-mode'] = appKey !== DEFAULT_DROPBOX_APP_KEY;
             if (appKey === DEFAULT_DROPBOX_APP_KEY) delete remote.fields['dropbox-client-id'];
             if (refreshToken !== null) remote.auth = { clientId: appKey, clientSecret: '', refreshToken: refreshToken };
-        } else if (type === 'googledrive' && refreshToken !== null) {
-            remote.auth = {
-                clientId: remote.fields['gdrive-client-id'] || '',
-                clientSecret: remote.fields['gdrive-client-secret'] || '', refreshToken: refreshToken
-            };
+        } else if (type === 'googledrive') {
+            // No client of its own (not even a sealed secret): 3DSync's.
+            let own = remote.entries.some(function (e) { return /^client(id|secret)$/i.test(e[0]); });
+            remote.fields['gdrive-expert-mode'] = own;
+            if (refreshToken !== null) {
+                remote.auth = own ? {
+                    clientId: remote.fields['gdrive-client-id'] || '',
+                    clientSecret: remote.fields['gdrive-client-secret'] || '', refreshToken: refreshToken
+                } : { shared: true, clientId: '', clientSecret: '', refreshToken: refreshToken };
+            }
         }
         if (oauth && !remote.auth)
             report.problems.push(name + ' has no refresh token: kept as it is, but log in again to change it.');
@@ -305,6 +333,12 @@
                 });
             }
             delete remote.only;
+            Object.keys(remote.driveFolders).forEach(function (n) {
+                if (names.indexOf(n) < 0) {
+                    report.problems.push(displayName(remote) + ': Folder.' + n + '= names no folder here and was left out.');
+                    delete remote.driveFolders[n];
+                }
+            });
         });
         filterPairs.forEach(function (pair) {
             let key = pair[0].toLowerCase();
