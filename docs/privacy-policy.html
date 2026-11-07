@@ -46,7 +46,7 @@
     <div class="container white-text">
 
       <h3 class="white-text">Privacy Policy</h3>
-      <p class="last-updated white-text">Last updated: October 31, 2026</p>
+      <p class="last-updated white-text">Last updated: November 7, 2026</p>
 
       <p>
         This Privacy Policy describes how 3DSync ("the Application", "we", "us") handles information when
@@ -58,9 +58,11 @@
       <h4 class="white-text">1. No Data Collection by the Developer</h4>
       <p>
         The developer of 3DSync does <strong>not</strong> collect, receive, store, or process any personal
-        data about you. The Service does not include analytics, tracking pixels, crash reporters, or any
-        server-side component operated by the developer. All processing described below occurs exclusively
-        on your own devices.
+        data about you. The Service does not include analytics, tracking pixels or crash reporters. The
+        configurator's files are delivered by a small program the developer runs on Cloudflare Workers; it
+        only chooses which file to send for the address you open, never sees what you enter on the page, and
+        keeps no logs (see section 5). All processing described below occurs exclusively on your own
+        devices.
       </p>
 
       <h4 class="white-text">2. How the Configurator Web App Works</h4>
@@ -130,6 +132,15 @@
       </p>
 
       <h4 class="white-text">5. Third-Party Services</h4>
+      <p>
+        The website, including the configurator and the Universal-Updater store, is hosted on Cloudflare.
+        To deliver a page, Cloudflare processes standard HTTP request metadata such as your IP address and
+        browser type, under
+        <a class="white-text" style="text-decoration:underline" href="https://www.cloudflare.com/privacypolicy/"
+          target="_blank" rel="noopener noreferrer">Cloudflare's Privacy Policy</a>.
+        The developer does not collect or store this information; Cloudflare shows the developer only
+        aggregate traffic statistics, such as the number of requests per country.
+      </p>
       <p>
         The configurator loads fonts and icons from the Google Fonts and Font Awesome CDNs; its scripts are
         served from this site. Your browser may send standard HTTP request metadata

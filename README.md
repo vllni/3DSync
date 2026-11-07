@@ -558,3 +558,29 @@ response parsing driven by recorded server responses. They run on every pull
 request. `libmbedtls-dev` enables the hashing tests; without it the rest still
 run and the runner says what it skipped.
 
+The website has its own tests, run with Node:
+
+```bash
+node --test tests/configurator/*.test.js   # reading and writing 3DSync.ini
+node --test tests/worker/*.test.mjs        # which file the site serves
+```
+
+## Website
+
+The configurator and the Universal-Updater store at
+[3dsync.vllni.dev](https://3dsync.vllni.dev/) are the files in `docs/`, plus a
+store feed, icon sheet and QR code generated from the GitHub releases. The
+`Pages` workflow builds them on every release and every change to `docs/`, and
+deploys them to a Cloudflare Worker (`worker/`) that serves each file at its
+exact address. The address matters: `configurator.html` is the redirect URI
+registered for the Google and Dropbox sign-ins, so it must never be renamed or
+redirected.
+
+To look at the site locally, open `docs/index.html` in a browser, or serve
+`docs/` the way the Worker does:
+
+```bash
+mkdir -p _site && cp -r docs/. _site/
+cd worker && npx wrangler@4.151.2 dev
+```
+
