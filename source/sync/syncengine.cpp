@@ -33,7 +33,8 @@ struct Side
 
 struct LocalFile
 {
-    bool exists;
+    bool exists;    // a regular file is there
+    bool inTheWay;  // something else is: a folder of that name
     time_t mtime;
     long long size;
 };
@@ -42,7 +43,9 @@ LocalFile statLocal(const std::string &path)
 {
     struct stat st = {};
     LocalFile f;
-    f.exists = (stat(path.c_str(), &st) == 0);
+    bool found = (stat(path.c_str(), &st) == 0);
+    f.exists = found && S_ISREG(st.st_mode);
+    f.inTheWay = found && !f.exists;
     f.mtime = f.exists ? st.st_mtime : 0;
     f.size = f.exists ? (long long)st.st_size : 0;
     return f;
@@ -126,6 +129,15 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
 {
     LocalFile local = statLocal(localPath);
     const std::string localKey = LOCAL_PREFIX + localPath;
+    // A remote file whose local name is a folder: downloading would move the
+    // folder aside as a backup, and uploading has nothing to send.
+    if (local.inTheWay)
+    {
+        printf(CONSOLE_RED "  Skipped, a folder has this name:\n" CONSOLE_RESET);
+        printf("    %s\n", localPath.c_str());
+        summary.problems.push_back(localPath + " (a folder has its name)");
+        return true;
+    }
 
     std::vector<Side> sides;
     for (Participant *p : live)

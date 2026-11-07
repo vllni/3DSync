@@ -404,10 +404,10 @@ bool Dropbox::download(const RemoteFileInfo &file, const std::string &localPath)
     int res = _performWithRetry();
     _curl.clearDownloadFile();
     curl_slist_free_all(headers);
-    fclose(fp);
 
     if (res != 0)
     {
+        fclose(fp);
         // On an error the body is the JSON error, which went into the temp file
         // and is about to be deleted with the reason still in it.
         printf("Dropbox: download failed for %s\n", file.relPath.c_str());
@@ -417,7 +417,12 @@ bool Dropbox::download(const RemoteFileInfo &file, const std::string &localPath)
         remove(tmpPath.c_str());
         return false;
     }
-    return replaceLocalFile(tmpPath, localPath);
+    // file.id is a revision, so the bytes must hash to its content_hash.
+    DownloadCheck check;
+    check.received = _curl.downloadedBytes();
+    check.hashOf = computeDropboxHash;
+    check.expectedHash = file.tag;
+    return finishDownload(fp, tmpPath, localPath, check);
 }
 
 bool Dropbox::upload(const std::string &root, const std::string &relPath,

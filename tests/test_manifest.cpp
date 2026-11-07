@@ -297,3 +297,69 @@ TEST(manifest, garbage_does_not_crash_the_parser)
         CHECK(manifest.has("drive|/x"));
     }
 }
+
+TEST(manifest, braces_and_quotes_in_values_do_not_end_an_entry)
+{
+    ManifestFile file;
+    {
+        Manifest manifest(file.path());
+        // A '}' in a tag used to end the entry there and lose every later one.
+        manifest.set("smb|/3ds/a}.sav", makeEntry(1, 10, "\"etag}{\"", "/a}\\b{.sav"));
+        manifest.set("smb|/3ds/z.sav", makeEntry(2, 20, "z", "/z.sav"));
+        CHECK(manifest.save());
+    }
+
+    Manifest reloaded(file.path());
+    CHECK(reloaded.load());
+    CHECK(reloaded.has("smb|/3ds/a}.sav"));
+    CHECK_STR_EQ(reloaded.get("smb|/3ds/a}.sav").remoteTag, "\"etag}{\"");
+    CHECK_STR_EQ(reloaded.get("smb|/3ds/a}.sav").remoteId, "/a}\\b{.sav");
+    CHECK(reloaded.has("smb|/3ds/z.sav"));
+    CHECK_STR_EQ(reloaded.get("smb|/3ds/z.sav").remoteTag, "z");
+}
+
+TEST(manifest, a_save_leaves_no_temp_file)
+{
+    ManifestFile file;
+    Manifest manifest(file.path());
+    manifest.set("drive|/x", makeEntry(1, 1, "t", "i"));
+    CHECK(manifest.save());
+    CHECK(fopen((file.path() + ".3dstmp").c_str(), "r") == NULL);
+    CHECK(fopen((file.path() + ".3dsbak").c_str(), "r") == NULL);
+}
+
+TEST(manifest, an_unchanged_manifest_is_not_written_again)
+{
+    ManifestFile file;
+    {
+        Manifest manifest(file.path());
+        manifest.set("drive|/x", makeEntry(1, 1, "t", "i"));
+        CHECK(manifest.save());
+    }
+    Manifest manifest(file.path());
+    CHECK(manifest.load());
+    file.writeRaw("marker");
+    // The engine rewrites records it only confirmed.
+    manifest.set("drive|/x", makeEntry(1, 1, "t", "i"));
+    CHECK(manifest.saveIfChanged());
+    CHECK_STR_EQ(file.readRaw(), "marker");
+
+    manifest.set("drive|/x", makeEntry(1, 1, "t2", "i"));
+    CHECK(manifest.saveIfChanged());
+    CHECK(file.readRaw().find("\"t2\"") != std::string::npos);
+}
+
+TEST(manifest, a_removal_counts_as_a_change)
+{
+    ManifestFile file;
+    Manifest manifest(file.path());
+    manifest.set("drive|/x", makeEntry(1, 1, "t", "i"));
+    CHECK(manifest.save());
+    file.writeRaw("marker");
+    manifest.remove("drive|/nothing");
+    CHECK(manifest.saveIfChanged());
+    CHECK_STR_EQ(file.readRaw(), "marker");
+    manifest.remove("drive|/x");
+    CHECK(manifest.saveIfChanged());
+    CHECK(file.readRaw().find("drive|/x") == std::string::npos);
+}

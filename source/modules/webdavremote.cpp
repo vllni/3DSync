@@ -342,10 +342,10 @@ bool WebDavRemote::download(const RemoteFileInfo &file, const std::string &local
 
     int res = _performWithRetry();
     _curl.clearDownloadFile();
-    fclose(fp);
 
     if (res != 0)
     {
+        fclose(fp);
         printf("WebDAV: download failed for %s\n", file.id.c_str());
         debugf("  %d for %s\n", res, _curl.getURL().c_str());
         // A server error page was streamed into the temp file.
@@ -353,7 +353,9 @@ bool WebDavRemote::download(const RemoteFileInfo &file, const std::string &local
         remove(tmpPath.c_str());
         return false;
     }
-    return replaceLocalFile(tmpPath, localPath);
+    DownloadCheck check;
+    check.received = _curl.downloadedBytes();
+    return finishDownload(fp, tmpPath, localPath, check);
 }
 
 bool WebDavRemote::upload(const std::string &root, const std::string &relPath,

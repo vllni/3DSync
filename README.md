@@ -408,6 +408,15 @@ A remote file whose name could reach outside the synced folder (one with a `..`
 segment, an empty segment or a backslash) is never downloaded or compared. The
 run says so and ends with "Sync finished with errors".
 
+A download replaces the save on the 3DS only once all of it is on the SD card,
+and for Google Drive and Dropbox only once it matches the checksum the remote
+published. Otherwise the old save stays, and the run says so (a full SD card
+is the usual cause). The previous version is moved aside as `<name>.3dsbak`
+while the new one takes its place; if the console stops in between, the next
+sync puts the backup back. Leftover `.3dstmp` and `.3dsbak` files are never
+synced. A folder with the same name as a remote file is left alone and
+reported.
+
 Google Drive and Dropbox can verify a local file by content — their tags are an
 MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
 save whose mtime never moves (some emulators never update it) is still detected,
@@ -442,6 +451,10 @@ remote's identifier ends in `#<label>` (`smb://192.168.1.10/backup#backup`). Man
 written by older versions (bare local paths, an `md5` field, no `local|` entries
 or `gen`) are read and upgraded automatically, and an older 3DSync can still
 read a newer manifest.
+
+It is saved after each folder entry that changed something, through a
+temporary file, so a crash or a flat battery during a sync loses at most the
+entry in progress and never leaves a damaged manifest behind.
 
 Deleting it makes the next sync a first sync again: every file that exists both on the 3DS and
 on a remote becomes a conflict, unless Drive or Dropbox can prove the two are identical.

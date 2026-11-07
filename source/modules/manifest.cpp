@@ -1,6 +1,7 @@
 #include "manifest.h"
 
 #include "../utils/debug.h"
+#include "../utils/fsutil.h"
 #include "../utils/json.h"
 
 #include <errno.h>
@@ -8,7 +9,31 @@
 #include <stdlib.h>
 #include <string.h>
 
-Manifest::Manifest(const std::string &path) : _path(path) {}
+Manifest::Manifest(const std::string &path) : _path(path), _dirty(false) {}
+
+// The '}' closing the object whose contents start at pos, or npos.  Braces and
+// quotes inside a string value do not count: a tag or a path holding a '}'
+// used to end the entry there, and every entry after it was lost.
+static size_t objectEnd(const std::string &json, size_t pos)
+{
+    bool inString = false;
+    for (; pos < json.size(); pos++)
+    {
+        char c = json[pos];
+        if (inString)
+        {
+            if (c == '\\')
+                pos++;
+            else if (c == '"')
+                inString = false;
+        }
+        else if (c == '"')
+            inString = true;
+        else if (c == '}')
+            return pos;
+    }
+    return std::string::npos;
+}
 
 // ---------------------------------------------------------------------------
 // load()
@@ -51,6 +76,7 @@ bool Manifest::load()
     fclose(fp);
 
     _entries.clear();
+    _dirty = false;
 
     size_t pos = 0;
     size_t len = json.size();
@@ -101,7 +127,7 @@ bool Manifest::load()
 
         // Find the matching closing brace
         size_t objStart = after + 1;
-        size_t objEnd   = json.find('}', objStart);
+        size_t objEnd   = objectEnd(json, objStart);
         if (objEnd == std::string::npos)
         {
             // A half-written manifest (an interrupted save, a full card) stops
@@ -133,7 +159,10 @@ bool Manifest::load()
         // only have come from Google Drive.
         std::string key = jsonUnescape(rawKey);
         if (key.find('|') == std::string::npos)
+        {
             key = "drive|" + key;
+            _dirty = true; // migrated: worth writing back
+        }
 
         _entries[key] = entry;
         pos = objEnd + 1;
@@ -145,14 +174,14 @@ bool Manifest::load()
 // ---------------------------------------------------------------------------
 // save()
 // ---------------------------------------------------------------------------
-bool Manifest::save() const
+// Written to a temp file and swapped in, so a crash, a dead battery or a full
+// card leaves the previous manifest whole rather than a truncated one.
+bool Manifest::save()
 {
-    FILE *fp = fopen(_path.c_str(), "w");
+    std::string tmpPath;
+    FILE *fp = openTempFor(_path, tmpPath);
     if (!fp)
-    {
-        printf("Manifest: cannot write %s: %s\n", _path.c_str(), strerror(errno));
         return false;
-    }
 
     fputs("{\n", fp);
     bool first = true;
@@ -173,18 +202,27 @@ bool Manifest::save() const
     }
     fputs("\n}\n", fp);
 
-    // The manifest is written at the very end of a run, so a card that fills up
-    // during the sync fails here — and the file that is left is the truncated
-    // one load() then gives up on.
-    bool ok = (ferror(fp) == 0);
+    // A card that filled up during the sync fails here; the previous manifest
+    // is then still in place.
+    bool ok = (fflush(fp) == 0 && ferror(fp) == 0);
     if (fclose(fp) != 0)
         ok = false;
     if (!ok)
     {
         printf("Manifest: writing %s failed: %s\n", _path.c_str(), strerror(errno));
         debugf("%d entries were not saved\n", (int)_entries.size());
+        remove(tmpPath.c_str());
+        return false;
     }
-    return ok;
+    if (!replaceLocalFile(tmpPath, _path))
+        return false;
+    _dirty = false;
+    return true;
+}
+
+bool Manifest::saveIfChanged()
+{
+    return !_dirty || save();
 }
 
 bool Manifest::has(const std::string &key) const
@@ -201,12 +239,22 @@ ManifestEntry Manifest::get(const std::string &key) const
 
 void Manifest::set(const std::string &key, const ManifestEntry &entry)
 {
+    // The engine rewrites records it only confirmed, and a run that changed
+    // nothing should not write the file per entry.
+    auto it = _entries.find(key);
+    if (it != _entries.end() && it->second.localMtime == entry.localMtime &&
+        it->second.localSize == entry.localSize &&
+        it->second.remoteTag == entry.remoteTag && it->second.remoteId == entry.remoteId &&
+        it->second.generation == entry.generation)
+        return;
     _entries[key] = entry;
+    _dirty = true;
 }
 
 void Manifest::remove(const std::string &key)
 {
-    _entries.erase(key);
+    if (_entries.erase(key) > 0)
+        _dirty = true;
 }
 
 // ---------------------------------------------------------------------------

@@ -80,10 +80,13 @@ public:
     // Call clearDownloadFile() after perform() to restore buffering mode.
     void setDownloadFile(FILE *fp);
     void clearDownloadFile();
-    // Rewind and truncate the download target to 0 bytes.  Call before
-    // retrying a streamed download so a fresh response isn't appended after
+    // Rewind and truncate the download target to 0 bytes.  perform() does
+    // this before every request, so a retry never appends a fresh response to
     // a partial or error body.
     void rewindDownloadFile();
+    // Bytes of the last response written to the download file, which
+    // finishDownload() checks against what reached the card.
+    long long downloadedBytes() const { return _downloaded; }
     // Override the HTTP method to PATCH (body still set via setPostData).
     // Call clearCustomRequest() after perform() to reset.
     void setPatch();
@@ -109,6 +112,7 @@ private:
     // back the URL once the handle has been reset.
     std::string _lastUrl;
     FILE *_downloadFile;
+    long long _downloaded;
     bool _verifyTls;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);

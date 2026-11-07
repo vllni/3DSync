@@ -339,16 +339,18 @@ bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPa
     }
 
     smb2_close(_smb2, fh);
-    fclose(fp);
 
     if (!ok)
     {
+        fclose(fp);
         debugf("download of %s stopped after %llu bytes\n", file.id.c_str(),
                (unsigned long long)offset);
         remove(tmpPath.c_str());
         return false;
     }
-    return replaceLocalFile(tmpPath, localPath);
+    DownloadCheck check;
+    check.received = (long long)offset;
+    return finishDownload(fp, tmpPath, localPath, check);
 }
 
 bool SmbRemote::_upload(const std::string &root, const std::string &relPath,

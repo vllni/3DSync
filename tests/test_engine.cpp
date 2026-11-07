@@ -25,7 +25,7 @@ struct Fixture
         entry.direction = SYNC_BOTH;
     }
 
-    // Declare which relative paths exist locally, as recurse_dir would.
+    // Declare which relative paths exist locally, as listLocalFiles() would.
     void localFiles(const std::vector<std::string> &paths) { entry.localFiles = paths; }
 
     std::string key(const std::string &relPath) const
@@ -595,4 +595,18 @@ TEST(summary, lines_fit_the_log)
         }
         CHECK(plain.size() < 50);
     }
+}
+
+TEST(engine, a_folder_with_a_remote_file_name_is_left_alone)
+{
+    Fixture f;
+    f.local.write("/Game/data/inside.sav", "keep");
+    f.remote.setRemote("/Game/data", "a file on the remote");
+    f.localFiles({"/Game/data/inside.sav"});
+
+    CHECK(f.run());
+    // Downloading would have moved the folder aside as a backup.
+    CHECK_EQ(f.remote.downloaded.size(), (size_t)0);
+    CHECK_STR_EQ(f.local.read("/Game/data/inside.sav"), "keep");
+    CHECK_EQ(f.summary.problems.size(), (size_t)1);
 }

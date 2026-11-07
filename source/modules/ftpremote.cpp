@@ -376,17 +376,19 @@ bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPat
 
     int res = _performWithRetry(FTP_REQUEST_FILE);
     _curl.clearDownloadFile();
-    fclose(fp);
 
     if (res != 0)
     {
+        fclose(fp);
         printf("FTP: download failed for %s\n", file.id.c_str());
         debugf("  curl %d for %s\n", res, _curl.getURL().c_str());
         debugFileBody("  partial download", tmpPath);
         remove(tmpPath.c_str());
         return false;
     }
-    return replaceLocalFile(tmpPath, localPath);
+    DownloadCheck check;
+    check.received = _curl.downloadedBytes();
+    return finishDownload(fp, tmpPath, localPath, check);
 }
 
 bool FtpRemote::upload(const std::string &root, const std::string &relPath,
