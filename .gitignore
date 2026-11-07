@@ -14,3 +14,8 @@ output/
 
 # Host test build output
 tests/build/
+
+# The site as pages.yml builds it, and wrangler's local state
+_site/
+worker/.wrangler/
+worker/node_modules/

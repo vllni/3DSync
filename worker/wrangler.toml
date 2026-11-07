@@ -1,0 +1,22 @@
+# The site and the Universal-Updater store on Cloudflare Workers.
+#
+# Every file in _site (built by .github/workflows/pages.yml from docs/ and the
+# generated unistore/) is served by Cloudflare directly.  src/index.js only
+# runs for "/" and for addresses that match no file; see there.
+name = "3dsync"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+# The *.workers.dev address, for checking a deploy before the custom domain
+# points here.
+workers_dev = true
+
+[assets]
+directory = "../_site"
+binding = "ASSETS"
+# Never rewrite an address.  Every other mode redirects /configurator.html to
+# /configurator, and /configurator.html is the OAuth redirect URI registered
+# in our Google client, our Dropbox app and every client a user made
+# following the README, none of which we can change.
+html_handling = "none"
+not_found_handling = "none"
+run_worker_first = ["/"]

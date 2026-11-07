@@ -10,7 +10,7 @@
 
 Nintendo 3DS/2DS homebrew app (`.cia` / `.3dsx`) that syncs files between the SD card and a remote: Google Drive, Dropbox, an SMB2/3 file server, FTP/FTPS or WebDAV. Written in C++11, built with devkitPro/devkitARM.
 
-Companion static web configurator at `docs/` (GitHub Pages at `https://3dsync.vllni.dev/`) generates the INI config file via OAuth and a stepper UI.
+Companion static web configurator at `docs/` (at `https://3dsync.vllni.dev/`, deployed to GitHub Pages and to Cloudflare Workers while the domain moves to the latter — see "Pages and the Universal-Updater store") generates the INI config file via OAuth and a stepper UI.
 
 ---
 
@@ -67,6 +67,8 @@ tools/make_font.py  Generates source/ui/fontdata.cpp from Inter + JetBrains Mono
 tests/              Host unit tests (see "Tests"), and preview.cpp
 testinfra/          Compose stack of SMB, FTP and WebDAV servers to sync a
                     real 3DS against; its README has the settings per case
+worker/             Cloudflare Worker serving the built site (wrangler.toml,
+                    src/index.js); see "Pages and the Universal-Updater store"
 docs/               Configurator static site
   index.html        Three-step stepper UI (auth → paths → download)
   static/js/index.js  All UI logic (PKCE OAuth, the steps, the import button)
@@ -176,6 +178,7 @@ Keep the format `major.minor.micro`: the Makefile splits it on the dots and `mak
 make -C tests            # build and run
 make -C tests F=engine   # only tests whose "suite.name" contains "engine"
 node --test tests/configurator/*.test.js   # the configurator's INI reading and writing
+node --test tests/worker/*.test.mjs        # which file the site's Worker serves
 ```
 
 They build for the **host**, not the 3DS, and run in the `Unit Tests` job of `pr.yml`. Nothing here needs hardware or an emulator, which is only possible because the logic under test is kept free of libctru, libcurl and libsmb2 — keep it that way when adding code:
@@ -365,6 +368,8 @@ RemoteName=dsv        ; this path instead of Extensions=; * = all files
 
 - The feed is `.github/unistore.jq` applied to the full release list, so it can be run locally against `gh api repos/vllni/3DSync/releases`. Only releases with both `3DSync-<tag>.cia` and `.3dsx` assets are listed — the asset names `release.yml` uploads are part of the feed's contract. The newest non-prerelease is the unprefixed entry; older ones appear as `[<tag>] …`.
 - **The site's address lives in two places.** Pages is deployed by Actions, which ignores a `CNAME` file: the custom domain is the one set under the repository's Settings → Pages. `docs/CNAME` is read by `pages.yml` only, for the base URL written into the feed (`storeInfo.url`, `infoURL`, `sheetURL`) and the QR code. Change both together, and the hard-coded mentions with them (`git grep 3dsync.` — README, `docs/*.html`, the "no configuration" card in `ui/screens.cpp`). Universal-Updater refreshes a store from the `url` in the copy it already holds and follows redirects, so after a domain move the old one must keep answering with an HTTP redirect until subscribers have picked up a feed pointing at the new one.
+- **The site is moving to Cloudflare Workers** (`worker/`). `pages.yml` deploys the same `_site` to GitHub Pages and, in `deploy-cloudflare`, with `wrangler deploy` (pinned in the workflow) to the Worker `3dsync`, so the custom domain can point at either. That job needs the repository secrets `CLOUDFLARE_API_TOKEN` (Workers edit rights) and `CLOUDFLARE_ACCOUNT_ID`, and skips with a warning without them. The move: deploy, check the `*.workers.dev` address, delete the domain's DNS record pointing at GitHub Pages, add `3dsync.vllni.dev` as the Worker's custom domain; pointing the record back is the rollback. Once the domain has moved for good, drop the Pages deploy and update this section.
+- **`html_handling = "none"` in `worker/wrangler.toml` must stay.** Every other mode redirects `/configurator.html` to `/configurator`, and `/configurator.html` is the OAuth redirect URI registered in our Google client, our Dropbox app and every client a user made following the README — none of which we can change. With it, Cloudflare serves files only by their exact path, so `worker/src/index.js` (`run_worker_first = ["/"]`, and anything matching no file) does what GitHub Pages did: `/` is `index.html`, and `/name` without an extension is `name.html`, served without a redirect. `tests/worker/` covers that.
 - **Assets are cache-busted at deploy time.** Cloudflare sits in front of the domain and sends `static/` scripts and styles with a 4-hour `max-age`, against 10 minutes for the HTML, so a returning visitor would run a new page against an old `index.js`. `pages.yml` appends `?v=<commit>` to every `src`/`href="static/…"` in `_site/*.html`; the files in `docs/` stay unstamped so they still open locally. Reference new assets the same way (relative, `static/…`) and they are covered.
 - **`revision` must strictly increase** or Universal-Updater never refetches the store. It cannot be derived from the releases (deleting or editing one would leave it flat or move it back), so the workflow reads it from the deployed feed: kept when nothing else changed, otherwise `max(old + 1, now)`. A failed fetch of the deployed feed other than 404 stops the run rather than guess.
 - `.3dsx` paths are `%3DSX%/3DSync.3dsx` with no subfolder: Universal-Updater's "3DSX in folder" option inserts `3DSync/` itself, and a path written with one would be doubled.
