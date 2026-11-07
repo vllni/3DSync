@@ -106,3 +106,52 @@ test('VerifyTLS=false ticks the certificate box, and is written back', () => {
     assert.deepEqual(ftp.carry, [['VerifyTLS', 'maybe']]);
     assert.match(IniFile.toIni(config, false), /\[WebDAV\]\nUrl=https:\/\/nas\/dav\/\nVerifyTLS=False\n/);
 });
+
+// --- Google Drive with 3DSync's own client, and the folders chosen for it ---
+
+function folder(name, extra) {
+    return Object.assign({ name: name, path: '/roms/' + name, recursive: true, direction: 'both', filter: '' }, extra);
+}
+
+test('a Drive remote of 3DSync\'s client writes its token and a Folder line per chosen folder', () => {
+    let drive = remote('googledrive', { entries: [['RefreshToken', 'rt']],
+        driveFolders: { gba: { id: 'F1', title: 'saves' }, gone: { id: 'F9', title: 'old' } } });
+    let config = { remotes: [drive], folders: [folder('GBA'), folder('nds')], filter: '', extras: [] };
+    let ini = IniFile.toIni(config, false);
+    assert.match(ini, /\[GoogleDrive\]\nRefreshToken=rt\nFolder\.GBA=F1\n/);
+    // No folder chosen for nds: the 3DS makes its own; nothing for a folder that is gone.
+    assert.doesNotMatch(ini, /Folder\.nds|F9/);
+    assert.doesNotMatch(ini, /ClientSecret/);
+});
+
+test('a folder left out of a Drive remote gets no Folder line there', () => {
+    let drive = remote('googledrive', { entries: [['RefreshToken', 'rt']], excluded: { gba: true },
+        driveFolders: { gba: { id: 'F1', title: 'saves' } } });
+    let smb = remote('smb', { uid: 2, entries: [['Server', 'nas'], ['Share', 's']] });
+    let config = { remotes: [drive, smb], folders: [folder('gba'), folder('nds')], filter: '', extras: [] };
+    let ini = IniFile.toIni(config, false);
+    assert.doesNotMatch(ini, /Folder\.gba/);
+    assert.match(ini, /\[GoogleDrive\]\nRefreshToken=rt\nOnly=nds\n/);
+});
+
+test('an imported Drive section without a client is 3DSync\'s, and its folders come back', () => {
+    let r = IniFile.fromIni('[GoogleDrive]\nRefreshToken=rt\nFolder.gba=F1\nFolder.snes=F2\n\n[Paths]\ngba=/roms/gba\n');
+    let drive = r.config.remotes[0];
+    assert.equal(drive.fields['gdrive-expert-mode'], false);
+    assert.deepEqual(drive.auth, { shared: true, clientId: '', clientSecret: '', refreshToken: 'rt' });
+    assert.deepEqual(drive.driveFolders, { gba: { id: 'F1', title: '' } });
+    // Folder lines are not kept as entries: they are written from driveFolders.
+    assert.deepEqual(drive.entries, [['RefreshToken', 'rt']]);
+    assert.ok(r.report.problems.some(function (p) { return /Folder\.snes/.test(p); }));
+    // And written out the same way again.
+    assert.match(IniFile.toIni(r.config, false), /\[GoogleDrive\]\nRefreshToken=rt\nFolder\.gba=F1\n/);
+});
+
+test('an imported Drive section with a client of its own stays in expert mode, sealed or not', () => {
+    let own = IniFile.fromIni('[GoogleDrive]\nClientId=id\nClientSecret=sec\nRefreshToken=rt\n\n[Paths]\na=/a\n');
+    assert.equal(own.config.remotes[0].fields['gdrive-expert-mode'], true);
+    assert.deepEqual(own.config.remotes[0].auth, { clientId: 'id', clientSecret: 'sec', refreshToken: 'rt' });
+    let sealed = IniFile.fromIni('[GoogleDrive]\nClientId=id\nClientSecret=enc:v1:AAAA\nRefreshToken=enc:v1:BBBB\n\n[Paths]\na=/a\n');
+    assert.equal(sealed.config.remotes[0].fields['gdrive-expert-mode'], true);
+    assert.equal(sealed.config.remotes[0].auth.refreshToken, '');
+});

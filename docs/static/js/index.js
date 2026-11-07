@@ -113,7 +113,7 @@ $(function () {
     // The inputs of each form, saved with the remote so it can be edited again.
     const FORM_FIELDS = {
         dropbox: ['dropbox-expert-mode', 'dropbox-client-id'],
-        googledrive: ['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'],
+        googledrive: ['gdrive-expert-mode', 'gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'],
         smb: ['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
         ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode', 'ftp-insecure'],
         webdav: ['webdav-url', 'webdav-user', 'webdav-password', 'webdav-insecure']
@@ -134,7 +134,12 @@ $(function () {
         let f = remote.fields;
         switch (remote.type) {
             case 'dropbox': return remote.auth ? 'Logged in' : 'Not logged in';
-            case 'googledrive': return f['gdrive-folder-id'] ? 'Folder ' + f['gdrive-folder-id'] : 'My Drive';
+            case 'googledrive':
+                if (!f['gdrive-expert-mode']) {
+                    let chosen = Object.keys(remote.driveFolders || {}).length;
+                    return chosen ? chosen + ' Drive folder' + (chosen === 1 ? '' : 's') + ' chosen' : 'Logged in';
+                }
+                return f['gdrive-folder-id'] ? 'Own client — folder ' + f['gdrive-folder-id'] : 'Own client — My Drive';
             case 'smb': return '\\\\' + f['smb-server'] + '\\' + f['smb-share']
                 + (f['smb-path'] ? '\\' + f['smb-path'].replace(/\//g, '\\') : '');
             case 'ftp': return f['ftp-host'] + (f['ftp-port'] ? ':' + f['ftp-port'] : '')
@@ -221,7 +226,8 @@ $(function () {
     function openEditor(type, remote) {
         if (editorDirty() && !confirm('Discard the changes to ' + $('#remote-editor-title').text() + '?')) return;
         draft = remote ? $.extend(true, {}, remote)
-            : { uid: nextUid++, type: type, label: '', role: 'sync', fields: {}, auth: null, excluded: {}, isNew: true };
+            : { uid: nextUid++, type: type, label: '', role: 'sync', fields: {}, auth: null, excluded: {},
+                driveFolders: {}, isNew: true };
         resetForm(type);
         if (remote) {
             loadFields(type, remote.fields);
@@ -239,6 +245,7 @@ $(function () {
             $('#' + IniFile.INI_FIELDS[type][key]).attr('placeholder', sealed ? SEALED_NOTE : null);
         });
         $('#dropbox-expert-panel').toggle($('#dropbox-expert-mode').prop('checked'));
+        showGoogleMode();
         $('#remote-label').val(draft.label);
         setFieldError($('#remote-label'), null);
         $('#remote-role').val(draft.role);
@@ -534,6 +541,7 @@ $(function () {
             return;
         }
         draft.auth = { clientId: login.clientId, clientSecret: login.clientSecret || '', refreshToken: result.token };
+        if (login.shared) draft.auth.shared = true;
         renderLoginStatus();
         $('#remote-editor-hint').text('').removeClass('warn');
     }
@@ -564,6 +572,7 @@ $(function () {
     }
 
     async function exchangeGoogleCode(code, login) {
+        if (login.shared) return exchangeSharedGoogleCode(code, login);
         try {
             let response = await fetch('https://oauth2.googleapis.com/token', {
                 method: 'POST',
@@ -588,6 +597,33 @@ $(function () {
         } catch (e) {
             console.error('Token exchange failed:', e);
             return { error: 'Could not reach Google to finish the login. Please try again.' };
+        }
+    }
+
+    // 3DSync's own client: the same exchange, through the Worker, which adds
+    // the secret.  It answers like Google, with refusals of its own in the
+    // same shape.
+    async function exchangeSharedGoogleCode(code, login) {
+        try {
+            let response = await fetch('/api/google/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    grant_type: 'authorization_code',
+                    code: code,
+                    code_verifier: login.verifier,
+                    redirect_uri: redirectUri()
+                })
+            });
+            let data = {};
+            try { data = await response.json(); } catch (e) { /* not JSON */ }
+            if (data.refresh_token) return { token: data.refresh_token };
+            console.error('No refresh_token in response:', data);
+            return { error: 'Google refused the login (' + (data.error_description || data.error
+                || 'HTTP ' + response.status) + ').' };
+        } catch (e) {
+            console.error('Token exchange failed:', e);
+            return { error: 'Could not reach 3DSync to finish the login. Please try again.' };
         }
     }
 
@@ -680,6 +716,36 @@ $(function () {
         }
     });
 
+    // --- Google Drive: 3DSync's own client, or the user's (expert mode) ---
+    // 3DSync's client is a web-application client whose secret only the
+    // site's Worker holds: the login code and every refresh go through
+    // /api/google/token, and the scope is drive.file, so 3DSync sees only what
+    // is chosen in the Picker (step 2) and what it creates itself.  Expert mode
+    // is the user's own client with the whole Drive, exchanged right here.
+    const SHARED_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+    const OWN_SCOPE = 'https://www.googleapis.com/auth/drive';
+    // { clientId, appId, pickerKey } from the Worker, or null where there is
+    // none (the page opened from disk, or the Worker not set up).
+    const googleShared = fetch('/api/google/config', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (c) { return c && c.clientId ? c : null; })
+        .catch(function () { return null; });
+
+    function googleExpert() {
+        return $('#gdrive-expert-mode').prop('checked');
+    }
+
+    function showGoogleMode() {
+        let expert = googleExpert();
+        $('#gdrive-expert-panel').toggle(expert);
+        $('#gdrive-shared-intro, #gdrive-tip-shared').toggle(!expert);
+    }
+
+    $('#gdrive-expert-mode').on('change', function () {
+        showGoogleMode();
+        M.updateTextFields();
+    });
+
     // --- Google Drive: import client_secret.json ---
     $('#gdrive-json-import').on('change', function (e) {
         let file = e.target.files[0];
@@ -709,19 +775,34 @@ $(function () {
     $('#gdrive-login').on('click', async function (e) {
         e.preventDefault();
         if (!draft) return;
+        let expert = googleExpert();
         let clientId = $('#gdrive-client-id').val().trim();
         let clientSecret = $('#gdrive-client-secret').val().trim();
-        setFieldError($('#gdrive-client-id'), clientId ? null : 'Required');
-        setFieldError($('#gdrive-client-secret'), clientSecret ? null : 'Required');
-        if (!clientId || !clientSecret) return;
+        if (expert) {
+            setFieldError($('#gdrive-client-id'), clientId ? null : 'Required');
+            setFieldError($('#gdrive-client-secret'), clientSecret ? null : 'Required');
+            if (!clientId || !clientSecret) return;
+        }
 
+        // Opened before anything is awaited, or the browser blocks it.
         let popup = openLoginPopup('googledrive');
         if (!popup) return;
+        if (!expert) {
+            let shared = await googleShared;
+            if (!shared) {
+                popup.close();
+                showLogin('googledrive', 'fail', 'Logging in with 3DSync\'s own client is not available here right '
+                    + 'now. Try again later, or use expert mode with a client of your own.');
+                return;
+            }
+            clientId = shared.clientId;
+            clientSecret = '';
+        }
         let state = generateCodeVerifier();
         let codeVerifier = generateCodeVerifier();
         pendingLogins[state] = {
             provider: 'googledrive', uid: draft.uid, verifier: codeVerifier,
-            clientId: clientId, clientSecret: clientSecret
+            clientId: clientId, clientSecret: clientSecret, shared: !expert
         };
         let codeChallenge = await generateCodeChallenge(codeVerifier);
         showLogin('googledrive', 'busy', 'Log in in the window that opened…');
@@ -731,7 +812,7 @@ $(function () {
             + '?client_id=' + encodeURIComponent(clientId)
             + '&redirect_uri=' + encodeURIComponent(redirectUri())
             + '&response_type=code'
-            + '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/drive')
+            + '&scope=' + encodeURIComponent(expert ? OWN_SCOPE : SHARED_SCOPE)
             + '&access_type=offline'
             + '&prompt=' + encodeURIComponent('select_account consent')
             + '&state=' + encodeURIComponent(state)
@@ -886,9 +967,19 @@ $(function () {
             return [['AppKey', draft.auth.clientId], ['RefreshToken', draft.auth.refreshToken]];
         },
         googledrive: function () {
+            if (!googleExpert()) {
+                // 3DSync's own client: the token is all; the folders follow
+                // from step 2 (Folder.<name>=, see inifile.js).
+                if (!draft.auth) return 'Log in with Google Drive first.';
+                if (!draft.auth.shared) return 'This login used your own client. Log in with Google Drive again, '
+                    + 'or tick expert mode.';
+                return [['RefreshToken', draft.auth.refreshToken]];
+            }
             ['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'].forEach(trimField);
             if (!checkFields(['gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'], [])) return null;
             if (!draft.auth) return 'Log in with Google Drive first.';
+            if (draft.auth.shared) return 'This login used 3DSync\'s own client. Log in with Google Drive again, '
+                + 'or untick expert mode.';
             if (draft.auth.clientId !== $('#gdrive-client-id').val() ||
                 draft.auth.clientSecret !== $('#gdrive-client-secret').val())
                 return 'The Client ID or Secret changed since the login. Log in with Google Drive again.';
@@ -1033,12 +1124,16 @@ $(function () {
         if (draft.auth.refreshToken === '')
             throw testError('unknown', 'The token is sealed on your 3DS, so it cannot be tested here. Log in '
                 + 'again to test it.');
-        let r = await postForm('https://oauth2.googleapis.com/token', {
-            grant_type: 'refresh_token',
-            refresh_token: draft.auth.refreshToken,
-            client_id: draft.auth.clientId,
-            client_secret: draft.auth.clientSecret
-        });
+        if (!!draft.auth.shared === googleExpert())
+            throw testError('fail', 'This login does not match the expert mode setting. Log in with Google Drive again.');
+        let r = draft.auth.shared
+            ? await postForm('/api/google/token', { grant_type: 'refresh_token', refresh_token: draft.auth.refreshToken })
+            : await postForm('https://oauth2.googleapis.com/token', {
+                grant_type: 'refresh_token',
+                refresh_token: draft.auth.refreshToken,
+                client_id: draft.auth.clientId,
+                client_secret: draft.auth.clientSecret
+            });
         if (!r.data.access_token) {
             let reason = {
                 invalid_grant: 'The login has expired or was revoked. Log in with Google Drive again.',
@@ -1052,6 +1147,21 @@ $(function () {
         if (!about.ok) throw testError('fail', 'Google Drive answered HTTP ' + about.status + '.');
         let user = (await about.json()).user;
         let who = 'Connected as ' + user.displayName + ' (' + user.emailAddress + ')';
+
+        if (draft.auth.shared) {
+            // Each folder chosen in step 2 must still be one 3DSync may use.
+            let chosen = draft.driveFolders || {};
+            let names = Object.keys(chosen);
+            for (let i = 0; i < names.length; i++) {
+                let f = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(chosen[names[i]].id)
+                    + '?fields=name,trashed', auth);
+                if (!f.ok || (await f.json()).trashed)
+                    throw testError('fail', who + ', but the Drive folder chosen for "' + names[i] + '" is gone or '
+                        + 'no longer shared with 3DSync. Choose it again in the next step.');
+            }
+            return who + (names.length ? '; ' + names.length + ' chosen folder' + (names.length === 1 ? '' : 's')
+                + ' reachable.' : '.');
+        }
 
         let folderId = $('#gdrive-folder-id').val().trim();
         if (folderId) {
@@ -1247,6 +1357,7 @@ $(function () {
                         if (this.checked) delete set[name.toLowerCase()];
                         else set[name.toLowerCase()] = true;
                         $('#routing-note').text('').removeClass('warn');
+                        renderDriveFolders();
                     });
                 $row.append($('<td></td>').append($('<label></label>').append($box, '<span></span>')));
             });
@@ -1256,6 +1367,177 @@ $(function () {
             $body.append($('<tr><td class="routing-empty">Choose a folder above first.</td></tr>'));
         $('#routing-table').empty().append($table.append($body));
         renderFolderFilters();
+        renderDriveFolders();
+    }
+
+    // --- Drive folders for 3DSync's own client (step 2) ---
+    // With drive.file, 3DSync sees only what the Picker hands it and what it
+    // creates itself.  Per folder and Drive remote: choose the Drive folder
+    // (its ID becomes Folder.<name>=), then select the files already in it,
+    // which a folder grant does not include.  The grants live at Google, per
+    // account and project, so nothing about the files goes into the file, and
+    // saves added later only need picking again, not a new 3DSync.ini.
+    const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+    function sharedDriveRemotes() {
+        return config.remotes.filter(function (r) {
+            return r.type === 'googledrive' && !r.fields['gdrive-expert-mode'];
+        });
+    }
+
+    function driveNote(text, warn) {
+        $('#drive-folders-note').text(text || '').toggleClass('warn', !!warn);
+    }
+
+    function renderDriveFolders() {
+        let remotes = sharedDriveRemotes();
+        let names = currentFolderNames();
+        $('#drive-folders-section').toggle(remotes.length > 0 && names.length > 0);
+        let $list = $('#drive-folders').empty();
+        remotes.forEach(function (remote) {
+            if (remotes.length > 1) $list.append($('<h5 class="white-text drive-folders-remote"></h5>').text(displayName(remote)));
+            let sealed = !remote.auth || remote.auth.refreshToken === '';
+            names.filter(function (name) { return syncsFolder(remote, name); }).forEach(function (name) {
+                let chosen = (remote.driveFolders || {})[name.toLowerCase()];
+                let $row = $('<div class="drive-folder-row white-text"></div>');
+                $row.append($('<span class="drive-folder-name"></span>').text(name));
+                $row.append($('<span class="drive-folder-detail"></span>').text(chosen
+                    ? 'Drive: ' + (chosen.title || 'folder ' + chosen.id)
+                    : 'Drive: My Drive/' + name + ', created by 3DSync'));
+                let $choose = $('<a href="#" class="btn-small blue darken-3"></a>')
+                    .text(chosen ? 'Change folder' : 'Choose folder')
+                    .on('click', function (e) {
+                        e.preventDefault();
+                        chooseDriveFolder(remote, name);
+                    });
+                let $buttons = $('<span class="drive-folder-buttons"></span>').append($choose);
+                if (chosen) {
+                    $buttons.append($('<a href="#" class="btn-small white blue-text text-darken-3"></a>')
+                        .text('Add saves').on('click', function (e) {
+                            e.preventDefault();
+                            pickDriveFiles(remote, name);
+                        }));
+                    $buttons.append($('<a href="#" class="btn-flat white-text" title="Let 3DSync create its own folder">'
+                        + '<i class="material-icons">close</i></a>')
+                        .attr('aria-label', 'Forget the Drive folder for ' + name)
+                        .on('click', function (e) {
+                            e.preventDefault();
+                            delete remote.driveFolders[name.toLowerCase()];
+                            renderDriveFolders();
+                            renderRemotes();
+                        }));
+                }
+                if (sealed) $buttons.children('.btn-small').addClass('disabled')
+                    .attr('title', 'The login is sealed on your 3DS: log in again in step 1 to choose folders');
+                $list.append($row.append($buttons));
+            });
+        });
+    }
+
+    // Google's Picker script, loaded the first time it is needed.
+    let pickerLoaded = null;
+
+    function loadPicker() {
+        if (!pickerLoaded) {
+            pickerLoaded = new Promise(function (resolve, reject) {
+                let script = document.createElement('script');
+                script.src = 'https://apis.google.com/js/api.js';
+                script.onload = function () {
+                    gapi.load('picker', { callback: resolve, onerror: function () { reject(new Error('picker')); } });
+                };
+                script.onerror = function () { reject(new Error('api.js')); };
+                document.head.appendChild(script);
+            }).catch(function (e) {
+                pickerLoaded = null;
+                throw e;
+            });
+        }
+        return pickerLoaded;
+    }
+
+    // An access token for a Drive remote of 3DSync's client, kept for most of
+    // its hour so a run of Picker windows needs one refresh.
+    const driveTokens = {}; // uid -> { token, until }
+
+    async function driveAccessToken(remote) {
+        let cached = driveTokens[remote.uid];
+        if (cached && cached.until > Date.now()) return cached.token;
+        let r = await postForm('/api/google/token', { grant_type: 'refresh_token', refresh_token: remote.auth.refreshToken });
+        if (!r.data.access_token) {
+            throw new Error(r.data.error === 'invalid_grant'
+                ? 'The Google login has expired or was revoked. Log in again in step 1.'
+                : 'Google refused the login (' + (r.data.error_description || r.data.error || 'HTTP ' + r.status) + ').');
+        }
+        driveTokens[remote.uid] = { token: r.data.access_token, until: Date.now() + ((r.data.expires_in || 3600) - 300) * 1000 };
+        return r.data.access_token;
+    }
+
+    // Shows a Picker with one view; resolves with the picked documents, or
+    // null when it is closed.
+    async function runPicker(remote, makeView, title, multiple) {
+        let shared = await googleShared;
+        if (!shared || !shared.pickerKey || !shared.appId)
+            throw new Error('Choosing Drive folders is not available here right now.');
+        let token = await driveAccessToken(remote);
+        await loadPicker();
+        return new Promise(function (resolve) {
+            let builder = new google.picker.PickerBuilder()
+                .addView(makeView())
+                .setOAuthToken(token)
+                .setDeveloperKey(shared.pickerKey)
+                // The project the grant is recorded for: what makes a picked
+                // item visible to 3DSync's client afterwards.
+                .setAppId(shared.appId)
+                .setTitle(title)
+                .setCallback(function (data) {
+                    if (data.action === google.picker.Action.PICKED) resolve(data.docs);
+                    else if (data.action === google.picker.Action.CANCEL) resolve(null);
+                });
+            if (multiple) builder.enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
+            builder.build().setVisible(true);
+        });
+    }
+
+    async function chooseDriveFolder(remote, name) {
+        driveNote('');
+        try {
+            // Thumbnails are not part of drive.file, so the list mode.
+            let docs = await runPicker(remote, function () {
+                return new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+                    .setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes(FOLDER_MIME)
+                    .setMode(google.picker.DocsViewMode.LIST);
+            }, 'Drive folder for ' + name + ' — double-tap to open a folder, tap to choose it', false);
+            if (!docs || !docs.length) return;
+            remote.driveFolders = remote.driveFolders || {};
+            remote.driveFolders[name.toLowerCase()] = { id: docs[0].id, title: docs[0].name };
+            renderDriveFolders();
+            renderRemotes();
+            // A folder grant does not include what is already in it.
+            await pickDriveFiles(remote, name);
+        } catch (e) {
+            driveNote(e.message, true);
+        }
+    }
+
+    async function pickDriveFiles(remote, name) {
+        let chosen = (remote.driveFolders || {})[name.toLowerCase()];
+        if (!chosen) return;
+        driveNote('');
+        try {
+            let docs = await runPicker(remote, function () {
+                return new google.picker.DocsView().setParent(chosen.id)
+                    .setIncludeFolders(true).setSelectFolderEnabled(false)
+                    .setMode(google.picker.DocsViewMode.LIST);
+            }, 'Select the saves already in ' + (chosen.title || name), true);
+            if (docs && docs.length)
+                driveNote(docs.length + ' file' + (docs.length === 1 ? '' : 's') + ' in ' + (chosen.title || name)
+                    + ' added: 3DSync syncs ' + (docs.length === 1 ? 'it' : 'them') + ' from now on.');
+            else
+                driveNote('Nothing selected in ' + (chosen.title || name) + '. 3DSync sees only the files it creates there '
+                    + 'itself, until you add the others with Add saves.', true);
+        } catch (e) {
+            driveNote(e.message, true);
+        }
     }
 
     $('#paths-presets, #paths-custom').on('input change', 'input, select', renderRouting);

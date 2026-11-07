@@ -602,3 +602,42 @@ main {
 .cert-option {
     margin: 0.2rem 0 0.8rem 0;
 }
+
+/* Step 2: the Drive folder chosen per folder, for 3DSync's own client */
+.drive-folders-section {
+    display: none;
+}
+
+.drive-folders-remote {
+    font-size: 1.1rem;
+    margin: 18px 0 6px;
+}
+
+.drive-folder-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.drive-folder-name {
+    font-weight: 500;
+    min-width: 6em;
+}
+
+.drive-folder-detail {
+    flex: 1 1 14em;
+    min-width: 0;
+    opacity: 0.8;
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+
+.drive-folder-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}

@@ -155,36 +155,16 @@
                   <!-- Google Drive -->
                   <div class="auth-settings" data-provider="googledrive" id="auth-settings-googledrive">
                     <div>
-                      <div style="margin-bottom:12px">
-                        <label class="btn blue darken-3 btn-small" for="gdrive-json-import" style="cursor:pointer">
-                          <i class="material-icons left">upload_file</i> Import client_secret.json
-                        </label>
-                        <input type="file" id="gdrive-json-import" accept=".json" style="display:none">
-                        <span id="gdrive-json-status" style="margin-left:8px;font-size:0.82em"></span>
-                      </div>
-                      <div class="input-field">
-                        <input id="gdrive-client-id" class="white-text" type="text" autocomplete="off"
-                          spellcheck="false">
-                        <label for="gdrive-client-id" class="white-text">Client ID</label>
-                      </div>
-                      <div class="input-field">
-                        <input id="gdrive-client-secret" class="white-text" type="password"
-                          autocomplete="new-password" spellcheck="false">
-                        <label for="gdrive-client-secret" class="white-text">Client Secret</label>
-                      </div>
-                      <div class="input-field">
-                        <input id="gdrive-folder-id" class="white-text" type="text">
-                        <label for="gdrive-folder-id" class="white-text">Folder ID (optional)</label>
-                        <span class="helper-text white-text" style="opacity:0.7">Leave blank to use the root of My
-                          Drive. To scope to a subfolder, open it in Google Drive and paste the URL or just the ID —
-                          drive.google.com/drive/folders/<strong>THIS_PART</strong></span>
-                      </div>
+                      <p class="white-text panel-intro" id="gdrive-shared-intro">Log in with your Google account. 3DSync
+                        then sees only the Drive folders and files you choose for it in the next step, and those it
+                        creates itself. Needs <strong>3DSync 0.9.0</strong> or newer on the 3DS; for an older one, use
+                        expert mode.</p>
                       <a href="#" id="gdrive-login" class="btn blue darken-3"><i
                           class="material-icons left">add_to_drive</i> Login with Google Drive</a>
                       <span class="test-result login-status" id="login-status-googledrive" role="status"
                         aria-live="polite"></span>
-                      <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>3DSync is given access to your whole Drive. If the 3DS or its SD card goes missing,
-                          remove that access under <a href="https://myaccount.google.com/connections" target="_blank"
+                      <p class="white-text privilege-tip" id="gdrive-tip-shared"><i class="material-icons">verified_user</i><span>If the 3DS or its SD card goes missing,
+                          remove 3DSync under <a href="https://myaccount.google.com/connections" target="_blank"
                             rel="noopener noreferrer">Third-party apps &amp; services</a> &mdash; the token stops
                           working at once, and nothing else changes.</span></p>
                       <div class="test-row">
@@ -193,25 +173,65 @@
                         <span class="test-result" id="test-result-googledrive" role="status" aria-live="polite"></span>
                       </div>
                       <br><br>
-                      <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
-                        <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials"
-                            target="_blank" rel="noopener noreferrer" class="white-text"
-                            style="text-decoration:underline">Google Cloud Console</a>, create a
-                          project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
-                          credential. Add <strong>https://3dsync.vllni.dev/configurator.html</strong> as an
-                          authorized redirect
-                          URI. The refresh token is stored in the config so you won't need to log in again.</p>
-                        <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>
-                        <ol style="margin:0 0 0 16px;padding:0">
-                          <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
-                              rel="noopener noreferrer" class="white-text" style="text-decoration:underline">APIs &amp;
-                              Services &rarr; Credentials</a></li>
-                          <li>Click the name of your <strong>OAuth 2.0 Client ID</strong> to open it</li>
-                          <li>In the <strong>Client secrets</strong> panel, click <strong>+ Add secret</strong></li>
-                          <li>The new secret row shows a <strong>&darr; download</strong> icon &mdash; click it
-                            immediately (it disappears after you leave the page)</li>
-                          <li>Import the downloaded file with the button above, then disable your old secret</li>
-                        </ol>
+                      <p style="margin:0">
+                        <label>
+                          <input type="checkbox" class="filled-in" id="gdrive-expert-mode">
+                          <span class="white-text" style="font-size:0.88em">Expert mode: use my own Google Cloud
+                            client</span>
+                        </label>
+                      </p>
+                      <div id="gdrive-expert-panel" style="display:none">
+                        <p class="white-text panel-intro">Your own client gives 3DSync your whole Drive, so it also
+                          finds files other apps put there &mdash; an emulator on your phone saving into a folder, for
+                          instance. It works with every 3DSync version.</p>
+                        <div style="margin-bottom:12px">
+                          <label class="btn blue darken-3 btn-small" for="gdrive-json-import" style="cursor:pointer">
+                            <i class="material-icons left">upload_file</i> Import client_secret.json
+                          </label>
+                          <input type="file" id="gdrive-json-import" accept=".json" style="display:none">
+                          <span id="gdrive-json-status" style="margin-left:8px;font-size:0.82em"></span>
+                        </div>
+                        <div class="input-field">
+                          <input id="gdrive-client-id" class="white-text" type="text" autocomplete="off"
+                            spellcheck="false">
+                          <label for="gdrive-client-id" class="white-text">Client ID</label>
+                        </div>
+                        <div class="input-field">
+                          <input id="gdrive-client-secret" class="white-text" type="password"
+                            autocomplete="new-password" spellcheck="false">
+                          <label for="gdrive-client-secret" class="white-text">Client Secret</label>
+                        </div>
+                        <div class="input-field">
+                          <input id="gdrive-folder-id" class="white-text" type="text">
+                          <label for="gdrive-folder-id" class="white-text">Folder ID (optional)</label>
+                          <span class="helper-text white-text" style="opacity:0.7">Leave blank to use the root of My
+                            Drive. To scope to a subfolder, open it in Google Drive and paste the URL or just the ID —
+                            drive.google.com/drive/folders/<strong>THIS_PART</strong></span>
+                        </div>
+                        <p class="white-text privilege-tip"><i class="material-icons">verified_user</i><span>3DSync is given access to your whole Drive. If the 3DS or its SD card goes missing,
+                            remove that access under <a href="https://myaccount.google.com/connections" target="_blank"
+                              rel="noopener noreferrer">Third-party apps &amp; services</a> &mdash; the token stops
+                            working at once, and nothing else changes.</span></p>
+                        <div class="card-panel blue darken-4 white-text" style="font-size:0.82em">
+                          <p style="margin:0 0 6px 0">In <a href="https://console.cloud.google.com/apis/credentials"
+                              target="_blank" rel="noopener noreferrer" class="white-text"
+                              style="text-decoration:underline">Google Cloud Console</a>, create a
+                            project, enable the Drive API, and create an <strong>OAuth 2.0 Web application</strong>
+                            credential. Add <strong>https://3dsync.vllni.dev/configurator.html</strong> as an
+                            authorized redirect
+                            URI. The refresh token is stored in the config so you won't need to log in again.</p>
+                          <p style="margin:0 0 4px 0"><strong>To get the JSON file:</strong></p>
+                          <ol style="margin:0 0 0 16px;padding:0">
+                            <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
+                                rel="noopener noreferrer" class="white-text" style="text-decoration:underline">APIs &amp;
+                                Services &rarr; Credentials</a></li>
+                            <li>Click the name of your <strong>OAuth 2.0 Client ID</strong> to open it</li>
+                            <li>In the <strong>Client secrets</strong> panel, click <strong>+ Add secret</strong></li>
+                            <li>The new secret row shows a <strong>&darr; download</strong> icon &mdash; click it
+                              immediately (it disappears after you leave the page)</li>
+                            <li>Import the downloaded file with the button above, then disable your old secret</li>
+                          </ol>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -501,6 +521,16 @@
                       there.</p>
                     <div id="routing-table" class="routing-table"></div>
                     <p class="white-text field-note" id="routing-note"></p>
+                  </div>
+                  <div id="drive-folders-section" class="drive-folders-section">
+                    <h4 class="white-text">Google Drive folders</h4>
+                    <p class="white-text panel-intro">Choose the Drive folder each 3DS folder syncs with. 3DSync sees
+                      only what you choose here and what it creates itself: after choosing a folder, select the saves
+                      already in it. A save your phone adds there later has to be added the same way. Without a
+                      chosen folder, 3DSync creates one with the folder's name in My Drive. In Google's window, a
+                      double tap (or double click) opens a folder and a single one selects it.</p>
+                    <div id="drive-folders" class="drive-folders"></div>
+                    <p class="white-text field-note" id="drive-folders-note"></p>
                   </div>
                   <h4 class="white-text">File Types</h4>
                   <div class="row">
