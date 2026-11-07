@@ -26,6 +26,7 @@ Full credit to [Kyraminol](https://github.com/Kyraminol) for the original projec
 3. [Install 3DSync](#installation), most easily through Universal-Updater.
 4. Launch 3DSync and press **A** (or tap **Sync now**) to sync all configured
    paths, or **Y** to sync with [debug output](#debug-mode). **START** exits.
+   To leave some paths out, tap **PATHS** on the menu (or press **X**) first.
 
 ### Controls
 
@@ -35,7 +36,8 @@ label says which, so either works:
 
 | Where | Buttons |
 |---|---|
-| Menu | **A** sync, **Y** sync with debug output, **START** exit |
+| Menu | **A** sync, **Y** sync with debug output, **X** (or tap **PATHS**) choose paths, **START** exit |
+| Choosing paths | Tap a path to tick or untick it, or move with **D-pad ↑/↓** and press **A**. **Y** ticks all (or clears all), **B** goes back. The choice lasts until 3DSync is closed; a remote that none of the ticked paths go to is not connected |
 | During a sync | **START** stops after the current file |
 | Conflict | The versions that changed are listed; **A** keeps the highlighted one (the 3DS's at first). Tap a version, or move to it with **R** or **D-pad ↑/↓**. **X** skips the file, **L** applies the answer to every remaining conflict, **START** stops. The log still scrolls with ←/→, the Circle Pad and the scroll strip |
 | End of a debug run | **A** save the log, **B** discard it |

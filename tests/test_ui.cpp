@@ -367,6 +367,58 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
     m.mode = SCREEN_CONFIG_ISSUES;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_START | scroll);
+    m.mode = SCREEN_PATHS;
+    m.pathNames = {"saves", "gba"};
+    m.pathOn = {true, false};
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 << 1 | K_B | K_Y | scroll);
+}
+
+TEST(layout, the_menu_paths_line_opens_the_picker_once_there_are_paths)
+{
+    BottomModel m;
+    m.starting = false;
+    m.configLoaded = true;
+    m.pathCount = 0;
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_X, 0u);
+    m.pathCount = 4;
+    m.pathSelected = 4;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_X).label, "4 sync paths");
+    m.pathSelected = 3;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_X).label, "3 of 4 sync paths");
+    m.pathCount = m.pathSelected = 1;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_X).label, "1 sync path");
+}
+
+TEST(layout, the_path_picker_follows_the_highlight)
+{
+    BottomModel m;
+    m.mode = SCREEN_PATHS;
+    m.pathNames = {"saves", "gba", "nds", "snes", "gb", "jksv"};
+    m.pathOn = std::vector<bool>(6, true);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "saves");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_Y).label, "Clear all");
+    m.pathOn[2] = false;
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_Y).label, "Select all");
+
+    // Up, down and a page, kept in range; a drag picks by position.
+    CHECK_EQ(pathPickTo(m, -1, -1), 0);
+    CHECK_EQ(pathPickTo(m, 4, -1), 4);
+    CHECK_EQ(pathPickTo(m, 100, -1), 5);
+    CHECK_EQ(pathPickTo(m, 0, 1.0f), 5);
+    CHECK_EQ(pathPickTo(m, 0, 0.0f), 0);
+
+    m.pathPick = 5;
+    CHECK_EQ(pathListFirst(m), 6 - PATH_LIST_ROWS);
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_A).label, "jksv");
+    CHECK_STR_EQ(buttonFor(bottomButtons(m), K_LIST_ROW0).label, "nds");
+    CHECK_EQ(keysOf(bottomButtons(m)) & K_LIST_ROWS,
+             K_LIST_ROW0 | (K_LIST_ROW0 << 1) | (K_LIST_ROW0 << 2));
+    m.pathPick = 9; // the list changed under it
+    CHECK_EQ(pathPickClamped(m), 0);
+
+    m.pathNames.clear();
+    m.pathOn.clear();
+    CHECK_EQ(pathPickTo(m, 1, -1), 0);
 }
 
 TEST(layout, config_issues_wrap_into_rows_with_a_gap_between_problems)
@@ -461,11 +513,28 @@ static std::vector<BottomModel> everyLayout()
 {
     std::vector<BottomModel> out;
     ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG,
-                          SCREEN_CONFIG_ISSUES};
+                          SCREEN_CONFIG_ISSUES, SCREEN_PATHS};
     for (ScreenMode mode : modes)
     {
         BottomModel m;
         m.mode = mode;
+        out.push_back(m);
+    }
+    {
+        BottomModel m;
+        m.starting = false;
+        m.configLoaded = true;
+        m.pathCount = 12;
+        m.pathSelected = 11;
+        out.push_back(m);
+    }
+    for (int pick = 0; pick < 6; pick++)
+    {
+        BottomModel m;
+        m.mode = SCREEN_PATHS;
+        m.pathNames = {"saves", "gba", "nds", "snes", "gb", "jksv"};
+        m.pathOn = std::vector<bool>(6, pick % 2 == 0);
+        m.pathPick = pick;
         out.push_back(m);
     }
     std::vector<std::vector<std::string> > sides = {

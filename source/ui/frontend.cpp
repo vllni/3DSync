@@ -126,8 +126,16 @@ static std::string signature(const BottomModel &m)
     std::string sides;
     for (auto &side : m.conflictSides)
         sides += side + "|";
+    // The picker's names are set when it opens and never change while shown,
+    // like the problem lines; the ticks and the highlight do.
+    char paths[48];
+    snprintf(paths, sizeof(paths), "%d|%d|%u|", m.pathSelected, m.pathPick,
+             (unsigned)m.pathNames.size());
+    std::string ticks;
+    for (bool on : m.pathOn)
+        ticks += on ? '1' : '0';
     return std::string(buf) + m.remotes + "|" + m.lastResult + "|" + m.provider + "|" +
-           m.entry + "|" + m.conflictPath + "|" + m.fileFilter + "|" + sides;
+           m.entry + "|" + m.conflictPath + "|" + m.fileFilter + "|" + sides + paths + ticks;
 }
 
 static void redraw(const BottomModel &m, const std::vector<Button> &buttons)
@@ -208,15 +216,15 @@ static bool frame(u32 &pressed)
     // there.
     u32 listKeys = conflictUsesList(m) ? (repeat & (KEY_DUP | KEY_DDOWN)) : 0;
     u32 scrollKeys = ((repeat & ~listKeys) | t.pressed) & SCROLL_KEYS;
-    long rows = 0;
+    long rows = 0, page = m.mode == SCREEN_PATHS ? PATH_LIST_ROWS : LOG_ROWS - 1;
     if (scrollKeys & KEY_DUP)
         rows -= 1;
     if (scrollKeys & KEY_DDOWN)
         rows += 1;
     if (scrollKeys & KEY_DLEFT)
-        rows -= LOG_ROWS - 1;
+        rows -= page;
     if (scrollKeys & KEY_DRIGHT)
-        rows += LOG_ROWS - 1;
+        rows += page;
     circlePosition circle;
     hidCircleRead(&circle);
     if (circle.dy > 30 || circle.dy < -30)
@@ -250,6 +258,26 @@ static bool frame(u32 &pressed)
         m.logTop = top;
         m.logVisible = CONFIG_ISSUE_ROWS;
     }
+    else if (m.mode == SCREEN_PATHS)
+    {
+        // Likewise the path picker, whose scroll controls move the highlight
+        // through the list; the strip shows where the list is.
+        if (t.dragging || rows != 0)
+        {
+            int pick = pathPickTo(m, (int)rows, t.dragging ? t.dragFraction : -1.0f);
+            if (pick != m.pathPick)
+            {
+                LightLock_Lock(&g_stateLock);
+                g_shared.pathPick = pick;
+                LightLock_Unlock(&g_stateLock);
+                m.pathPick = pick;
+            }
+        }
+        m.logFirst = 0;
+        m.logEnd = m.pathNames.size();
+        m.logTop = pathListFirst(m);
+        m.logVisible = PATH_LIST_ROWS;
+    }
     else
     {
         if (t.dragging)
@@ -258,7 +286,7 @@ static bool frame(u32 &pressed)
             g_scroll.scrollBy(g_log, rows);
     }
     g_scroll.update(g_log);
-    if (m.mode != SCREEN_CONFIG_ISSUES)
+    if (m.mode != SCREEN_CONFIG_ISSUES && m.mode != SCREEN_PATHS)
     {
         m.logFirst = g_log.firstRow();
         m.logEnd = g_log.endRow();
@@ -311,6 +339,7 @@ void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
     g_shared.configLoaded = configLoaded;
     g_shared.remotes = remotes;
     g_shared.pathCount = pathCount;
+    g_shared.pathSelected = pathCount;
     g_shared.fileFilter = fileFilter;
     LightLock_Unlock(&g_stateLock);
 }
@@ -359,10 +388,74 @@ MenuChoice waitForMenu()
             return MENU_SYNC;
         if (keys & KEY_Y)
             return MENU_SYNC_DEBUG;
+        if (keys & KEY_X)
+            return MENU_PATHS;
         if (keys & KEY_START)
             return MENU_EXIT;
     }
     return MENU_EXIT;
+}
+
+void choosePaths(const std::vector<std::string> &names, const std::vector<std::string> &locals,
+                 std::vector<bool> &selected)
+{
+    LightLock_Lock(&g_stateLock);
+    g_shared.pathNames = names;
+    g_shared.pathLocals = locals;
+    g_shared.pathOn = selected;
+    g_shared.pathOn.resize(names.size(), true);
+    g_shared.pathPick = 0;
+    g_shared.mode = SCREEN_PATHS;
+    LightLock_Unlock(&g_stateLock);
+
+    // Only this thread changes the model while the picker is open, so the
+    // rows a key refers to are the ones the frame that read it showed.
+    u32 keys;
+    while (frame(keys))
+    {
+        LightLock_Lock(&g_stateLock);
+        BottomModel &m = g_shared;
+        int n = (int)m.pathOn.size(), pick = pathPickClamped(m);
+        bool done = (keys & KEY_B) != 0;
+        if (!done && (keys & K_LIST_ROWS))
+        {
+            // A tap on another row ticks it and moves the highlight there.
+            for (int i = 0; i < PATH_LIST_ROWS; i++)
+                if (keys & (K_LIST_ROW0 << i))
+                {
+                    int path = pathListFirst(m) + i;
+                    if (path < n)
+                    {
+                        m.pathPick = path;
+                        m.pathOn[path] = !m.pathOn[path];
+                    }
+                    break;
+                }
+        }
+        else if (!done && (keys & KEY_A) && n > 0)
+            m.pathOn[pick] = !m.pathOn[pick];
+        else if (!done && (keys & KEY_Y))
+        {
+            // "Select all", or "Clear all" once they all are.
+            bool all = true;
+            for (int i = 0; i < n; i++)
+                all = all && m.pathOn[i];
+            for (int i = 0; i < n; i++)
+                m.pathOn[i] = !all;
+        }
+        LightLock_Unlock(&g_stateLock);
+        if (done)
+            break;
+    }
+
+    LightLock_Lock(&g_stateLock);
+    selected = g_shared.pathOn;
+    int on = 0;
+    for (bool b : selected)
+        on += b ? 1 : 0;
+    g_shared.pathSelected = on;
+    g_shared.mode = SCREEN_MENU;
+    LightLock_Unlock(&g_stateLock);
 }
 
 // ---------------------------------------------------------------------------
