@@ -2,12 +2,18 @@
 //
 // Cloudflare serves every file in the assets as it is (html_handling = "none"
 // in wrangler.toml, so /configurator.html is never redirected).  This code
-// runs only for "/" and for an address that matches no file, and does what
-// GitHub Pages did there: "/" is index.html, and "/privacy-policy" is
-// privacy-policy.html, served without a redirect.
+// runs for /api/ (see google.js), and for "/" and an address that matches no
+// file, where it does what GitHub Pages did: "/" is index.html, and
+// "/privacy-policy" is privacy-policy.html, served without a redirect.
+
+import { handleGoogle } from './google.js';
 
 export default {
     async fetch(request, env) {
+        if (new URL(request.url).pathname.startsWith('/api/')) {
+            const answer = await handleGoogle(request, env);
+            return answer || new Response('Not found', { status: 404 });
+        }
         return serveSite(request, env.ASSETS);
     },
 };
