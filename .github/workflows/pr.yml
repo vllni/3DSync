@@ -34,6 +34,10 @@ jobs:
       - name: Run configurator tests
         run: node --test tests/configurator/*.test.js
 
+      # Which file the site's Worker serves for an address (worker/src).
+      - name: Run worker tests
+        run: node --test tests/worker/*.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest
