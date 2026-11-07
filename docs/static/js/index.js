@@ -1394,8 +1394,11 @@ $(function () {
         let names = currentFolderNames();
         $('#drive-folders-section').toggle(remotes.length > 0 && names.length > 0);
         let $list = $('#drive-folders').empty();
+        // Named as soon as there is any other Drive remote, expert ones
+        // included, so it is clear which one the folders are for.
+        let named = config.remotes.filter(function (r) { return r.type === 'googledrive'; }).length > 1;
         remotes.forEach(function (remote) {
-            if (remotes.length > 1) $list.append($('<h5 class="white-text drive-folders-remote"></h5>').text(displayName(remote)));
+            if (named) $list.append($('<h5 class="white-text drive-folders-remote"></h5>').text(displayName(remote)));
             let sealed = !remote.auth || remote.auth.refreshToken === '';
             names.filter(function (name) { return syncsFolder(remote, name); }).forEach(function (name) {
                 let chosen = (remote.driveFolders || {})[name.toLowerCase()];
