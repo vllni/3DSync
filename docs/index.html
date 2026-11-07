@@ -254,12 +254,22 @@ Path=                     ; optional folder inside the account</code></pre>
             style="vertical-align:middle;font-size:1.2rem;margin-right:4px">add_to_drive</i>Google Drive
         </h5>
         <pre><code>[GoogleDrive]
+RefreshToken=&lt;refresh token from configurator&gt;
+Folder.saves=&lt;Drive folder chosen for [Paths] saves&gt;   ; optional, one per path</code></pre>
+        <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
+          The configurator logs in with 3DSync's own Google client: nothing to set up in Google Cloud (needs
+          3DSync 0.9.0 or newer). 3DSync then sees only what it creates itself and the folders and saves you
+          choose in the configurator; a path without a <code>Folder.</code> line gets a folder of its own in My
+          Drive. If an app on another device keeps creating new files in a Drive folder, use expert mode
+          instead &mdash; your own Google Cloud client with access to the whole Drive:
+        </p>
+        <pre><code>[GoogleDrive]
 ClientId=&lt;OAuth client ID&gt;
 ClientSecret=&lt;OAuth client secret&gt;
 RefreshToken=&lt;refresh token from configurator&gt;
 FolderId=&lt;optional root folder ID&gt;</code></pre>
         <p style="margin-top:0.6rem;font-size:0.9em;opacity:0.85">
-          <code>FolderId</code> restricts all Drive operations to one folder. Leave it out to use Drive root.
+          <code>FolderId</code> is the folder the paths' folders are created in. Leave it out to use My Drive.
         </p>
 
         <h5 class="white-text" style="margin-top:1.25rem">
@@ -509,6 +519,7 @@ screenshots=*              ; every file in this one</code></pre>
       <div class="card-panel blue darken-2 white-text section-card">
         <h4><i class="material-icons"
             style="vertical-align:middle;font-size:1.4rem;margin-right:6px">add_to_drive</i>Google Drive App Setup</h4>
+        <p>Only for expert mode; the configurator's default needs none of this.</p>
         <ol class="readme-list">
           <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer"
               class="white-text" style="text-decoration:underline">Google Cloud Console</a>.</li>

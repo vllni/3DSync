@@ -223,6 +223,29 @@ TEST(remoteconfig, only_naming_a_missing_path_is_a_warning)
     CHECK(r.remotes[0].syncs("saves"));
 }
 
+TEST(remoteconfig, drive_folder_lines_name_a_path_folder)
+{
+    // Folder.<name>= from the configurator: the Drive folder chosen for that
+    // path, by its lowercased name as INIReader keys it.
+    Values v = {{"googledrive=refreshtoken", "rt"}, {"googledrive=folder.saves", "F1"},
+                {"googledrive=folder.gba", ""}, {"googledrive=folder.snes", "F9"},
+                {"googledrive:b=refreshtoken", "rt"}, {"googledrive:b=folder.gba", "F2"},
+                {"smb=server", "s"}, {"smb=share", "x"}, {"smb=folder.saves", "F3"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)3);
+    const RemoteConfig &drive = r.remotes[0], &backup = r.remotes[1], &smb = r.remotes[2];
+    CHECK_EQ(drive.driveFolders.size(), (size_t)1);
+    CHECK_STR_EQ(drive.driveFolders.at("saves"), "F1");
+    // Each Drive remote has its own; other types ignore the key.
+    CHECK_STR_EQ(backup.driveFolders.at("gba"), "F2");
+    CHECK(smb.driveFolders.empty());
+    // A path that is not configured is left out, and said so.
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK_STR_EQ(r.issues[0].section, "googledrive");
+    CHECK(joined(r.issues[0].lines).find("snes") != std::string::npos);
+    CHECK(!r.issues[0].leftOut);
+}
+
 TEST(remoteconfig, unknown_and_empty_labelled_sections_are_issues)
 {
     Values v = {{"smbx:nas=server", "nas"}, {"smb:=server", "nas"}, {"smb:=share", "s"}};

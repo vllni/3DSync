@@ -166,4 +166,14 @@ std::vector<std::string> ftpReplaceCommands(const std::string &remotePath,
 std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
                         const std::string &path);
 
+// Google Drive's token refresh.  With a client secret (the user's own Google
+// Cloud client) it goes to Google itself; without one it is 3DSync's own
+// client, whose secret only the site's Worker holds, so it goes there with
+// the refresh token alone, and the Worker answers like Google.  Sets url and
+// returns the form-encoded body.
+const char *const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const char *const SHARED_GOOGLE_TOKEN_URL = "https://3dsync.vllni.dev/api/google/token";
+std::string driveRefreshRequest(const std::string &clientId, const std::string &clientSecret,
+                                const std::string &refreshToken, std::string &url);
+
 #endif

@@ -227,3 +227,28 @@ std::string buildFtpUrl(bool implicitTls, const std::string &host, int port,
     std::string url = (implicitTls ? "ftps://" : "ftp://") + host + ":" + portBuf + "/";
     return url + urlEncodePath(path);
 }
+
+// ---------------------------------------------------------------------------
+// Google Drive token refresh
+// ---------------------------------------------------------------------------
+static std::string formValue(const std::string &value)
+{
+    // urlEncodePath() keeps '/', which refresh tokens contain ("1//0g…").
+    std::string out;
+    for (char c : urlEncodePath(value))
+        out += c == '/' ? std::string("%2F") : std::string(1, c);
+    return out;
+}
+
+std::string driveRefreshRequest(const std::string &clientId, const std::string &clientSecret,
+                                const std::string &refreshToken, std::string &url)
+{
+    std::string body = "grant_type=refresh_token&refresh_token=" + formValue(refreshToken);
+    if (clientSecret.empty())
+    {
+        url = SHARED_GOOGLE_TOKEN_URL;
+        return body;
+    }
+    url = GOOGLE_TOKEN_URL;
+    return body + "&client_id=" + formValue(clientId) + "&client_secret=" + formValue(clientSecret);
+}

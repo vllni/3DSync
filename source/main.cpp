@@ -570,9 +570,15 @@ static SyncProvider *makeProvider(const INIReader &reader, const RemoteConfig &r
                            reader.Get(s, "refreshtoken", ""), reader.Get(s, "path", ""),
                            reader.Get(s, "token", ""));
     case REMOTE_DRIVE:
-        return new GoogleDrive(reader.Get(s, "clientid", ""), reader.Get(s, "clientsecret", ""),
-                               reader.Get(s, "refreshtoken", ""),
-                               reader.Get(s, "folderid", ""), reader.Get(s, "token", ""));
+    {
+        // Without ClientSecret= it is 3DSync's own client, refreshed through
+        // the site (driveRefreshRequest()); Folder.<name>= picks a path's folder.
+        GoogleDrive *drive = new GoogleDrive(reader.Get(s, "clientid", ""), reader.Get(s, "clientsecret", ""),
+                                             reader.Get(s, "refreshtoken", ""),
+                                             reader.Get(s, "folderid", ""), reader.Get(s, "token", ""));
+        drive->setPathFolders(remote.driveFolders);
+        return drive;
+    }
     case REMOTE_SMB:
         return new SmbRemote(reader.Get(s, "server", ""), reader.Get(s, "share", ""),
                              reader.Get(s, "user", ""), reader.Get(s, "password", ""),
