@@ -138,6 +138,11 @@ bool RemoteConfig::syncs(const std::string &entryName) const
     return only.empty() || only.count(lower(entryName)) > 0;
 }
 
+bool RemoteConfig::takesPart(const std::string &entryName, bool uploadOnly) const
+{
+    return syncs(entryName) && !(uploadOnly && role == ROLE_SOURCE);
+}
+
 RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
                            const std::vector<std::string> &entryNames)
 {

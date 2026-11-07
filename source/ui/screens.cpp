@@ -43,8 +43,8 @@ static const Color kLogColors[] = {
 
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
-      lastResultOk(true), configIssueCount(0), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), configScroll(0), heldKeys(0), logFirst(0),
+      pathSelected(0), lastResultOk(true), configIssueCount(0), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
+      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), configScroll(0), pathPick(0), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -93,6 +93,13 @@ static int contentWidth(const Button &b)
 static const int COL_X = 6, COL_W = 270;
 static const int ROW1_Y = 160, ROW2_Y = 200, BTN_H = 34, GAP = 6;
 
+// The card every screen but the conflict draws in the left column.
+static const int CARD_X = COL_X, CARD_Y = 36, CARD_W = COL_W;
+static const int CARD_IN = CARD_X + 12, CARD_TEXT_W = CARD_W - 24;
+
+// The menu card's PATHS line is a button: tapping it, or X, opens the picker.
+static const Rect PATHS_FIELD = {CARD_X + 6, CARD_Y + 47, CARD_W - 12, 30};
+
 static Button makeButton(int x, int y, int w, uint32_t key, const std::string &label,
                          ButtonStyle style = BUTTON_NORMAL, bool enabled = true)
 {
@@ -127,17 +134,66 @@ int conflictPickClamped(const BottomModel &m)
     return m.conflictPick >= 0 && m.conflictPick < n ? m.conflictPick : 0;
 }
 
-int conflictListFirst(const BottomModel &m)
+// The first of n items on screen when `rows` fit and `pick` must be one.
+static int listFirst(int n, int pick, int rows)
 {
-    int n = (int)m.conflictSides.size();
-    if (n <= CONFLICT_LIST_ROWS)
+    if (n <= rows)
         return 0;
-    int first = conflictPickClamped(m) - (CONFLICT_LIST_ROWS - 1);
+    int first = pick - (rows - 1);
     if (first < 0)
         first = 0;
-    if (first > n - CONFLICT_LIST_ROWS)
-        first = n - CONFLICT_LIST_ROWS;
+    if (first > n - rows)
+        first = n - rows;
     return first;
+}
+
+int conflictListFirst(const BottomModel &m)
+{
+    return listFirst((int)m.conflictSides.size(), conflictPickClamped(m), CONFLICT_LIST_ROWS);
+}
+
+// The path picker: a line saying how many are ticked, then the list down to
+// the last row of buttons.
+static const int PATH_LIST_Y = 58, PATH_ROW_H = 34;
+
+int pathPickClamped(const BottomModel &m)
+{
+    int n = (int)m.pathNames.size();
+    return m.pathPick >= 0 && m.pathPick < n ? m.pathPick : 0;
+}
+
+int pathListFirst(const BottomModel &m)
+{
+    return listFirst((int)m.pathNames.size(), pathPickClamped(m), PATH_LIST_ROWS);
+}
+
+int pathPickTo(const BottomModel &m, int rows, float fraction)
+{
+    int last = (int)m.pathNames.size() - 1;
+    if (last < 0)
+        return 0;
+    int pick = fraction >= 0 ? (int)(last * (fraction > 1 ? 1 : fraction) + 0.5f)
+                             : pathPickClamped(m) + rows;
+    return pick < 0 ? 0 : (pick > last ? last : pick);
+}
+
+static bool allPathsOn(const BottomModel &m)
+{
+    for (bool on : m.pathOn)
+        if (!on)
+            return false;
+    return true;
+}
+
+// "4 sync paths" while every one is ticked, "3 of 4 sync paths" otherwise.
+static std::string pathsLabel(const BottomModel &m)
+{
+    char buf[48];
+    if (m.pathSelected >= m.pathCount)
+        snprintf(buf, sizeof(buf), "%d sync path%s", m.pathCount, m.pathCount == 1 ? "" : "s");
+    else
+        snprintf(buf, sizeof(buf), "%d of %d sync paths", m.pathSelected, m.pathCount);
+    return buf;
 }
 
 // "Keep Dropbox", or just "Dropbox" where that would not fit with a little
@@ -162,7 +218,36 @@ std::vector<Button> bottomButtons(const BottomModel &m)
                                !m.starting));
         b.push_back(makeButton(slotX(1, 2), ROW2_Y, slotW(2), K_START, "Exit", BUTTON_NORMAL,
                                !m.starting));
+        if (!m.starting && m.configLoaded && m.pathCount > 0)
+        {
+            Button field = makeButton(0, 0, 0, K_X, pathsLabel(m), BUTTON_FIELD);
+            field.rect = PATHS_FIELD;
+            b.push_back(field);
+        }
         break;
+    case SCREEN_PATHS:
+    {
+        // Every row is a tick box.  The highlighted one is the A button; the
+        // others report a row bit, and tapping one ticks it as well, so the
+        // stylus never needs two taps where the buttons need D-pad and A.
+        int pick = pathPickClamped(m), first = pathListFirst(m);
+        int shown = (int)m.pathNames.size() - first;
+        if (shown > PATH_LIST_ROWS)
+            shown = PATH_LIST_ROWS;
+        for (int i = 0; i < shown; i++)
+        {
+            int path = first + i;
+            Button row = makeButton(COL_X, PATH_LIST_Y + i * PATH_ROW_H, COL_W,
+                                    path == pick ? K_A : K_LIST_ROW0 << i, m.pathNames[path],
+                                    BUTTON_CHECK);
+            row.rect.h = PATH_ROW_H;
+            b.push_back(row);
+        }
+        b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_B, "Done", BUTTON_PRIMARY));
+        b.push_back(makeButton(slotX(1, 2), ROW2_Y, slotW(2), K_Y,
+                               allPathsOn(m) ? "Clear all" : "Select all"));
+        break;
+    }
     case SCREEN_RUNNING:
         b.push_back(makeButton(COL_X, ROW2_Y, COL_W, K_START,
                                m.cancelling ? "Cancelling\xE2\x80\xA6" : "Cancel sync",
@@ -271,11 +356,80 @@ static void drawListRow(Canvas &c, const Button &b, const BottomModel &m)
     c.textMiddle(kFontBold, r.x + 14, r.y, r.h, b.label, C_TEXT, r.w - 28);
 }
 
+static void drawTick(Canvas &c, int cx, int cy, Color col)
+{
+    c.fill(cx - 3, cy, 2, 2, col);
+    c.fill(cx - 1, cy + 1, 2, 2, col);
+    c.fill(cx + 1, cy - 3, 2, 5, col);
+}
+
+// A check mark for a 16-pixel box: a short stroke down, a long one up.
+static void drawCheckMark(Canvas &c, int cx, int cy, Color col)
+{
+    for (int i = 0; i <= 3; i++)
+        c.fill(cx - 5 + i, cy - 1 + i, 2, 2, col);
+    for (int i = 0; i <= 6; i++)
+        c.fill(cx - 2 + i, cy + 2 - i, 2, 2, col);
+}
+
+// The menu card's PATHS line: a raised strip with X's badge at its end.
+static void drawPathsField(Canvas &c, const Button &b, const BottomModel &m)
+{
+    const Rect &r = b.rect;
+    c.roundRect(r.x, r.y, r.w, r.h, 8, (m.heldKeys & b.key) ? C_PRESSED : C_RAISED);
+    c.text(kFontSmall, CARD_IN, r.y + 8, "PATHS", C_FAINT);
+    c.textMiddle(kFontBody, CARD_IN + 62, r.y, r.h, b.label,
+                 m.pathSelected > 0 ? C_TEXT : C_WARN, r.x + r.w - 34 - (CARD_IN + 62));
+    drawKeyBadge(c, r.x + r.w - 26, r.y + r.h / 2, K_X, C_BG, C_TEXT);
+}
+
+// A row of the path picker: tick box, name, and the folder on the SD card.
+static void drawCheckRow(Canvas &c, const Button &b, const BottomModel &m)
+{
+    const Rect &r = b.rect;
+    int path = pathListFirst(m) + (r.y - PATH_LIST_Y) / PATH_ROW_H;
+    bool on = path < (int)m.pathOn.size() && m.pathOn[path];
+    bool lit = b.key == K_A, down = (m.heldKeys & b.key) != 0;
+    if (lit || down)
+        c.roundRect(r.x, r.y, r.w, r.h, 9, down ? C_PRESSED : C_RAISED);
+    else if (r.y > PATH_LIST_Y)
+        c.fill(r.x + 12, r.y, r.w - 24, 1, C_LINE);
+    if (lit)
+        c.roundRectOutline(r.x, r.y, r.w, r.h, 9, C_ACCENT);
+
+    int bx = r.x + 12, cy = r.y + r.h / 2;
+    if (on)
+    {
+        c.roundRect(bx, cy - 8, 16, 16, 4, C_ACCENT);
+        drawCheckMark(c, bx + 8, cy, C_TEXT);
+    }
+    else
+        c.roundRectOutline(bx, cy - 8, 16, 16, 4, C_DIM);
+
+    // Room for A's badge on the highlighted row, and the scroll marks.
+    int tx = bx + 26, tw = r.x + r.w - 46 - tx;
+    c.text(kFontBold, tx, r.y + 1, b.label, on ? C_TEXT : C_DIM, tw);
+    if (path < (int)m.pathLocals.size())
+        c.text(kFontSmall, tx, r.y + 18, m.pathLocals[path], on ? C_DIM : C_FAINT, tw);
+    if (lit)
+        drawKeyBadge(c, r.x + r.w - 40, cy, K_A, rgb(0x24, 0x4F, 0x9E), C_TEXT);
+}
+
 static void drawButton(Canvas &c, const Button &b, const BottomModel &m)
 {
     if (b.style == BUTTON_ROW)
     {
         drawListRow(c, b, m);
+        return;
+    }
+    if (b.style == BUTTON_FIELD)
+    {
+        drawPathsField(c, b, m);
+        return;
+    }
+    if (b.style == BUTTON_CHECK)
+    {
+        drawCheckRow(c, b, m);
         return;
     }
     bool down = b.enabled && (m.heldKeys & b.key);
@@ -325,11 +479,7 @@ static void drawButton(Canvas &c, const Button &b, const BottomModel &m)
         c.circle(cx, cy, 7, lit ? C_ACCENT : C_PANEL);
         c.roundRectOutline(cx - 7, cy - 7, 14, 14, 7, lit ? C_TEXT : C_FAINT);
         if (lit)
-        {
-            c.fill(cx - 3, cy, 2, 2, C_TEXT);
-            c.fill(cx - 1, cy + 1, 2, 2, C_TEXT);
-            c.fill(cx + 1, cy - 3, 2, 5, C_TEXT);
-        }
+            drawTick(c, cx, cy, C_TEXT);
     }
 }
 
@@ -398,6 +548,9 @@ static void drawHeader(Canvas &c, const BottomModel &m)
     case SCREEN_SAVE_LOG:
         drawStatusPill(c, BOTTOM_W - 6, "Debug log", C_DEBUG);
         break;
+    case SCREEN_PATHS:
+        drawStatusPill(c, BOTTOM_W - 6, "Choose paths", C_ACCENT);
+        break;
     }
 }
 
@@ -424,9 +577,6 @@ static void drawLines(Canvas &c, const Font &f, int x, int y, int lineH,
 // ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
-static const int CARD_X = COL_X, CARD_Y = 36, CARD_W = COL_W;
-static const int CARD_IN = CARD_X + 12, CARD_TEXT_W = CARD_W - 24;
-
 static void drawMenuCard(Canvas &c, const BottomModel &m)
 {
     c.roundRect(CARD_X, CARD_Y, CARD_W, ROW1_Y - GAP - CARD_Y, 12, C_PANEL);
@@ -445,28 +595,59 @@ static void drawMenuCard(Canvas &c, const BottomModel &m)
         return;
     }
 
-    c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Ready to sync", C_TEXT);
-    char paths[48];
-    snprintf(paths, sizeof(paths), "%d sync path%s", m.pathCount, m.pathCount == 1 ? "" : "s");
-    c.text(kFontSmall, CARD_IN, CARD_Y + 40, "REMOTES", C_FAINT);
-    c.text(kFontBody, CARD_IN + 62, CARD_Y + 38,
+    c.text(kFontTitle, CARD_IN, CARD_Y + 4, "Ready to sync", C_TEXT);
+    c.text(kFontSmall, CARD_IN, CARD_Y + 31, "REMOTES", C_FAINT);
+    c.text(kFontBody, CARD_IN + 62, CARD_Y + 29,
            m.remotes.empty() ? std::string("none configured") : m.remotes,
            m.remotes.empty() ? C_WARN : C_TEXT, CARD_TEXT_W - 62);
-    c.text(kFontSmall, CARD_IN, CARD_Y + 60, "PATHS", C_FAINT);
-    c.text(kFontBody, CARD_IN + 62, CARD_Y + 58, paths, m.pathCount ? C_TEXT : C_WARN);
+    // With paths to choose from, the PATHS line is a button (drawPathsField).
+    if (m.pathCount == 0)
+    {
+        c.text(kFontSmall, CARD_IN, PATHS_FIELD.y + 8, "PATHS", C_FAINT);
+        c.textMiddle(kFontBody, CARD_IN + 62, PATHS_FIELD.y, PATHS_FIELD.h, "none configured",
+                     C_WARN);
+    }
     // Dim while it is the default, so a filter that is on stands out.
     bool allFiles = m.fileFilter.empty() || m.fileFilter == "all files";
-    c.text(kFontSmall, CARD_IN, CARD_Y + 80, "FILES", C_FAINT);
-    c.text(kFontBody, CARD_IN + 62, CARD_Y + 78, allFiles ? std::string("all files") : m.fileFilter,
+    c.text(kFontSmall, CARD_IN, CARD_Y + 83, "FILES", C_FAINT);
+    c.text(kFontBody, CARD_IN + 62, CARD_Y + 81, allFiles ? std::string("all files") : m.fileFilter,
            allFiles ? C_DIM : C_TEXT, CARD_TEXT_W - 62);
-    c.text(kFontSmall, CARD_IN, CARD_Y + 100, "LAST RUN", C_FAINT);
+    c.text(kFontSmall, CARD_IN, CARD_Y + 102, "LAST RUN", C_FAINT);
     if (m.lastResult.empty())
-        c.text(kFontBody, CARD_IN + 62, CARD_Y + 98, "not yet", C_DIM);
+        c.text(kFontBody, CARD_IN + 62, CARD_Y + 100, "not yet", C_DIM);
     else
     {
-        c.circle(CARD_IN + 66, CARD_Y + 106, 3, m.lastResultOk ? C_GOOD : C_BAD);
-        c.text(kFontBody, CARD_IN + 74, CARD_Y + 98, m.lastResult, C_TEXT, CARD_TEXT_W - 74);
+        c.circle(CARD_IN + 66, CARD_Y + 108, 3, m.lastResultOk ? C_GOOD : C_BAD);
+        c.text(kFontBody, CARD_IN + 74, CARD_Y + 100, m.lastResult, C_TEXT, CARD_TEXT_W - 74);
     }
+}
+
+// Above the picker's list: what it is for, and how many are ticked.
+static void drawPathsCard(Canvas &c, const BottomModel &m)
+{
+    int on = 0;
+    for (bool b : m.pathOn)
+        on += b ? 1 : 0;
+    char count[32];
+    snprintf(count, sizeof(count), "%d of %d", on, (int)m.pathOn.size());
+    c.text(kFontBold, CARD_IN, CARD_Y + 1, "Sync these paths", C_TEXT);
+    c.textRight(kFontSmall, CARD_X + CARD_W - 12, CARD_Y + 4, count, on ? C_DIM : C_WARN);
+
+    int n = (int)m.pathNames.size();
+    int rows = n < PATH_LIST_ROWS ? n : PATH_LIST_ROWS;
+    if (rows > 0)
+        c.roundRect(COL_X, PATH_LIST_Y, COL_W, rows * PATH_ROW_H, 10, C_PANEL);
+}
+
+// Paths scrolled out of the list: a small arrow at that end.
+static void drawPathListMarks(Canvas &c, const BottomModel &m)
+{
+    int first = pathListFirst(m), n = (int)m.pathNames.size();
+    int cx = COL_X + COL_W - 12;
+    if (first > 0)
+        c.triangle(cx, PATH_LIST_Y + 6, 5, -1, C_DIM);
+    if (first + PATH_LIST_ROWS < n)
+        c.triangle(cx, PATH_LIST_Y + PATH_LIST_ROWS * PATH_ROW_H - 6, 5, 1, C_DIM);
 }
 
 static void drawRunningCard(Canvas &c, const BottomModel &m)
@@ -626,6 +807,7 @@ void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &butt
     case SCREEN_CONFLICT: drawConflictCard(c, m); break;
     case SCREEN_SAVE_LOG: drawSaveLogCard(c, m); break;
     case SCREEN_CONFIG_ISSUES: drawConfigIssuesCard(c, m); break;
+    case SCREEN_PATHS: drawPathsCard(c, m); break;
     }
 
     drawScrollTrack(c, m);
@@ -640,6 +822,8 @@ void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &butt
     }
     if (conflictUsesList(m))
         drawConflictListMarks(c, m);
+    if (m.mode == SCREEN_PATHS)
+        drawPathListMarks(c, m);
 }
 
 // ---------------------------------------------------------------------------

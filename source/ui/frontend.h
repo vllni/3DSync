@@ -2,6 +2,7 @@
 #define UI_FRONTEND_H
 
 #include <string>
+#include <vector>
 
 #include "../sync/syncengine.h"
 
@@ -26,8 +27,8 @@ namespace frontend
 bool init();
 void exit();
 
-// What the idle screen says about the configuration.  fileFilter is
-// PathFilters::describe(): "all files", ".sav .bin" or "per path".
+// What the idle screen says about the configuration, every path selected.
+// fileFilter is PathFilters::describe(): "all files", ".sav .bin" or "per path".
 // configIssueCount: problems found in 3DSync.ini, for the menu's header.
 void setMenuInfo(bool configLoaded, const std::string &remotes, int pathCount,
                  const std::string &fileFilter, int configIssueCount);
@@ -41,12 +42,21 @@ enum MenuChoice
 {
     MENU_EXIT,
     MENU_SYNC,
-    MENU_SYNC_DEBUG
+    MENU_SYNC_DEBUG,
+    MENU_PATHS
 };
 
-// The idle screen: A syncs, Y syncs in debug mode, START exits.  Returns
-// MENU_EXIT when the system asks the app to close as well.
+// The idle screen: A syncs, Y syncs in debug mode, X (or tapping PATHS)
+// chooses paths, START exits.  Returns MENU_EXIT when the system asks the app
+// to close as well.
 MenuChoice waitForMenu();
+
+// The path picker, from the menu: one row per configured path (names as
+// INIReader keys them, locals the folders on the SD card), ticked where
+// selected is true.  B returns, with selected updated and the menu card
+// counting the ticks.  Runs on the main thread, like waitForMenu().
+void choosePaths(const std::vector<std::string> &names, const std::vector<std::string> &locals,
+                 std::vector<bool> &selected);
 
 // Run fn(arg) on the worker thread while this thread keeps the UI live, and
 // return once it has finished.  If the app is closed meanwhile, the run is

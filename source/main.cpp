@@ -107,19 +107,6 @@ static bool parsePathKey(const std::string &key, SyncDirection &dir, bool &recur
     return false;
 }
 
-// For the idle screen, which must not walk the SD card to say how many.
-static int countSyncPaths(const INIReader &reader)
-{
-    int n = 0;
-    SyncDirection dir;
-    bool recursive;
-    std::string prefix;
-    for (auto &kv : reader.GetValues())
-        if (parsePathKey(kv.first, dir, recursive, prefix))
-            n++;
-    return n;
-}
-
 // The names of the configured sync paths ("saves"), lowercased as INIReader
 // keys them, for checking Only= without walking the SD card.
 static std::vector<std::string> configuredEntryNames(const INIReader &reader)
@@ -141,43 +128,55 @@ static PathFilters configuredFilters(const INIReader &reader)
     return parsePathFilters(reader.GetValues(), configuredEntryNames(reader));
 }
 
-static std::vector<SyncEntry> getConfiguredSyncPaths(const INIReader &reader)
+// A configured path: the entry a sync runs, before its files are found.
+struct ConfiguredPath
 {
-    std::vector<SyncEntry> entries;
-    std::map<std::string, std::string> values = reader.GetValues();
+    SyncEntry entry;
+    bool recursive;
+};
+
+// Every configured path, in the order a sync runs them, without walking the
+// SD card: the menu's path picker lists these, and runSync() looks for files
+// in the ones chosen there.
+static std::vector<ConfiguredPath> configuredPaths(const INIReader &reader)
+{
+    std::vector<ConfiguredPath> paths;
     PathFilters filters = configuredFilters(reader);
 
-    for (auto &kv : values)
+    for (auto &kv : reader.GetValues())
     {
+        ConfiguredPath path;
         SyncDirection dir;
-        bool recursive;
         std::string prefix;
-        if (!parsePathKey(kv.first, dir, recursive, prefix))
+        if (!parsePathKey(kv.first, dir, path.recursive, prefix))
             continue;
-
-        SyncEntry entry;
-        entry.localBase = kv.second;
-        entry.remoteName = kv.first.substr(prefix.size());
-        entry.direction = dir;
-        entry.filter = filters.forEntry(entry.remoteName);
-        const ExtensionFilter &filter = entry.filter;
-        // Filtered here as well as in performSync(): a provider's
-        // legacyUpload() is handed this list and nothing else.
-        std::vector<std::string> found = recurse_dir(kv.second, "", recursive);
-        for (auto &f : found)
-            if (filter.matches(f))
-                entry.localFiles.push_back(f);
-        // An entry that found nothing locally is silently normal — the remote
-        // may hold everything — but it is also what a mistyped path looks like,
-        // or a filter that matches none of the files there.
-        debugf("entry %s -> %s: %d local file(s), %d left out by the filter, %s%s\n",
-               entry.localBase.c_str(), entry.remoteName.c_str(),
-               (int)entry.localFiles.size(), (int)(found.size() - entry.localFiles.size()),
-               recursive ? "recursive" : "shallow",
-               dir == SYNC_UPLOAD_ONLY ? ", upload only" : "");
-        entries.push_back(entry);
+        path.entry.localBase = kv.second;
+        path.entry.remoteName = kv.first.substr(prefix.size());
+        path.entry.direction = dir;
+        path.entry.filter = filters.forEntry(path.entry.remoteName);
+        paths.push_back(path);
     }
-    return entries;
+    return paths;
+}
+
+static void findLocalFiles(ConfiguredPath &path)
+{
+    SyncEntry &entry = path.entry;
+    const ExtensionFilter &filter = entry.filter;
+    // Filtered here as well as in performSync(): a provider's legacyUpload()
+    // is handed this list and nothing else.
+    std::vector<std::string> found = recurse_dir(entry.localBase, "", path.recursive);
+    for (auto &f : found)
+        if (filter.matches(f))
+            entry.localFiles.push_back(f);
+    // An entry that found nothing locally is silently normal — the remote may
+    // hold everything — but it is also what a mistyped path looks like, or a
+    // filter that matches none of the files there.
+    debugf("entry %s -> %s: %d local file(s), %d left out by the filter, %s%s\n",
+           entry.localBase.c_str(), entry.remoteName.c_str(), (int)entry.localFiles.size(),
+           (int)(found.size() - entry.localFiles.size()),
+           path.recursive ? "recursive" : "shallow",
+           entry.direction == SYNC_UPLOAD_ONLY ? ", upload only" : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -348,10 +347,12 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
         std::vector<const ActiveRemote *> taking;
         for (auto &r : remotes)
         {
-            if (r.config.syncs(entry.remoteName))
+            if (r.config.takesPart(entry.remoteName, uploadOnly))
                 taking.push_back(&r);
             else
-                debugf("%s: not in its Only=, leaves out %s\n", r.name.c_str(),
+                debugf("%s: %s, leaves out %s\n", r.name.c_str(),
+                       r.config.syncs(entry.remoteName) ? "a source, never uploaded to"
+                                                        : "not in its Only=",
                        entry.remoteName.c_str());
         }
         if (taking.empty())
@@ -643,7 +644,7 @@ static void printConfigIssues(const std::vector<ConfigIssue> &issues)
 // ---------------------------------------------------------------------------
 // runSync  — one full sync pass, on the frontend's worker thread
 // ---------------------------------------------------------------------------
-static void runSync(const INIReader &reader)
+static void runSync(const INIReader &reader, const std::vector<bool> &selected)
 {
     frontend::WorkerSyncUi ui;
 
@@ -670,11 +671,38 @@ static void runSync(const INIReader &reader)
         return;
     }
 
-    std::vector<SyncEntry> syncEntries = getConfiguredSyncPaths(reader);
-    if (syncEntries.empty())
+    std::vector<ConfiguredPath> paths = configuredPaths(reader);
+    if (paths.empty())
     {
         printf("No sync paths configured in 3DSync.ini\n");
         frontend::setLastResult("no sync paths configured", false);
+        return;
+    }
+
+    // Only the paths ticked on the menu: the others are not even walked.
+    std::vector<SyncEntry> syncEntries;
+    std::vector<std::string> unticked;
+    for (size_t i = 0; i < paths.size(); i++)
+    {
+        if (i < selected.size() && !selected[i])
+        {
+            unticked.push_back(paths[i].entry.remoteName);
+            continue;
+        }
+        findLocalFiles(paths[i]);
+        syncEntries.push_back(paths[i].entry);
+    }
+    if (!unticked.empty())
+    {
+        printf("Left out on the menu:\n");
+        for (auto &name : unticked)
+            printf("  %s\n", name.c_str());
+    }
+    if (syncEntries.empty())
+    {
+        printf("No sync path selected. Tap PATHS on\n");
+        printf("the menu (or press X) to choose.\n");
+        frontend::setLastResult("no path selected", false);
         return;
     }
 
@@ -694,6 +722,18 @@ static void runSync(const INIReader &reader)
     {
         if (ui.cancelRequested())
             break;
+        // A remote no chosen entry goes to is not connected: a login, or an
+        // SMB or FTP timeout, for a remote with nothing to do is time wasted.
+        bool used = false;
+        for (auto &entry : syncEntries)
+            used = used || config.takesPart(entry.remoteName,
+                                            entry.direction == SYNC_UPLOAD_ONLY);
+        if (!used)
+        {
+            printf("\n=== %s ===\n", config.displayName().c_str());
+            printf("  No selected path syncs here; skipped.\n");
+            continue;
+        }
         providers.push_back(std::unique_ptr<SyncProvider>(makeProvider(reader, config)));
         if (providers.back())
             providers.back()->setDisplayName(config.displayName());
@@ -853,11 +893,18 @@ static INIReader loadConfig()
 // ---------------------------------------------------------------------------
 // syncWorker  — what a menu choice runs, on the worker thread
 // ---------------------------------------------------------------------------
+struct SyncRequest
+{
+    const INIReader *reader;
+    const std::vector<bool> *selected; // per configuredPaths() entry
+};
+
 static void syncWorker(void *arg)
 {
-    const INIReader &reader = *(const INIReader *)arg;
+    const SyncRequest &request = *(const SyncRequest *)arg;
+    const INIReader &reader = *request.reader;
     if (reader.ParseError() >= 0)
-        runSync(reader);
+        runSync(reader, *request.selected);
     else
     {
         printf("Can't load configuration\n");
@@ -884,8 +931,18 @@ int main(int argc, char **argv)
     RemoteConfigs remotes = configuredRemotes(reader);
     std::vector<ConfigIssue> issues =
         reader.ParseError() >= 0 ? configIssues(reader, remotes) : std::vector<ConfigIssue>();
+    // Every path starts ticked; the picker's choice lasts for the session and
+    // 3DSync.ini is never rewritten for it.
+    std::vector<ConfiguredPath> paths = configuredPaths(reader);
+    std::vector<std::string> pathNames, pathLocals;
+    for (auto &path : paths)
+    {
+        pathNames.push_back(path.entry.remoteName);
+        pathLocals.push_back(path.entry.localBase);
+    }
+    std::vector<bool> selected(paths.size(), true);
     frontend::setMenuInfo(reader.ParseError() >= 0, remoteNames(remotes.remotes),
-                          countSyncPaths(reader), configuredFilters(reader).describe(),
+                          (int)paths.size(), configuredFilters(reader).describe(),
                           (int)issues.size());
 
     // Said once, before the menu: a remote that is set up wrongly is left out
@@ -908,6 +965,12 @@ int main(int argc, char **argv)
         frontend::MenuChoice choice = frontend::waitForMenu();
         if (choice == frontend::MENU_EXIT)
             break;
+        if (choice == frontend::MENU_PATHS)
+        {
+            if (!paths.empty())
+                frontend::choosePaths(pathNames, pathLocals, selected);
+            continue;
+        }
 
         // Set before anything else runs: the providers read it when they build
         // their libcurl handle, and the engine when it logs a decision.
@@ -916,7 +979,8 @@ int main(int argc, char **argv)
         // run's transcript along with the second's.
         debugLogReset();
 
-        frontend::runWorker(syncWorker, &reader);
+        SyncRequest request = {&reader, &selected};
+        frontend::runWorker(syncWorker, &request);
         // after sync: fall back to the menu (sync again or exit)
     }
 

@@ -167,6 +167,7 @@ int main()
     m.configLoaded = true;
     m.remotes = "Dropbox, SMB";
     m.pathCount = 3;
+    m.pathSelected = 3;
     m.logVisible = LOG_ROWS;
     auto syncLog = [&]() {
         scroll.update(log);
@@ -219,6 +220,37 @@ int main()
         menu.configIssueCount = 4;
         drawBottom(bottom, menu, bottomButtons(menu));
         save("1g-menu-check-config", top, bottom);
+    }
+
+    // The path picker, scrolled to its end, and the menu after it.
+    {
+        BottomModel picker = m;
+        picker.mode = SCREEN_PATHS;
+        picker.pathNames = {"saves", "gba", "nds", "snes", "jksv"};
+        picker.pathLocals = {"/3ds/Checkpoint/saves", "/roms/gba", "/roms/nds/saves",
+                             "/retroarch/cores/savefiles/snes9x", "/JKSV"};
+        picker.pathOn = {true, false, true, true, false};
+        picker.pathPick = 1;
+        picker.logFirst = 0;
+        picker.logEnd = picker.pathNames.size();
+        picker.logTop = 0;
+        picker.logVisible = PATH_LIST_ROWS;
+        drawBottom(bottom, picker, bottomButtons(picker));
+        save("1h-paths", top, bottom);
+        picker.pathPick = 4;
+        picker.logTop = pathListFirst(picker);
+        picker.heldKeys = K_LIST_ROW0;
+        drawBottom(bottom, picker, bottomButtons(picker));
+        save("1i-paths-scrolled", top, bottom);
+        BottomModel menu = m;
+        menu.pathCount = 5;
+        menu.pathSelected = 3;
+        drawBottom(bottom, menu, bottomButtons(menu));
+        save("1j-menu-some-paths", top, bottom);
+        menu.pathSelected = 0;
+        menu.heldKeys = K_X;
+        drawBottom(bottom, menu, bottomButtons(menu));
+        save("1k-menu-no-path", top, bottom);
     }
 
     BottomModel none;

@@ -52,6 +52,10 @@ const int CONFLICT_LIST_ROWS = 4;
 const uint32_t K_LIST_ROW0 = 1u << 16;
 const uint32_t K_LIST_ROWS = 0xFu << 16;
 
+// The path picker's rows report the same bits, PATH_LIST_ROWS at a time from
+// pathListFirst().  Not five: bit 20 is the touch screen's.
+const int PATH_LIST_ROWS = 4;
+
 // The top-screen log: header, then LOG_ROWS rows of the mono font, whose
 // every glyph advances LOG_ADVANCE pixels.  That works out at 54 columns,
 // close to the 50 of the libctru console the app's messages were written for.
@@ -69,7 +73,8 @@ enum ScreenMode
     SCREEN_RUNNING,  // a sync is in progress
     SCREEN_CONFLICT, // the engine is waiting for a conflict answer
     SCREEN_SAVE_LOG, // end of a debug run: keep the transcript or not
-    SCREEN_CONFIG_ISSUES // at startup: 3DSync.ini has problems; go on or exit
+    SCREEN_CONFIG_ISSUES, // at startup: 3DSync.ini has problems; go on or exit
+    SCREEN_PATHS          // from the menu: tick the paths the next syncs take
 };
 
 struct BottomModel
@@ -82,6 +87,7 @@ struct BottomModel
     bool configLoaded;
     std::string remotes; // "Dropbox, SMB"
     int pathCount;
+    int pathSelected; // of pathCount; the rest are left out on the menu
     std::string fileFilter; // "all files", ".sav .bin" or "per path"; "" reads as all
     std::string lastResult; // "" before the first run
     bool lastResultOk;
@@ -113,6 +119,14 @@ struct BottomModel
     std::vector<std::string> configIssueLines;
     int configScroll;
 
+    // SCREEN_PATHS: one row per configured path, in the order a sync runs
+    // them.  pathPick is the highlighted row, which A ticks or unticks;
+    // tapping a row ticks it and moves the highlight there.
+    std::vector<std::string> pathNames;  // "saves", as INIReader keys it
+    std::vector<std::string> pathLocals; // "/3ds/Checkpoint/saves"
+    std::vector<bool> pathOn;
+    int pathPick;
+
     // Keys currently down, physically or by touch: drawn pressed.
     uint32_t heldKeys;
 
@@ -129,7 +143,9 @@ enum ButtonStyle
     BUTTON_PRIMARY,
     BUTTON_DANGER,
     BUTTON_TOGGLE, // drawn lit while BottomModel::applyToAll
-    BUTTON_ROW     // a row of the conflict list, drawn flat
+    BUTTON_ROW,    // a row of the conflict list, drawn flat
+    BUTTON_FIELD,  // the menu card's PATHS line, which opens the picker
+    BUTTON_CHECK   // a row of the path picker, ticked or not
 };
 
 struct Button
@@ -174,6 +190,13 @@ bool conflictUsesList(const BottomModel &m);
 // the window follows the highlight once there are more than fit.
 int conflictPickClamped(const BottomModel &m);
 int conflictListFirst(const BottomModel &m);
+
+// The path picker: pathPick clamped to the rows, the first row on screen
+// (the window follows the highlight), and the highlight moved by rows — or
+// set from a fraction of the list, when fraction >= 0 — kept in range.
+int pathPickClamped(const BottomModel &m);
+int pathListFirst(const BottomModel &m);
+int pathPickTo(const BottomModel &m, int rows, float fraction);
 
 // The button under (x, y), or -1.
 int hitButton(const std::vector<Button> &buttons, int x, int y);

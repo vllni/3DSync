@@ -71,6 +71,10 @@ struct RemoteConfig
 
     // Whether this remote takes part in the entry of that name.
     bool syncs(const std::string &entryName) const;
+    // Whether it is a participant in such an entry: named by its Only=, and
+    // not an upload-only entry for a source, which is never written to.  A
+    // remote that is one in no entry of a run is not connected for it.
+    bool takesPart(const std::string &entryName, bool uploadOnly) const;
 };
 
 // Something in a remote section the user has to fix.  Shown before a sync

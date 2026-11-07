@@ -194,6 +194,24 @@ TEST(remoteconfig, an_empty_only_means_every_entry)
     CHECK(r.remotes[0].syncs("anything"));
 }
 
+TEST(remoteconfig, takes_part_leaves_a_source_out_of_upload_only_entries)
+{
+    // What runSync() asks before connecting: a remote that is a participant
+    // in none of the run's entries is not connected at all.
+    Values v = {{"webdav=url", "u"}, {"webdav=role", "source"},
+                {"smb:b=server", "s"}, {"smb:b=share", "x"}, {"smb:b=role", "backup"},
+                {"smb:b=only", "gba"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)2);
+    const RemoteConfig &backup = r.remotes[0], &source = r.remotes[1];
+    CHECK_EQ(source.role, ROLE_SOURCE);
+    CHECK(source.takesPart("saves", false));
+    CHECK(!source.takesPart("saves", true));
+    // A backup receives an upload like anything else, within its Only=.
+    CHECK(backup.takesPart("gba", true));
+    CHECK(!backup.takesPart("saves", false));
+}
+
 TEST(remoteconfig, only_naming_a_missing_path_is_a_warning)
 {
     Values v = {{"webdav=url", "u"}, {"webdav=only", "saves, savs"}};
