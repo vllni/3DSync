@@ -6,8 +6,10 @@
 name = "3dsync"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
-# The *.workers.dev address, for checking a deploy before the custom domain
-# points here.
+# 3dsync.vllni.dev is attached as a custom domain in the Cloudflare dashboard
+# (Workers & Pages -> 3dsync -> Settings -> Domains & Routes).  Deploys keep it
+# without it being listed here, which spares the deploy token the rights to
+# manage domains.  The *.workers.dev address stays on for checking a deploy.
 workers_dev = true
 
 [assets]
