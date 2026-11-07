@@ -1,8 +1,14 @@
 # The site and the Universal-Updater store on Cloudflare Workers.
 #
 # Every file in _site (built by .github/workflows/pages.yml from docs/ and the
-# generated unistore/) is served by Cloudflare directly.  src/index.js only
-# runs for "/" and for addresses that match no file; see there.
+# generated unistore/) is served by Cloudflare directly.  src/index.js runs
+# for /api/ (Google sign-in, src/google.js), "/" and addresses that match no
+# file; see there.
+#
+# Secrets, set in the dashboard (Settings -> Variables and Secrets, type
+# Secret; deploys keep secrets but drop plain variables not listed here):
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   3DSync's own OAuth client
+#   GOOGLE_APP_ID, GOOGLE_PICKER_KEY         project number and Picker key
 name = "3dsync"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
@@ -21,4 +27,4 @@ binding = "ASSETS"
 # following the README, none of which we can change.
 html_handling = "none"
 not_found_handling = "none"
-run_worker_first = ["/"]
+run_worker_first = ["/", "/api/*"]

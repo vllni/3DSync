@@ -19,3 +19,4 @@ tests/build/
 _site/
 worker/.wrangler/
 worker/node_modules/
+worker/.dev.vars
