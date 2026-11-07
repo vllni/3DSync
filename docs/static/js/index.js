@@ -1522,24 +1522,39 @@ $(function () {
         }
     }
 
+    // Google's picker on a phone selects one file per window: a tap replaces
+    // the selection instead of adding to it, whatever MULTISELECT says.  So
+    // the window opens again after every pick until it is cancelled; on a
+    // computer, Ctrl- or Shift-click still picks several per round.
     async function pickDriveFiles(remote, name) {
         let chosen = (remote.driveFolders || {})[name.toLowerCase()];
         if (!chosen) return;
+        let where = chosen.title || name;
+        let added = {};
+        let count = function () { return Object.keys(added).length; };
         driveNote('');
         try {
-            let docs = await runPicker(remote, function () {
-                return new google.picker.DocsView().setParent(chosen.id)
-                    .setIncludeFolders(true).setSelectFolderEnabled(false)
-                    .setMode(google.picker.DocsViewMode.LIST);
-            }, 'Select the saves already in ' + (chosen.title || name), true);
-            if (docs && docs.length)
-                driveNote(docs.length + ' file' + (docs.length === 1 ? '' : 's') + ' in ' + (chosen.title || name)
-                    + ' added: 3DSync syncs ' + (docs.length === 1 ? 'it' : 'them') + ' from now on.');
+            for (let round = 0; round < 500; round++) {
+                let title = count() === 0
+                    ? 'Select a save already in ' + where + ' — the window opens again for the next; Cancel when done'
+                    : 'Select the next save in ' + where + ' (' + count() + ' added) — Cancel when done';
+                let docs = await runPicker(remote, function () {
+                    return new google.picker.DocsView().setParent(chosen.id)
+                        .setIncludeFolders(true).setSelectFolderEnabled(false)
+                        .setMode(google.picker.DocsViewMode.LIST);
+                }, title, true);
+                if (!docs || !docs.length) break;
+                docs.forEach(function (d) { added[d.id] = true; });
+                driveNote(count() + ' file' + (count() === 1 ? '' : 's') + ' in ' + where + ' added so far.');
+            }
+            if (count())
+                driveNote(count() + ' file' + (count() === 1 ? '' : 's') + ' in ' + where + ' added: 3DSync syncs '
+                    + (count() === 1 ? 'it' : 'them') + ' from now on.');
             else
-                driveNote('Nothing selected in ' + (chosen.title || name) + '. 3DSync sees only the files it creates there '
+                driveNote('Nothing selected in ' + where + '. 3DSync sees only the files it creates there '
                     + 'itself, until you add the others with Add saves.', true);
         } catch (e) {
-            driveNote(e.message, true);
+            driveNote((count() ? count() + ' file' + (count() === 1 ? '' : 's') + ' added before this: ' : '') + e.message, true);
         }
     }
 
