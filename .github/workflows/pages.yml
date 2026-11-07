@@ -1,10 +1,9 @@
 name: Pages
 
 # Builds the site from docs/ plus a Universal-Updater feed (UniStore v3)
-# generated from ALL published GitHub releases, and deploys it to GitHub Pages
-# and to Cloudflare Workers (worker/).  Both get the same build while the
-# custom domain moves from one to the other, so it can be pointed at either. Nothing generated
-# is committed, so main stays exactly as tagged. The feed's content is a pure
+# generated from ALL published GitHub releases, and deploys it to the
+# Cloudflare Worker in worker/, which serves 3dsync.vllni.dev.  Nothing
+# generated is committed, so main stays exactly as tagged. The feed's content is a pure
 # function of the release list (.github/unistore.jq); only its revision is
 # carried over from the deployed feed, and it moves only when the content does.
 
@@ -37,10 +36,9 @@ env:
   BUILD_IMAGE: ghcr.io/vllni/3dsync-devcontainer:latest
 
 jobs:
-  # A release event runs with GITHUB_REF set to the tag, and the github-pages
-  # environment only accepts deployments from main — so the deploy would be
-  # refused. Re-dispatch on main instead; workflow_dispatch is the one event
-  # GITHUB_TOKEN is allowed to start.
+  # A release event runs with GITHUB_REF set to the tag.  Re-dispatch on main
+  # instead, so every deploy runs main's workflow, worker/ and docs/;
+  # workflow_dispatch is the one event GITHUB_TOKEN is allowed to start.
   redispatch:
     name: Re-run on main
     if: github.event_name == 'release'
@@ -95,9 +93,8 @@ jobs:
 
       - name: Fetch deployed feed
         run: |
-          # Its revision is the floor for ours. The query string gets past the
-          # Pages CDN cache, which would otherwise hand back a feed up to ten
-          # minutes old. 404 means nothing has been deployed yet; anything else
+          # Its revision is the floor for ours. The query string gets past any
+          # cache that would otherwise hand back an older feed. 404 means nothing has been deployed yet; anything else
           # stops the run, because guessing could move the revision backwards.
           code="$(curl -sS -o deployed.json -w '%{http_code}' \
             "$BASE_URL/unistore/3dsync.unistore?t=$(date +%s)")"
@@ -150,39 +147,23 @@ jobs:
           qrencode -o _site/unistore/3dsync-unistore-QR.png -s 8 -m 3 -l M \
             "$BASE_URL/unistore/3dsync.unistore"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload the site
+        uses: actions/upload-artifact@v4
         with:
+          name: site
           path: _site
+          retention-days: 1
 
+  # Every file served as it is, and worker/src/index.js for "/" and for
+  # addresses that match no file.  The custom domain is attached to the Worker
+  # in the Cloudflare dashboard and survives deploys, so wrangler.toml does
+  # not list it.
   deploy:
-    name: Deploy
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-  # The same build on Cloudflare: every file served as it is, and
-  # worker/src/index.js for "/" and for addresses that match no file.  Skipped
-  # with a warning until the two secrets exist, so main keeps deploying to
-  # Pages meanwhile.
-  deploy-cloudflare:
     name: Deploy to Cloudflare
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -192,16 +173,12 @@ jobs:
       - name: Fetch the built site
         uses: actions/download-artifact@v4
         with:
-          name: github-pages
-
-      - name: Unpack
-        run: mkdir _site && tar -xf artifact.tar -C _site && rm artifact.tar
+          name: site
+          path: _site
 
       - name: Deploy
-        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         working-directory: worker
         run: npx --yes wrangler@4.151.2 deploy
-
-      - name: Not configured
-        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
-        run: echo "::warning::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; the site was not deployed to Cloudflare."
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
