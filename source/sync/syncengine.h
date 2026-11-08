@@ -2,6 +2,7 @@
 #define SYNC_SYNCENGINE_H
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -168,5 +169,48 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
 // if a fatal provider error occurred or cancellation was requested.
 bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &entry,
                  SyncSummary &summary, bool uploadOnly, SyncUi &ui);
+
+// ---------------------------------------------------------------------------
+// Review first: decide everything, then transfer
+// ---------------------------------------------------------------------------
+// syncEntry() decides each file and carries it out at once, so a conflict can
+// come up between two long transfers.  A review-first sync instead plans every
+// entry (planEntry(): listings, comparisons, every conflict asked), shows what
+// it will do, and only then applies the plans (applyEntryPlan()), which needs
+// nobody watching.  The participants must outlive their plan, and keep their
+// listings: a plan points into both.
+// ---------------------------------------------------------------------------
+struct FilePlan; // syncengine.cpp
+
+struct EntryPlan
+{
+    const SyncEntry *entry;
+    std::vector<std::unique_ptr<FilePlan> > files;
+
+    EntryPlan();
+    ~EntryPlan(); // where FilePlan is complete
+    EntryPlan(const EntryPlan &) = delete;
+    EntryPlan &operator=(const EntryPlan &) = delete;
+};
+
+struct PlanCounts
+{
+    int downloads = 0; // files fetched to the 3DS
+    int uploads = 0;   // file copies sent, one per remote
+};
+
+// Lists every participant and decides every file, asking about conflicts, but
+// transfers nothing and leaves the manifest as it was.  False once
+// cancellation was requested.
+bool planEntry(std::vector<Participant> &participants, Manifest &manifest,
+               const SyncEntry &entry, EntryPlan &plan, SyncSummary &summary, SyncUi &ui);
+// Carries the plans out, stopping between (and, through the transfers' own
+// check, inside) files when cancellation is requested.  A 3DS file changed
+// since it was planned is left alone and reported.
+void applyEntryPlan(EntryPlan &plan, Manifest &manifest, SyncSummary &summary, SyncUi &ui);
+PlanCounts countPlan(const EntryPlan &plan);
+// The review, under 50 columns: each file to transfer on a line of its own,
+// then where from and where to.
+std::vector<std::string> planLines(const EntryPlan &plan);
 
 #endif

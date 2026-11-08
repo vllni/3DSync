@@ -43,7 +43,8 @@ enum MenuChoice
     MENU_EXIT,
     MENU_SYNC,
     MENU_SYNC_DEBUG,
-    MENU_PATHS
+    MENU_PATHS,
+    MENU_REVIEW // B: decide everything first, then transfer unattended
 };
 
 // The idle screen: A syncs, Y syncs in debug mode, X (or tapping PATHS)
@@ -73,6 +74,15 @@ void setLastResult(const std::string &text, bool ok);
 
 // End of a run: true to keep its log.
 bool askSaveLog(unsigned kilobytes);
+
+// A review-first sync, once everything is decided: true to start the
+// transfers.  START or B says no.
+bool askStartTransfers(int downloads, int uploads);
+
+// While on, a review-first sync's transfers run with nobody watching: the
+// console does not sleep when the lid is closed (which would drop Wi-Fi), and
+// the screens go dark instead until it opens.  Off restores both.
+void setUnattended(bool on);
 
 // SyncUi for one run.  Cancellation is START (or its touch button) on the UI
 // thread; conflicts are asked on the bottom screen.  "For all" (L) lives here

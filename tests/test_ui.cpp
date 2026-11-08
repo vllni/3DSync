@@ -357,13 +357,15 @@ TEST(layout, each_screen_offers_the_keys_it_handles)
     BottomModel m;
     const uint32_t scroll = K_DUP | K_DDOWN;
     m.mode = SCREEN_MENU;
-    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_Y | K_START | scroll);
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | K_Y | K_START | scroll);
     m.mode = SCREEN_RUNNING;
     CHECK_EQ(keysOf(bottomButtons(m)), K_START | scroll);
     m.mode = SCREEN_CONFLICT;
     m.conflictSides = {"3DS", "Dropbox"};
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_LIST_ROW0 << 1 | K_X | K_L | K_START | scroll);
     m.mode = SCREEN_SAVE_LOG;
+    CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
+    m.mode = SCREEN_REVIEW;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_B | scroll);
     m.mode = SCREEN_CONFIG_ISSUES;
     CHECK_EQ(keysOf(bottomButtons(m)), K_A | K_START | scroll);
@@ -513,7 +515,7 @@ static std::vector<BottomModel> everyLayout()
 {
     std::vector<BottomModel> out;
     ScreenMode modes[] = {SCREEN_MENU, SCREEN_RUNNING, SCREEN_CONFLICT, SCREEN_SAVE_LOG,
-                          SCREEN_CONFIG_ISSUES, SCREEN_PATHS};
+                          SCREEN_CONFIG_ISSUES, SCREEN_PATHS, SCREEN_REVIEW};
     for (ScreenMode mode : modes)
     {
         BottomModel m;

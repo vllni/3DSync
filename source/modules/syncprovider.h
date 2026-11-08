@@ -117,6 +117,15 @@ public:
         return "";
     }
 
+    // Whether legacyUpload() takes over this upload-only entry, without doing
+    // it: a review-first sync holds such uploads back until the review is
+    // confirmed.  Must agree with legacyUpload().
+    virtual bool hasLegacyUpload(const std::string &remoteName) const
+    {
+        (void)remoteName;
+        return false;
+    }
+
     // Upload-only entries (UploadPaths=) on a provider that shipped its own
     // one-way upload before this interface existed.  Returning false — the
     // default — makes the engine mirror the folder with performSync() instead,

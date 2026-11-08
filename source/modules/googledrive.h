@@ -49,6 +49,7 @@ public:
     // Drive tags are MD5 checksums, so a local MD5 is directly comparable.
     std::string localTag(const std::string &localPath) override;
     std::string serverTime() const override { return _lastServerTime; }
+    bool hasLegacyUpload(const std::string &remoteName) const override;
     bool legacyUpload(const std::string &localBase, const std::string &remoteName,
                       const std::vector<std::string> &files, SyncUi &ui) override;
 

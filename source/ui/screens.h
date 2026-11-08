@@ -74,7 +74,8 @@ enum ScreenMode
     SCREEN_CONFLICT, // the engine is waiting for a conflict answer
     SCREEN_SAVE_LOG, // end of a run: keep its log or not
     SCREEN_CONFIG_ISSUES, // at startup: 3DSync.ini has problems; go on or exit
-    SCREEN_PATHS          // from the menu: tick the paths the next syncs take
+    SCREEN_PATHS,         // from the menu: tick the paths the next syncs take
+    SCREEN_REVIEW         // review first: everything decided, start the transfers?
 };
 
 struct BottomModel
@@ -99,6 +100,9 @@ struct BottomModel
     unsigned elapsedSeconds;
     unsigned spinnerFrame;
     bool cancelling;
+    // The transfers of a review-first sync: nobody needs to watch, and the
+    // lid may be closed.
+    bool unattended;
 
     // SCREEN_CONFLICT
     std::string conflictPath;
@@ -112,6 +116,10 @@ struct BottomModel
 
     // SCREEN_SAVE_LOG
     unsigned logKilobytes;
+
+    // SCREEN_REVIEW: what the transfers will do, as the log lists it.
+    int reviewDownloads;
+    int reviewUploads;
 
     // SCREEN_CONFIG_ISSUES: every line of every problem, as printed to the
     // log (a line without indent starts one), and the first row shown.

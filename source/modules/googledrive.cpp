@@ -1000,13 +1000,18 @@ std::string GoogleDrive::localTag(const std::string &localPath)
     return computeMd5Hex(localPath);
 }
 
+// The flat upload knows only FolderId=; a folder chosen for this entry is
+// the n-way sync's to upload into.
+bool GoogleDrive::hasLegacyUpload(const std::string &remoteName) const
+{
+    return _pathFolders.count(asciiLower(remoteName)) == 0;
+}
+
 bool GoogleDrive::legacyUpload(const std::string &localBase,
                                const std::string &remoteName,
                                const std::vector<std::string> &files, SyncUi &ui)
 {
-    // The flat upload knows only FolderId=; a folder chosen for this entry
-    // is the n-way sync's to upload into.
-    if (_pathFolders.count(asciiLower(remoteName)))
+    if (!hasLegacyUpload(remoteName))
     {
         debugf("%s has a chosen Drive folder: no legacy upload\n", remoteName.c_str());
         return false;
