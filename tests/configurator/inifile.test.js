@@ -155,3 +155,28 @@ test('an imported Drive section with a client of its own stays in expert mode, s
     assert.equal(sealed.config.remotes[0].fields['gdrive-expert-mode'], true);
     assert.equal(sealed.config.remotes[0].auth.refreshToken, '');
 });
+
+test('[Sync] is written only when it says something', () => {
+    let base = { remotes: [remote('ftp', { entries: [['Host', 'h']] })],
+        folders: [{ name: 'saves', path: '/s', recursive: true, direction: 'both', filter: '' }], filter: '', extras: [] };
+    assert.doesNotMatch(IniFile.toIni(base, false), /\[Sync\]/);
+    base.sync = { compare: true, compareUpTo: '', other: [] };
+    assert.doesNotMatch(IniFile.toIni(base, false), /\[Sync\]/);
+    base.sync = { compare: false, compareUpTo: '512', other: [['Later', 'x']] };
+    assert.match(IniFile.toIni(base, false), /\n\[Sync\]\nCompareConflicts=false\nCompareUpTo=512\nLater=x\n$/);
+});
+
+test('[Sync] is read back into the form', () => {
+    let { config, report } = IniFile.fromIni('[FTP]\nHost=h\n[Paths]\nsaves=/s\n'
+        + '[Sync]\nCompareConflicts=Off\nCompareUpTo=0\nLater=x\n');
+    assert.deepEqual(config.sync, { compare: false, compareUpTo: '0', other: [['Later', 'x']] });
+    assert.deepEqual(report.kept, []);
+    assert.match(IniFile.toIni(config, false), /\[Sync\]\nCompareConflicts=false\nCompareUpTo=0\nLater=x\n$/);
+
+    let odd = IniFile.fromIni('[FTP]\nHost=h\n[Paths]\nsaves=/s\n[Sync]\nCompareConflicts=maybe\n');
+    assert.equal(odd.config.sync.compare, true);
+    assert.match(odd.report.problems.join(' '), /CompareConflicts=maybe/);
+
+    let none = IniFile.fromIni('[FTP]\nHost=h\n[Paths]\nsaves=/s\n');
+    assert.deepEqual(none.config.sync, { compare: true, compareUpTo: '', other: [] });
+});

@@ -20,6 +20,10 @@ struct RemoteFileInfo
     // whether the remote side changed: an MD5 for Drive, an ETag for WebDAV, or
     // "<size>:<mtime>" where the server offers nothing better.
     std::string tag;
+    // Bytes, or -1 when the listing did not say.  Only read where a conflict
+    // is checked by comparing contents: a different size settles it without
+    // a download, and a size over [Sync] CompareUpTo= skips the check.
+    long long size = -1;
 };
 
 // A remote that performSync() can sync a local folder against.  Everything the

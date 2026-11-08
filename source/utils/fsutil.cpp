@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <vector>
 
 
 // EEXIST is the normal outcome for every component but the last, so only other
@@ -71,4 +72,42 @@ bool replaceLocalFile(const std::string &tmpPath, const std::string &localPath)
     if (hadExisting && remove(bakPath.c_str()) != 0)
         debugErrno("removing the backup", bakPath);
     return true;
+}
+
+int compareFiles(const std::string &a, const std::string &b)
+{
+    FILE *fa = fopen(a.c_str(), "rb");
+    if (!fa)
+    {
+        debugErrno("opening to compare", a);
+        return -1;
+    }
+    FILE *fb = fopen(b.c_str(), "rb");
+    if (!fb)
+    {
+        debugErrno("opening to compare", b);
+        fclose(fa);
+        return -1;
+    }
+
+    static const size_t CHUNK = 16 * 1024;
+    std::vector<char> bufA(CHUNK), bufB(CHUNK);
+    int result = 1;
+    while (result == 1)
+    {
+        size_t na = fread(&bufA[0], 1, CHUNK, fa);
+        size_t nb = fread(&bufB[0], 1, CHUNK, fb);
+        if (na != nb || memcmp(&bufA[0], &bufB[0], na) != 0)
+            result = 0;
+        else if (na < CHUNK)
+            break; // both ended here
+    }
+    if (ferror(fa) || ferror(fb))
+    {
+        debugf("reading %s or %s to compare failed\n", a.c_str(), b.c_str());
+        result = -1;
+    }
+    fclose(fa);
+    fclose(fb);
+    return result;
 }

@@ -292,7 +292,7 @@ long FtpRemote::_onListEntry(const void *transferInfo, void *userdata, int remai
     return CURL_CHUNK_BGN_FUNC_SKIP;
 }
 
-std::string FtpRemote::_tagFor(const std::string &path)
+std::string FtpRemote::_tagFor(const std::string &path, long long *sizeOut)
 {
     _prepare();
     _curl.setURL(_urlFor(path));
@@ -312,6 +312,8 @@ std::string FtpRemote::_tagFor(const std::string &path)
     if (size < 0 || mtime < 0)
         debugf("%s: server reported size=%lld mtime=%ld — the change tag will "
                "not be reliable\n", path.c_str(), (long long)size, mtime);
+    if (sizeOut)
+        *sizeOut = (long long)(size < 0 ? -1 : size);
     return sizeTimeTag((long long)(size < 0 ? -1 : size), (long long)mtime);
 }
 
@@ -369,7 +371,7 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
         RemoteFileInfo info;
         info.id = childPath;
         info.relPath = childRel;
-        info.tag = _tagFor(childPath);
+        info.tag = _tagFor(childPath, &info.size);
         out[childRel] = info;
     }
     if (filtered > 0)

@@ -121,4 +121,19 @@ std::string remoteNames(const std::vector<RemoteConfig> &remotes);
 // a labelled one.  Renaming a label therefore starts its state afresh.
 std::string manifestScope(const RemoteConfig &remote, const std::string &providerPrefix);
 
+// [Sync] CompareUpTo=: the largest file, in KB, that a conflict on a remote
+// without content hashes (SMB, FTP, WebDAV) is downloaded for, to check
+// whether the two copies really differ.  Missing or empty is the default; 0
+// is no limit, and bytes is then COMPARE_UP_TO_UNLIMITED.  False, with bytes
+// left at the default, for anything but a whole number.
+extern const long long COMPARE_UP_TO_DEFAULT_KB;
+extern const long long COMPARE_UP_TO_UNLIMITED;
+bool parseCompareUpTo(const std::string &value, long long &bytes);
+
+// [Sync] CompareConflicts=: false turns that check off, whatever
+// CompareUpTo= says, so every such conflict is asked about.  true/yes/1/on
+// or false/no/0/off, any case; missing or empty is on.  False, with on left
+// true, for anything else.
+bool parseCompareConflicts(const std::string &value, bool &on);
+
 #endif

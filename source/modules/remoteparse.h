@@ -21,6 +21,7 @@ struct DavEntry
     std::string relPath; // relative to the PROPFIND root, '/'-prefixed
     std::string tag;
     bool isCollection;
+    long long size; // getcontentlength, -1 when absent or unreadable
 };
 
 // Parse a multistatus body.  rootHref is the listing root as the server spells

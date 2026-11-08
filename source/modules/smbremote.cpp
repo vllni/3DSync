@@ -266,6 +266,7 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
             info.id = childPath;
             info.relPath = childRel;
             info.tag = _tagFor(ent->st);
+            info.size = (long long)ent->st.smb2_size;
             out[childRel] = info;
         }
     }

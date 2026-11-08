@@ -42,7 +42,7 @@ UI_UNITS := ../source/ui/canvas.cpp ../source/ui/fontdata.cpp \
 
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
 	test_debug.cpp test_engine.cpp test_extfilter.cpp test_json.cpp test_manifest.cpp test_nway.cpp \
-	test_remoteconfig.cpp test_rootname.cpp \
+	test_remoteconfig.cpp test_rootname.cpp test_compare.cpp \
 	test_path.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
 	test_ui.cpp

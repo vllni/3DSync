@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../utils/json.h"
@@ -85,6 +86,10 @@ void parseDavResponses(const std::string &xml, const std::string &rootHref,
         entry.isCollection = (collection != std::string::npos && collection < end);
 
         entry.tag = davTag(clean, start, end);
+        std::string length = xmlTagText(clean, "getcontentlength", start, end);
+        char *endp = NULL;
+        long long size = length.empty() ? -1 : strtoll(length.c_str(), &endp, 10);
+        entry.size = (endp == NULL || *endp != '\0' || size < 0) ? -1 : size;
         out.push_back(entry);
     }
 }

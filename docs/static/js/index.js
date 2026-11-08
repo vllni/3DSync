@@ -122,7 +122,8 @@ $(function () {
     // What the steps build, and what the file is written from (IniFile in
     // inifile.js describes it): config.remotes as they are saved in step 1,
     // folders and file types as step 2 confirms them.
-    let config = { remotes: [], folders: [], filter: '', extras: [] };
+    let config = { remotes: [], folders: [], filter: '', sync: { compare: true, compareUpTo: '', other: [] },
+        extras: [] };
     let draft = null;
     let draftSnapshot = '';
     let nextUid = 1;
@@ -436,6 +437,9 @@ $(function () {
             if (f.filter) folderFilters[f.name.toLowerCase()] = f.filter;
         });
         $('#file-filter').val(config.filter);
+        $('#compare-conflicts').prop('checked', config.sync.compare !== false);
+        $('#compare-up-to').val(config.sync.compareUpTo);
+        updateCompareUpTo();
         M.updateTextFields();
         renderRemotes();
         renderRouting();
@@ -1301,6 +1305,12 @@ $(function () {
         });
     }
 
+    // The size only matters while the check is on.
+    function updateCompareUpTo() {
+        $('#compare-up-to').prop('disabled', !$('#compare-conflicts').prop('checked'));
+    }
+    $('#compare-conflicts').on('change', updateCompareUpTo);
+
     $('#file-filter').on('input', function () {
         $('#folder-filters input.folder-filter').attr('placeholder', $(this).val().trim() || 'all files');
     });
@@ -1331,6 +1341,10 @@ $(function () {
     function renderRouting() {
         let names = currentFolderNames();
         $('#routing-section').toggle(config.remotes.length > 1);
+        // Drive and Dropbox prove a copy is the same with a content hash.
+        $('#conflicts-section').toggle(config.remotes.some(function (r) {
+            return r.type === 'smb' || r.type === 'ftp' || r.type === 'webdav';
+        }));
         let $table = $('<table></table>');
         let $head = $('<tr></tr>').append($('<th>Folder</th>'));
         config.remotes.forEach(function (remote) {
@@ -1718,9 +1732,18 @@ $(function () {
         if (filterProblem) error = true;
         renderRouting();
         if (folderFiltersProblem()) error = true;
+        // The 3DS takes a whole number of KB and nothing else.
+        let $compareUpTo = $('#compare-up-to');
+        $compareUpTo.val($compareUpTo.val().trim());
+        let compareProblem = /^\d*$/.test($compareUpTo.val()) ? null
+            : 'A whole number of KB, e.g. 4096; 0 for any size';
+        setFieldError($compareUpTo, compareProblem);
+        if (compareProblem) error = true;
         folders.forEach(function (f) { f.filter = (folderFilters[f.name.toLowerCase()] || '').trim(); });
         config.folders = folders;
         config.filter = $filter.val();
+        config.sync = { compare: $('#compare-conflicts').prop('checked'), compareUpTo: $compareUpTo.val(),
+            other: (config.sync && config.sync.other) || [] };
         let routing = error ? null : routingProblem();
         $('#routing-note').text(routing || '').toggleClass('warn', !!routing);
         if (routing) {

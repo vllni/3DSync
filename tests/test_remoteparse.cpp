@@ -168,6 +168,23 @@ TEST(webdav_parse, reads_files_and_collections)
     CHECK(!out[1].isCollection);
 }
 
+TEST(webdav_parse, reads_the_size_where_given)
+{
+    std::vector<DavEntry> out;
+    parseDavResponses(DAV_BODY, "/dav/3DS/", out);
+    CHECK_EQ(out[1].size, 32768LL);
+    CHECK_EQ(out[0].size, -1LL); // a collection sends none
+
+    const char *odd =
+        "<multistatus><response><href>/dav/3DS/x.sav</href><propstat><prop>"
+        "<resourcetype/><getcontentlength>12kB</getcontentlength>"
+        "</prop></propstat></response></multistatus>";
+    std::vector<DavEntry> unreadable;
+    parseDavResponses(odd, "/dav/3DS/", unreadable);
+    CHECK_EQ(unreadable.size(), (size_t)1);
+    CHECK_EQ(unreadable[0].size, -1LL);
+}
+
 TEST(webdav_parse, prefers_the_etag_and_strips_its_quoting)
 {
     std::vector<DavEntry> out;

@@ -304,6 +304,7 @@ bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &pre
         info.id = childPath;
         info.relPath = childRel;
         info.tag = entry.tag;
+        info.size = entry.size;
         out[childRel] = info;
     }
     return true;
@@ -332,6 +333,7 @@ bool WebDavRemote::list(const std::string &root, const ExtensionFilter &filter,
                 info.id = root + entry.relPath;
                 info.relPath = entry.relPath;
                 info.tag = entry.tag;
+                info.size = entry.size;
                 out[entry.relPath] = info;
             }
             return true;

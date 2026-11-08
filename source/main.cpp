@@ -28,6 +28,7 @@
 #include "utils/debug.h"
 #include "utils/configseal.h"
 #include "utils/fsutil.h"
+#include "utils/pathutil.h"
 #include "utils/secrets.h"
 #include "utils/timeutil.h"
 #include "version.h"
@@ -56,6 +57,11 @@ std::vector<std::string> recurse_dir(std::string basepath, std::string additiona
                     std::vector<std::string> sub = recurse_dir(basepath, childAdditional, true);
                     paths.insert(paths.end(), sub.begin(), sub.end());
                 }
+            }
+            else if (isTempTransferName(childAdditional))
+            {
+                // A transfer or comparison cut short; never a save to sync.
+                debugf("skipping %s, left from an earlier run\n", childFull.c_str());
             }
             else
             {
@@ -142,6 +148,13 @@ static std::vector<ConfiguredPath> configuredPaths(const INIReader &reader)
 {
     std::vector<ConfiguredPath> paths;
     PathFilters filters = configuredFilters(reader);
+    long long compareUpTo;
+    bool compare;
+    // Both report a bad value through configIssues().
+    parseCompareUpTo(reader.Get("sync", "compareupto", ""), compareUpTo);
+    parseCompareConflicts(reader.Get("sync", "compareconflicts", ""), compare);
+    if (!compare)
+        compareUpTo = 0; // a SyncEntry's "never"
 
     for (auto &kv : reader.GetValues())
     {
@@ -157,6 +170,7 @@ static std::vector<ConfiguredPath> configuredPaths(const INIReader &reader)
         path.entry.remoteName = reader.GetSpelling(kv.first);
         path.entry.direction = dir;
         path.entry.filter = filters.forEntry(path.entry.name);
+        path.entry.compareUpTo = compareUpTo;
         paths.push_back(path);
     }
     return paths;
@@ -632,6 +646,32 @@ static std::vector<ConfigIssue> configIssues(const INIReader &reader,
         issue.brief = "[Filter] names no path";
         issue.lines = {"[Filter] has a line for a path that is not", "configured:", "  " + name,
                        "  Use a name from [Paths], or Extensions=", "  for every path."};
+        issue.leftOut = false;
+        issues.push_back(issue);
+    }
+    long long compareUpTo;
+    if (!parseCompareUpTo(reader.Get("sync", "compareupto", ""), compareUpTo))
+    {
+        char line[48];
+        snprintf(line, sizeof(line), "  in KB, e.g. %lld. 0 is no limit;",
+                 COMPARE_UP_TO_DEFAULT_KB);
+        ConfigIssue issue;
+        issue.section = "sync";
+        issue.brief = "[Sync] CompareUpTo= is no number";
+        issue.lines = {"[Sync] CompareUpTo= must be a whole number,", line,
+                       "  until fixed, the default is used."};
+        issue.leftOut = false;
+        issues.push_back(issue);
+    }
+    bool compare;
+    if (!parseCompareConflicts(reader.Get("sync", "compareconflicts", ""), compare))
+    {
+        ConfigIssue issue;
+        issue.section = "sync";
+        issue.brief = "[Sync] CompareConflicts= unclear";
+        issue.lines = {"[Sync] CompareConflicts= must be true or",
+                       "  false. Until fixed, conflicts are",
+                       "  compared as by default."};
         issue.leftOut = false;
         issues.push_back(issue);
     }
