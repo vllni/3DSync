@@ -44,7 +44,8 @@ static const Color kLogColors[] = {
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
       pathSelected(0), lastResultOk(true), configIssueCount(0), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      conflictPick(0), applyToAll(false), logKilobytes(0), configScroll(0), pathPick(0), heldKeys(0), logFirst(0),
+      unattended(false), conflictPick(0), applyToAll(false), logKilobytes(0),
+      reviewDownloads(0), reviewUploads(0), configScroll(0), pathPick(0), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -212,7 +213,9 @@ std::vector<Button> bottomButtons(const BottomModel &m)
     switch (m.mode)
     {
     case SCREEN_MENU:
-        b.push_back(makeButton(COL_X, ROW1_Y, COL_W, K_A, "Sync now", BUTTON_PRIMARY,
+        b.push_back(makeButton(slotX(0, 2), ROW1_Y, slotW(2), K_A, "Sync now", BUTTON_PRIMARY,
+                               !m.starting));
+        b.push_back(makeButton(slotX(1, 2), ROW1_Y, slotW(2), K_B, "Review first", BUTTON_NORMAL,
                                !m.starting));
         b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_Y, "Debug sync", BUTTON_NORMAL,
                                !m.starting));
@@ -297,6 +300,10 @@ std::vector<Button> bottomButtons(const BottomModel &m)
                 b.push_back(row[i]);
             }
         }
+        break;
+    case SCREEN_REVIEW:
+        b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_A, "Start", BUTTON_PRIMARY));
+        b.push_back(makeButton(slotX(1, 2), ROW2_Y, slotW(2), K_B, "Cancel"));
         break;
     case SCREEN_SAVE_LOG:
         b.push_back(makeButton(slotX(0, 2), ROW2_Y, slotW(2), K_A, "Save log", BUTTON_PRIMARY));
@@ -549,6 +556,9 @@ static void drawHeader(Canvas &c, const BottomModel &m)
         drawStatusPill(c, BOTTOM_W - 6, m.debugRun ? "Debug log" : "Log",
                        m.debugRun ? C_DEBUG : C_ACCENT);
         break;
+    case SCREEN_REVIEW:
+        drawStatusPill(c, BOTTOM_W - 6, "Review", C_ACCENT);
+        break;
     case SCREEN_PATHS:
         drawStatusPill(c, BOTTOM_W - 6, "Choose paths", C_ACCENT);
         break;
@@ -658,7 +668,8 @@ static void drawRunningCard(Canvas &c, const BottomModel &m)
         c.circle(CARD_IN + 10, CARD_Y + 20, 6, C_WARN);
     else
         drawSpinner(c, CARD_IN + 10, CARD_Y + 20, m.spinnerFrame);
-    c.text(kFontTitle, CARD_IN + 30, CARD_Y + 8, m.cancelling ? "Stopping" : "Syncing", C_TEXT);
+    c.text(kFontTitle, CARD_IN + 30, CARD_Y + 8,
+           m.cancelling ? "Stopping" : (m.unattended ? "Transferring" : "Syncing"), C_TEXT);
 
     char clock[16];
     snprintf(clock, sizeof(clock), "%u:%02u", m.elapsedSeconds / 60, m.elapsedSeconds % 60);
@@ -678,8 +689,9 @@ static void drawRunningCard(Canvas &c, const BottomModel &m)
                   wrapText(kFontBody, m.entry, CARD_TEXT_W - 62, 3), C_TEXT);
     }
 
-    const char *hint = m.cancelling ? "Finishing the current file, then stopping."
-                                    : "The log above shows each step.";
+    const char *hint = m.cancelling   ? "Stopping the transfer."
+                       : m.unattended ? "You can close the lid: it keeps going."
+                                      : "The log above shows each step.";
     c.text(kFontSmall, CARD_IN, ROW2_Y - GAP - 22, hint, C_DIM, CARD_TEXT_W);
 }
 
@@ -795,6 +807,20 @@ static void drawSaveLogCard(Canvas &c, const BottomModel &m)
     c.text(kFontSmall, CARD_IN, ROW2_Y - GAP - 22, "Saved to /3ds/3DSync/logs/", C_FAINT);
 }
 
+static void drawReviewCard(Canvas &c, const BottomModel &m)
+{
+    c.roundRect(CARD_X, CARD_Y, CARD_W, ROW2_Y - GAP - CARD_Y, 12, C_PANEL);
+    c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Ready to transfer", C_TEXT);
+    char counts[64];
+    snprintf(counts, sizeof(counts), "%d down, %d up", m.reviewDownloads, m.reviewUploads);
+    c.text(kFontBold, CARD_IN, CARD_Y + 38, counts, C_TEXT, CARD_TEXT_W);
+    drawLines(c, kFontBody, CARD_IN, CARD_Y + 64, 17,
+              wrapText(kFontBody, "Every question is answered; the log above lists each "
+                       "file. Nothing more will be asked.", CARD_TEXT_W, 3), C_TEXT);
+    c.text(kFontSmall, CARD_IN, ROW2_Y - GAP - 22, "Then you can close the lid: it keeps going.",
+           C_DIM, CARD_TEXT_W);
+}
+
 void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &buttons)
 {
     c.resetClip();
@@ -807,6 +833,7 @@ void drawBottom(Canvas &c, const BottomModel &m, const std::vector<Button> &butt
     case SCREEN_RUNNING: drawRunningCard(c, m); break;
     case SCREEN_CONFLICT: drawConflictCard(c, m); break;
     case SCREEN_SAVE_LOG: drawSaveLogCard(c, m); break;
+    case SCREEN_REVIEW: drawReviewCard(c, m); break;
     case SCREEN_CONFIG_ISSUES: drawConfigIssuesCard(c, m); break;
     case SCREEN_PATHS: drawPathsCard(c, m); break;
     }

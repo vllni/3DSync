@@ -318,6 +318,18 @@ int main()
     drawBottom(bottom, m, bottomButtons(m));
     save("3d-conflict-two-remotes", top, bottom);
 
+    m.mode = SCREEN_REVIEW;
+    m.reviewDownloads = 12;
+    m.reviewUploads = 3;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3f-review", top, bottom);
+
+    m.mode = SCREEN_RUNNING;
+    m.unattended = true;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("3g-transferring", top, bottom);
+    m.unattended = false;
+
     tm.busy = false;
     m.mode = SCREEN_SAVE_LOG;
     m.logKilobytes = 42;

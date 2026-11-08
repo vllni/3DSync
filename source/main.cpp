@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <string>
 #include <vector>
+#include <list>
 #include <map>
 #include <memory>
 #include <set>
@@ -342,10 +343,98 @@ static bool connectRemote(const ActiveRemote &remote, SyncSummary &summary)
 // A remote that hits a fatal error is reported once and left out of the
 // entries after it; the others carry on.
 // ---------------------------------------------------------------------------
+// One entry of a review-first sync, between its two passes.  Kept in a
+// std::list: the plan points into the participants and their listings.
+struct PlannedEntry
+{
+    const SyncEntry *entry;
+    std::vector<Participant> participants;
+    EntryPlan plan;
+    // Drive's own one-way uploads, held back until the review is confirmed.
+    std::vector<std::pair<SyncProvider *, std::string> > legacy;
+};
+
+// ---------------------------------------------------------------------------
+// transferPlanned  — the second pass of a review-first sync
+// ---------------------------------------------------------------------------
+// Everything is decided by now.  The review lists every transfer in the log,
+// asks once whether to start, and then runs them with nobody watching: the
+// lid may be closed (frontend::setUnattended()), and START still stops it.
+// ---------------------------------------------------------------------------
+static void transferPlanned(std::list<PlannedEntry> &planned, std::vector<ActiveRemote> &remotes,
+                            Manifest &manifest, SyncSummary &summary, SyncUi &ui)
+{
+    int downloads = 0, uploads = 0;
+    printf("\n--- Review ---\n");
+    for (auto &pe : planned)
+    {
+        std::vector<std::string> lines = planLines(pe.plan);
+        PlanCounts counts = countPlan(pe.plan);
+        downloads += counts.downloads;
+        uploads += counts.uploads;
+        if (lines.empty() && pe.legacy.empty())
+            continue;
+        printf("[%s]\n", pe.entry->localBase.c_str());
+        for (auto &line : lines)
+            printf("%s\n", line.c_str());
+        for (auto &legacy : pe.legacy)
+        {
+            // Drive's own upload decides per file as it goes.
+            printf("  every file, uploaded\n    to %s\n", legacy.second.c_str());
+            uploads += (int)pe.entry->localFiles.size();
+        }
+    }
+    if (downloads == 0 && uploads == 0)
+    {
+        printf("Nothing to transfer.\n");
+        return;
+    }
+    printf("%d down, %d up.\n", downloads, uploads);
+
+    if (!frontend::askStartTransfers(downloads, uploads))
+    {
+        printf("Nothing was transferred.\n");
+        ui.requestCancel();
+        return;
+    }
+
+    frontend::setUnattended(true);
+    for (auto &pe : planned)
+    {
+        if (ui.cancelRequested())
+            break;
+        frontend::setActivity("", pe.entry->localBase);
+        printf("\nTransferring [%s]\n", pe.entry->localBase.c_str());
+        applyEntryPlan(pe.plan, manifest, summary, ui);
+        for (auto &legacy : pe.legacy)
+            if (!ui.cancelRequested() && !legacy.first->hasFatalError())
+                legacy.first->legacyUpload(pe.entry->localBase, pe.entry->remoteName,
+                                           pe.entry->localFiles, ui);
+        for (auto &r : remotes)
+            if (r.provider->hasFatalError())
+            {
+                bool known = false;
+                for (auto &p : summary.problems)
+                    known = known || p == r.name + " (stopped by an error)";
+                if (!known)
+                {
+                    printf(CONSOLE_RED "\n%s: aborted, remaining transfers skipped.\n"
+                           CONSOLE_RESET, r.name.c_str());
+                    summary.problems.push_back(r.name + " (stopped by an error)");
+                }
+            }
+    }
+    frontend::setUnattended(false);
+    if (ui.cancelRequested())
+        printf(CONSOLE_RED "\nSync cancelled by user.\n" CONSOLE_RESET);
+}
+
 static void syncAllEntries(std::vector<ActiveRemote> remotes,
                            const std::vector<SyncEntry> &entries, Manifest &manifest,
-                           SyncSummary &summary, SyncUi &ui)
+                           SyncSummary &summary, SyncUi &ui, bool review)
 {
+    std::list<PlannedEntry> planned;
+
     // Drops the remotes that failed, saying so once for each.
     auto dropFailed = [&]() {
         for (size_t i = 0; i < remotes.size();)
@@ -398,8 +487,18 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
             // Providers that shipped their own one-way upload keep using it so
             // the remote layout their users already have does not change.
             bool readOnly = r->config.role == ROLE_SOURCE;
-            if (uploadOnly && !readOnly && r->provider->legacyUpload(entry.localBase, entry.remoteName,
-                                                        entry.localFiles, ui))
+            if (review && uploadOnly && !readOnly && r->provider->hasLegacyUpload(entry.remoteName))
+            {
+                if (planned.empty() || planned.back().entry != &entry)
+                {
+                    planned.emplace_back();
+                    planned.back().entry = &entry;
+                }
+                planned.back().legacy.push_back(std::make_pair(r->provider, r->name));
+                continue;
+            }
+            if (!review && uploadOnly && !readOnly &&
+                r->provider->legacyUpload(entry.localBase, entry.remoteName, entry.localFiles, ui))
                 continue;
             // A backup only ever receives and a source is never written to,
             // whatever the entry.
@@ -409,7 +508,20 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
                             r->config.role == ROLE_BACKUP, readOnly));
         }
 
-        if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))
+        if (review)
+        {
+            if (planned.empty() || planned.back().entry != &entry)
+            {
+                planned.emplace_back();
+                planned.back().entry = &entry;
+            }
+            PlannedEntry &pe = planned.back();
+            pe.participants = participants;
+            if (!pe.participants.empty() &&
+                !planEntry(pe.participants, manifest, entry, pe.plan, summary, ui))
+                debugf("%s: stopped at the user's request\n", entry.remoteName.c_str());
+        }
+        else if (!participants.empty() && !syncEntry(participants, manifest, entry, summary, ui))
             debugf("%s: stopped at the user's request\n", entry.remoteName.c_str());
         dropFailed();
 
@@ -419,6 +531,8 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
             break;
         }
     }
+    if (review && !ui.cancelRequested())
+        transferPlanned(planned, remotes, manifest, summary, ui);
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +582,10 @@ bool componentsInit()
     initStep("pxiDevInit", pxiDevInit());
     initStep("amInit", amInit());
     initStep("acInit", acInit());
+    // A review-first sync keeps running with the lid closed: these watch the
+    // lid and switch the screens off meanwhile.
+    initStep("ptmuInit", ptmuInit());
+    initStep("gspLcdInit", gspLcdInit());
 
     u32 *socketBuffer = (u32 *)memalign(0x1000, 0x100000);
     if (socketBuffer == NULL)
@@ -494,6 +612,8 @@ void componentsExit()
     sslcExit();
     httpcExit();
     socExit();
+    gspLcdExit();
+    ptmuExit();
     acExit();
     pxiDevExit();
     romfsExit();
@@ -700,7 +820,7 @@ static void printConfigIssues(const std::vector<ConfigIssue> &issues)
 // ---------------------------------------------------------------------------
 // runSync  — one full sync pass, on the frontend's worker thread
 // ---------------------------------------------------------------------------
-static void runSync(const INIReader &reader, const std::vector<bool> &selected)
+static void runSync(const INIReader &reader, const std::vector<bool> &selected, bool review)
 {
     frontend::WorkerSyncUi ui;
 
@@ -797,7 +917,7 @@ static void runSync(const INIReader &reader, const std::vector<bool> &selected)
         if (remote.provider && connectRemote(remote, summary))
             connected.push_back(remote);
     }
-    syncAllEntries(connected, syncEntries, manifest, summary, ui);
+    syncAllEntries(connected, syncEntries, manifest, summary, ui, review);
 
     if (!manifest.save())
         printf(CONSOLE_RED "Sync state could not be saved — the next run will\n"
@@ -953,6 +1073,7 @@ struct SyncRequest
 {
     const INIReader *reader;
     const std::vector<bool> *selected; // per configuredPaths() entry
+    bool review;                       // B on the menu: decide first, then transfer
 };
 
 static void syncWorker(void *arg)
@@ -960,7 +1081,7 @@ static void syncWorker(void *arg)
     const SyncRequest &request = *(const SyncRequest *)arg;
     const INIReader &reader = *request.reader;
     if (reader.ParseError() >= 0)
-        runSync(reader, *request.selected);
+        runSync(reader, *request.selected, request.review);
     else
     {
         printf("Can't load configuration\n");
@@ -1039,7 +1160,7 @@ int main(int argc, char **argv)
             printf(CONSOLE_RED "The log cannot be written to the SD\n"
                    "card; this run keeps none.\n" CONSOLE_RESET);
 
-        SyncRequest request = {&reader, &selected};
+        SyncRequest request = {&reader, &selected, choice == frontend::MENU_REVIEW};
         frontend::runWorker(syncWorker, &request);
         // after sync: fall back to the menu (sync again or exit)
     }

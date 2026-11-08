@@ -36,9 +36,10 @@ label says which, so either works:
 
 | Where | Buttons |
 |---|---|
-| Menu | **A** sync, **Y** sync with debug output, **X** (or tap **PATHS**) choose paths, **START** exit |
+| Menu | **A** sync, **B** review first (see below), **Y** sync with debug output, **X** (or tap **PATHS**) choose paths, **START** exit |
 | Choosing paths | Tap a path to tick or untick it, or move with **D-pad ↑/↓** and press **A**. **Y** ticks all (or clears all), **B** goes back. The choice lasts until 3DSync is closed; a remote that none of the ticked paths go to is not connected |
-| During a sync | **START** stops after the current file |
+| During a sync | **START** stops, the file being transferred included |
+| Review first, before the transfers | **A** start them, **B** or **START** cancel: nothing is transferred |
 | Conflict | The versions that changed are listed; **A** keeps the highlighted one (the 3DS's at first). Tap a version, or move to it with **R** or **D-pad ↑/↓**. **X** skips the file, **L** applies the answer to every remaining conflict, **START** stops. The log still scrolls with ←/→, the Circle Pad and the scroll strip |
 | End of a run | **A** save its log, **B** discard it |
 | Problems in 3DSync.ini, at startup | **A** continue to the menu, **START** exit; the list scrolls like the log |
@@ -48,6 +49,24 @@ The log can be scrolled at any time, including while a sync is running:
 **Circle Pad**, or the ▲/▼ buttons and the scroll bar on the right of the
 touch screen. While you are scrolled up, new output does not move the text;
 scroll back to the bottom and the log follows it again.
+
+### Review first
+
+A normal sync deals with each file in turn, so a conflict can come up between
+two long transfers and you have to keep an eye on it. **B** on the menu splits
+the run in two:
+
+1. 3DSync lists every remote and decides every file, asking every conflict as
+   it goes (the [check for identical files](#conflicts-that-are-the-same-file)
+   runs first, so only real differences are asked). Nothing is transferred yet.
+2. The log lists every file it will download or upload, and the bottom screen
+   asks once whether to start.
+3. The transfers then run without another question. You can close the lid:
+   the screens go dark and the sync keeps going, which a normal sync does not
+   (the console sleeps and drops Wi-Fi). **START** still stops it.
+
+A save you play between the review and its transfer is left alone and named in
+the summary, so a review never overwrites newer progress.
 
 ---
 

@@ -45,6 +45,8 @@ static bool g_cancel;           // START during a run
 static bool g_closing;          // the system asked the app to close
 static volatile bool g_workerDone;
 static u64 g_runStarted;
+static bool g_unattended;       // setUnattended(): sleep refused, lid watched
+static bool g_lidClosed;        // as last seen while unattended
 
 static Canvas *g_top;
 static Canvas *g_bottom;
@@ -114,10 +116,11 @@ static std::string g_drawnBottom;
 static std::string signature(const BottomModel &m)
 {
     char buf[256];
-    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%lx|%u|%u|%u|%d|%d|%d|%d|%d|%u",
+    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%d|%d|%d|%u|%lx|%u|%u|%u|%d|%d|%d|%d|%d|%u",
              m.mode,
              m.debugRun, m.starting, m.configLoaded, m.pathCount, m.elapsedSeconds, m.spinnerFrame,
-             m.cancelling, m.applyToAll, m.logKilobytes,
+             m.cancelling, m.unattended, m.reviewDownloads, m.reviewUploads, m.applyToAll,
+             m.logKilobytes,
              (unsigned long)m.heldKeys, (unsigned)m.logFirst, (unsigned)m.logEnd,
              (unsigned)m.logTop, m.lastResultOk, m.logVisible, m.conflictPick,
              m.configIssueCount, m.configScroll,
@@ -181,6 +184,8 @@ static const u32 SCROLL_KEYS = KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT;
 static float g_circleCarry;
 static ScreenMode g_lastMode = SCREEN_MENU;
 
+static void watchLid(bool unattended);
+
 static bool frame(u32 &pressed)
 {
     pressed = 0;
@@ -201,6 +206,9 @@ static bool frame(u32 &pressed)
     }
     BottomModel m = g_shared;
     LightLock_Unlock(&g_stateLock);
+    // A few times a second is plenty for a lid, and it is a service call.
+    if (g_frame % 15 == 0 || !m.unattended)
+        watchLid(m.unattended);
 
     // The buttons are rebuilt every frame; a touch that began on a button of
     // another screen must not land on whatever took its place.
@@ -398,6 +406,8 @@ MenuChoice waitForMenu()
     {
         if (keys & KEY_A)
             return MENU_SYNC;
+        if (keys & KEY_B)
+            return MENU_REVIEW;
         if (keys & KEY_Y)
             return MENU_SYNC_DEBUG;
         if (keys & KEY_X)
@@ -504,7 +514,8 @@ static const int ANSWER_SKIP = -3;
 // Call with g_stateLock held.
 static void answerLocked(int answer)
 {
-    if (g_shared.mode != SCREEN_CONFLICT && g_shared.mode != SCREEN_SAVE_LOG)
+    if (g_shared.mode != SCREEN_CONFLICT && g_shared.mode != SCREEN_SAVE_LOG &&
+        g_shared.mode != SCREEN_REVIEW)
         return;
     g_answer = answer;
     g_shared.mode = SCREEN_RUNNING;
@@ -564,6 +575,12 @@ static void handleRunKeys(u32 keys)
         if (keys & KEY_A)
             answerLocked(1);
         else if (keys & KEY_B)
+            answerLocked(0);
+        break;
+    case SCREEN_REVIEW:
+        if (keys & KEY_A)
+            answerLocked(1);
+        else if (keys & (KEY_B | KEY_START))
             answerLocked(0);
         break;
     default:
@@ -673,6 +690,46 @@ bool askSaveLog(unsigned kilobytes)
     g_shared.logKilobytes = kilobytes;
     LightLock_Unlock(&g_stateLock);
     return ask(SCREEN_SAVE_LOG) == 1;
+}
+
+bool askStartTransfers(int downloads, int uploads)
+{
+    LightLock_Lock(&g_stateLock);
+    g_shared.reviewDownloads = downloads;
+    g_shared.reviewUploads = uploads;
+    LightLock_Unlock(&g_stateLock);
+    return ask(SCREEN_REVIEW) == 1;
+}
+
+// Only the UI thread touches the screens, so the lid is watched from frame();
+// this only flips the switches the worker owns.
+void setUnattended(bool on)
+{
+    aptSetSleepAllowed(!on);
+    LightLock_Lock(&g_stateLock);
+    g_unattended = on;
+    g_shared.unattended = on;
+    LightLock_Unlock(&g_stateLock);
+}
+
+// Called from frame(): dark screens while the lid is closed during an
+// unattended run, lit again when it opens or the run ends.
+static void watchLid(bool unattended)
+{
+    bool closed = false;
+    if (unattended)
+    {
+        u8 open = 1;
+        if (R_SUCCEEDED(PTMU_GetShellState(&open)))
+            closed = (open == 0);
+    }
+    if (closed == g_lidClosed)
+        return;
+    g_lidClosed = closed;
+    if (closed)
+        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTH);
+    else
+        GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTH);
 }
 
 // ---------------------------------------------------------------------------

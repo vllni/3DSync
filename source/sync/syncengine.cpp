@@ -1,6 +1,7 @@
 #include "syncengine.h"
 
 #include <map>
+#include <memory>
 #include <stdio.h>
 #include <sys/stat.h>
 
@@ -33,19 +34,6 @@ struct Side
     // this side wins the conflict, it is moved into place instead of being
     // downloaded again.  "" when there is none.
     std::string fetched;
-};
-
-// Removes the comparison copies no side used, however syncFile() returns.
-struct FetchedCopies
-{
-    std::vector<Side> &sides;
-    explicit FetchedCopies(std::vector<Side> &s) : sides(s) {}
-    ~FetchedCopies()
-    {
-        for (auto &s : sides)
-            if (!s.fetched.empty() && remove(s.fetched.c_str()) != 0)
-                debugErrno("removing the comparison copy", s.fetched);
-    }
 };
 
 struct LocalFile
@@ -203,18 +191,75 @@ static bool sameAsLocalCopy(Side &s, int index, const std::string &localPath,
 }
 
 // ---------------------------------------------------------------------------
-// syncFile  — decide one file with every side in view
+// FilePlan  — one file, decided and not yet carried out
+// ---------------------------------------------------------------------------
+// decideFile() fills it with every side in view, asking about a conflict;
+// applyFile() does the transfers and writes the manifest.  A normal sync
+// applies each plan at once; a review-first sync decides every file of every
+// entry, shows what it will do, and applies them all afterwards.
+// ---------------------------------------------------------------------------
+enum PlanKind
+{
+    PLAN_NOTHING, // skipped, or only on a sink: nothing to do
+    PLAN_DROP,    // gone on every side: forget its records
+    PLAN_SYNC     // bring every side to the version from `source`
+};
+
+// What a side gets once the source's version is on the 3DS.
+enum SideAction
+{
+    SIDE_NONE,
+    SIDE_SOURCE,   // where the version came from: record it
+    SIDE_SAME,     // already holds the 3DS's bytes: record it
+    SIDE_READONLY, // never written: note what it holds
+    SIDE_RENUMBER, // holds the version already: update its generation
+    SIDE_UPLOAD    // sent the version
+};
+
+struct FilePlan
+{
+    std::string relPath, localPath, localKey;
+    LocalFile local; // the 3DS's copy when decided
+    std::vector<Side> sides;
+    std::vector<SideAction> actions; // per side, for PLAN_SYNC
+    PlanKind kind = PLAN_NOTHING;
+    int source = -2; // -1 the 3DS, >= 0 a side
+    long long generation = 0;
+
+    FilePlan() {}
+    FilePlan(const FilePlan &) = delete;
+    FilePlan &operator=(const FilePlan &) = delete;
+    // A compared copy no side used is removed with the plan, however the
+    // decision or the transfer ended.
+    ~FilePlan()
+    {
+        for (auto &s : sides)
+            if (!s.fetched.empty() && remove(s.fetched.c_str()) != 0)
+                debugErrno("removing the comparison copy", s.fetched);
+    }
+};
+
+EntryPlan::EntryPlan() : entry(NULL) {}
+EntryPlan::~EntryPlan() {}
+
+// ---------------------------------------------------------------------------
+// decideFile  — decide one file with every side in view
 // ---------------------------------------------------------------------------
 // Returns false only when the user cancelled at a conflict prompt.
 // ---------------------------------------------------------------------------
-static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
-                     const std::string &relPath, const std::string &localPath,
-                     long long compareUpTo, SyncSummary &summary, SyncUi &ui)
+static bool decideFile(std::vector<Participant *> &live, Manifest &manifest,
+                       const std::string &relPath, const std::string &localPath,
+                       long long compareUpTo, SyncSummary &summary, SyncUi &ui,
+                       FilePlan &plan)
 {
     LocalFile local = statLocal(localPath);
     const std::string localKey = LOCAL_PREFIX + localPath;
+    plan.relPath = relPath;
+    plan.localPath = localPath;
+    plan.localKey = localKey;
+    plan.local = local;
 
-    std::vector<Side> sides;
+    std::vector<Side> &sides = plan.sides;
     for (Participant *p : live)
     {
         Side s;
@@ -229,7 +274,6 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         s.sameAsLocal = false;
         sides.push_back(s);
     }
-    FetchedCopies fetchedCopies(sides);
 
     // --- The 3DS's copy as of the last sync ---
     bool hasBase = manifest.has(localKey);
@@ -310,20 +354,7 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         anywhere = anywhere || s.file != NULL;
     if (!anywhere)
     {
-        bool dropped = false;
-        for (auto &s : sides)
-            if (s.inManifest)
-            {
-                manifest.remove(s.key);
-                dropped = true;
-            }
-        if (manifest.has(localKey))
-        {
-            manifest.remove(localKey);
-            dropped = true;
-        }
-        if (dropped)
-            debugf("  -> gone on every side, dropping its records\n");
+        plan.kind = PLAN_DROP;
         return true;
     }
 
@@ -428,7 +459,6 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         }
     }
 
-    size_t failuresBefore = summary.failures.size();
     long long baseGen = hasBase ? base.generation : 0;
     long long generation = baseGen;
     if (source == -1)
@@ -443,11 +473,90 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         // so the sides that hold it are not sent it again.
         if (!(hasBase && !s.changed && s.held == baseGen))
             generation = baseGen + 1;
-        if (!downloadFrom(s, localPath, summary, ui))
-            return true; // nothing is copied from a version that did not arrive
     }
 
-    local = statLocal(localPath);
+    // What every other side gets once that version is on the 3DS.
+    plan.actions.assign(sides.size(), SIDE_NONE);
+    for (size_t i = 0; i < sides.size(); i++)
+    {
+        Side &s = sides[i];
+        if ((int)i == source)
+            plan.actions[i] = SIDE_SOURCE;
+        else if (s.sameAsLocal && source == -1)
+            plan.actions[i] = SIDE_SAME;
+        else if (s.p->readOnly)
+            plan.actions[i] = SIDE_READONLY;
+        else
+        {
+            bool behind = s.file == NULL || s.held == 0 || s.held < generation;
+            // A sink is only sent what it lacks; a change made on it is left
+            // alone.  Any other side that changed and is not the source lost
+            // a conflict.
+            bool upload = s.p->sink ? behind : (behind || s.changed);
+            plan.actions[i] = upload ? SIDE_UPLOAD : SIDE_RENUMBER;
+        }
+    }
+    plan.kind = PLAN_SYNC;
+    plan.source = source;
+    plan.generation = generation;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// applyFile  — carry out a decided file: transfers, then the manifest
+// ---------------------------------------------------------------------------
+static void applyFile(FilePlan &plan, Manifest &manifest, SyncSummary &summary, SyncUi &ui)
+{
+    std::vector<Side> &sides = plan.sides;
+    const std::string &localPath = plan.localPath;
+
+    if (plan.kind == PLAN_DROP)
+    {
+        bool dropped = false;
+        for (auto &s : sides)
+            if (s.inManifest)
+            {
+                manifest.remove(s.key);
+                dropped = true;
+            }
+        if (manifest.has(plan.localKey))
+        {
+            manifest.remove(plan.localKey);
+            dropped = true;
+        }
+        if (dropped)
+            debugf("  -> gone on every side, dropping its records\n");
+        return;
+    }
+    if (plan.kind != PLAN_SYNC)
+        return;
+
+    // Decided from the 3DS's copy as it was then.  A review-first sync applies
+    // its plans later, and a save played in between is not overwritten.
+    LocalFile now = statLocal(localPath);
+    if (now.exists != plan.local.exists ||
+        (now.exists && (now.mtime != plan.local.mtime || now.size != plan.local.size)))
+    {
+        printf("  %s\n  changed after the review; left alone\n", localPath.c_str());
+        summary.problems.push_back(localPath + " (changed after the review)");
+        return;
+    }
+
+    size_t failuresBefore = summary.failures.size();
+    int source = plan.source;
+    long long generation = plan.generation;
+    if (source >= 0)
+    {
+        Side &s = sides[source];
+        // The remote stopped working since the plan was made; it is reported
+        // once, for the whole run.
+        if (s.p->provider->hasFatalError())
+            return;
+        if (!downloadFrom(s, localPath, summary, ui))
+            return; // nothing is copied from a version that did not arrive
+    }
+
+    LocalFile local = statLocal(localPath);
     if (!local.exists)
         debugErrno("stat after sync", localPath);
 
@@ -455,7 +564,8 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
     for (size_t i = 0; i < sides.size(); i++)
     {
         Side &s = sides[i];
-        if ((int)i == source)
+        SideAction action = plan.actions[i];
+        if (action == SIDE_SOURCE)
         {
             ManifestEntry rec = {local.mtime, local.size, s.file->tag, s.file->id, generation};
             manifest.set(s.key, rec);
@@ -464,14 +574,12 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         if (s.p->provider->hasFatalError())
             continue;
 
-        if (s.sameAsLocal && source == -1)
+        if (action == SIDE_SAME)
         {
             ManifestEntry rec = {local.mtime, local.size, s.file->tag, s.file->id, generation};
             manifest.set(s.key, rec);
-            continue;
         }
-
-        if (s.p->readOnly)
+        else if (action == SIDE_READONLY)
         {
             // Nothing is sent to it.  A change of its own that did not win is
             // taken note of, so it is not raised again next run, while the
@@ -488,23 +596,17 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
             }
             if (s.file == NULL || s.held < generation)
                 debugf("  %s is read-only, not sent this version\n", s.p->label.c_str());
-            continue;
         }
-
-        bool behind = s.file == NULL || s.held == 0 || s.held < generation;
-        // A sink is only sent what it lacks; a change made on it is left alone.
-        // Any other side that changed and is not the source lost a conflict.
-        bool upload = s.p->sink ? behind : (behind || s.changed);
-        if (!upload)
+        else if (action == SIDE_RENUMBER)
         {
             if (s.rec.generation != generation)
             {
                 s.rec.generation = generation; // an older record, now numbered
                 manifest.set(s.key, s.rec);
             }
-            continue;
         }
-        if (uploadTo(s, relPath, localPath, generation, summary, ui))
+        else if (action == SIDE_UPLOAD &&
+                 uploadTo(s, plan.relPath, localPath, generation, summary, ui))
         {
             manifest.set(s.key, s.rec);
             uploadedTo.push_back(s.p->label);
@@ -514,7 +616,7 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
     if (local.exists)
     {
         ManifestEntry rec = {local.mtime, local.size, "", "", generation};
-        manifest.set(localKey, rec);
+        manifest.set(plan.localKey, rec);
     }
 
     if (source >= 0)
@@ -523,7 +625,6 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         summary.changes.push_back({localPath, "uploaded", join(uploadedTo)});
     if (source < 0 && uploadedTo.empty() && summary.failures.size() == failuresBefore)
         summary.checkedPaths.insert(localPath);
-    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -557,10 +658,13 @@ static std::string resolveRoot(SyncProvider &provider, const std::string &label,
 }
 
 // ---------------------------------------------------------------------------
-// syncEntry
+// listEntry  — every side listed before anything is decided
 // ---------------------------------------------------------------------------
-bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
-               const SyncEntry &entry, SyncSummary &summary, SyncUi &ui)
+// Fills allRelPaths with the files to decide.  False when no side could be
+// listed, which leaves nothing to do.
+// ---------------------------------------------------------------------------
+static bool listEntry(std::vector<Participant> &participants, const SyncEntry &entry,
+                      SyncSummary &summary, SyncUi &ui, std::set<std::string> &allRelPaths)
 {
     bool uploadOnly = (entry.direction == SYNC_UPLOAD_ONLY);
 
@@ -639,13 +743,12 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
         anyListed = true;
     }
     if (!anyListed)
-        return !ui.cancelRequested();
+        return false;
 
     // Build the full set of relative paths to consider: everything local, plus
     // everything on a remote that is not only receiving.
     // The extension filter applies to every side, so a remote-only file it
     // excludes is not downloaded either.
-    std::set<std::string> allRelPaths;
     std::set<std::string> filtered;
     for (auto &f : entry.localFiles)
         (entry.filter.matches(f) ? allRelPaths : filtered).insert(f);
@@ -656,6 +759,28 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
     if (!filtered.empty())
         debugf("%d file(s) left out by the extension filter (%s)\n", (int)filtered.size(),
                entry.filter.describe().c_str());
+    return true;
+}
+
+// The sides still working, for the next file.
+static std::vector<Participant *> liveParticipants(std::vector<Participant> &participants)
+{
+    std::vector<Participant *> live;
+    for (auto &p : participants)
+        if (p.listed && !p.provider->hasFatalError())
+            live.push_back(&p);
+    return live;
+}
+
+// ---------------------------------------------------------------------------
+// syncEntry  — decide and carry out each file in turn
+// ---------------------------------------------------------------------------
+bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
+               const SyncEntry &entry, SyncSummary &summary, SyncUi &ui)
+{
+    std::set<std::string> allRelPaths;
+    if (!listEntry(participants, entry, summary, ui, allRelPaths))
+        return !ui.cancelRequested();
 
     for (auto &relPath : allRelPaths)
     {
@@ -664,19 +789,101 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
         if (ui.cancelRequested())
             break;
 
-        std::vector<Participant *> live;
-        for (auto &p : participants)
-            if (p.listed && !p.provider->hasFatalError())
-                live.push_back(&p);
+        std::vector<Participant *> live = liveParticipants(participants);
         if (live.empty())
             break;
 
-        if (!syncFile(live, manifest, relPath, entry.localBase + relPath, entry.compareUpTo,
-                      summary, ui))
+        FilePlan plan;
+        if (!decideFile(live, manifest, relPath, entry.localBase + relPath, entry.compareUpTo,
+                        summary, ui, plan))
             return false;
+        applyFile(plan, manifest, summary, ui);
     }
 
     return !ui.cancelRequested();
+}
+
+// ---------------------------------------------------------------------------
+// planEntry / applyEntryPlan  — the two passes of a review-first sync
+// ---------------------------------------------------------------------------
+// planEntry() lists every side and decides every file, conflicts and the
+// comparisons before them included, without transferring anything or writing
+// the manifest.  applyEntryPlan() then carries the plans out, unattended.
+// ---------------------------------------------------------------------------
+bool planEntry(std::vector<Participant> &participants, Manifest &manifest,
+               const SyncEntry &entry, EntryPlan &plan, SyncSummary &summary, SyncUi &ui)
+{
+    plan.entry = &entry;
+    plan.files.clear();
+    std::set<std::string> allRelPaths;
+    if (!listEntry(participants, entry, summary, ui, allRelPaths))
+        return !ui.cancelRequested();
+
+    for (auto &relPath : allRelPaths)
+    {
+        if (ui.cancelRequested())
+            break;
+        std::vector<Participant *> live = liveParticipants(participants);
+        if (live.empty())
+            break;
+
+        std::unique_ptr<FilePlan> file(new FilePlan);
+        if (!decideFile(live, manifest, relPath, entry.localBase + relPath, entry.compareUpTo,
+                        summary, ui, *file))
+            return false;
+        plan.files.push_back(std::move(file));
+    }
+    return !ui.cancelRequested();
+}
+
+void applyEntryPlan(EntryPlan &plan, Manifest &manifest, SyncSummary &summary, SyncUi &ui)
+{
+    for (auto &file : plan.files)
+    {
+        if (ui.cancelRequested())
+            break;
+        applyFile(*file, manifest, summary, ui);
+        file.reset(); // its compared copies are gone once it is done
+    }
+}
+
+PlanCounts countPlan(const EntryPlan &plan)
+{
+    PlanCounts counts;
+    for (auto &file : plan.files)
+    {
+        if (!file || file->kind != PLAN_SYNC)
+            continue;
+        if (file->source >= 0)
+            counts.downloads++;
+        for (SideAction action : file->actions)
+            if (action == SIDE_UPLOAD)
+                counts.uploads++;
+    }
+    return counts;
+}
+
+std::vector<std::string> planLines(const EntryPlan &plan)
+{
+    std::vector<std::string> lines;
+    for (auto &file : plan.files)
+    {
+        if (!file || file->kind != PLAN_SYNC)
+            continue;
+        std::vector<std::string> to;
+        for (size_t i = 0; i < file->actions.size(); i++)
+            if (file->actions[i] == SIDE_UPLOAD)
+                to.push_back(file->sides[i].p->label);
+        if (file->source < 0 && to.empty())
+            continue;
+        // The path on a line of its own: it can be any length.
+        lines.push_back("  " + file->relPath);
+        if (file->source >= 0)
+            lines.push_back("    from " + file->sides[file->source].p->label);
+        if (!to.empty())
+            lines.push_back("    to " + join(to));
+    }
+    return lines;
 }
 
 bool performSync(SyncProvider &provider, Manifest &manifest, const SyncEntry &entry,
