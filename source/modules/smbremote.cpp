@@ -15,6 +15,7 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 
+#include "../utils/cancel.h"
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
@@ -209,6 +210,25 @@ std::string SmbRemote::ensureRoot(const std::string &remoteName)
     return ok ? root : "";
 }
 
+std::string SmbRemote::findRoot(const std::string &remoteName)
+{
+    if (!_ensureSession())
+        return "";
+    std::string root = normalizeRemotePath(_basePath.empty() ? remoteName
+                                                    : _basePath + "/" + remoteName);
+    struct smb2_stat_64 st = {};
+    bool found = smb2_stat(_smb2, root.c_str(), &st) == 0;
+    // A missing folder and a dead session both fail here; settling as failed
+    // costs one ECHO before the next request, and tells the two apart.
+    _settle(found);
+    if (!found)
+    {
+        debugf("SMB: no folder %s: %s\n", root.c_str(), _error());
+        return "";
+    }
+    return st.smb2_type == SMB2_TYPE_DIRECTORY ? root : "";
+}
+
 bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
                           std::map<std::string, RemoteFileInfo> &out)
 {
@@ -262,9 +282,10 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
     return true;
 }
 
-bool SmbRemote::list(const std::string &root,
+bool SmbRemote::list(const std::string &root, const ExtensionFilter &filter,
                      std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     if (!_ensureSession())
         return false;
     bool ok = _listInto(root, "", out);
@@ -320,6 +341,11 @@ bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPa
 
     while (true)
     {
+        if (transferCancelled())
+        {
+            ok = false; // START: the engine says so
+            break;
+        }
         int n = smb2_pread(_smb2, fh, &buf[0], chunk, offset);
         if (n == 0)
             break; // EOF
@@ -390,6 +416,12 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
 
     while ((n = fread(&buf[0], 1, chunk, fp)) > 0)
     {
+        if (transferCancelled())
+        {
+            debugf("upload of %s stopped by START\n", tmpRemote.c_str());
+            ok = false;
+            break;
+        }
         size_t written = 0;
         while (written < n)
         {

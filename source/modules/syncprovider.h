@@ -6,6 +6,7 @@
 #include <vector>
 
 class SyncUi; // sync/syncengine.h, which includes this header
+class ExtensionFilter; // sync/extfilter.h
 
 // One remote file, as reported by SyncProvider::list().
 struct RemoteFileInfo
@@ -65,8 +66,22 @@ public:
     // "" on failure.  The handle is passed back to list() and upload().
     virtual std::string ensureRoot(const std::string &remoteName) = 0;
 
-    // List every file (not folder) under root, keyed by relPath.
-    virtual bool list(const std::string &root,
+    // The root handle for remoteName if that folder already exists, ""
+    // if it does not or the remote cannot tell; never creates anything.
+    // Only asked about a name with capitals, and only needed where folder
+    // names are case-sensitive: earlier versions sent a [Paths] name to the
+    // remote lowercased, so an existing setup may hold "gba" where the INI
+    // says "GBA" (#71).  Dropbox and Drive compare names ignoring case.
+    virtual std::string findRoot(const std::string &remoteName)
+    {
+        (void)remoteName;
+        return "";
+    }
+
+    // List every file (not folder) under root, keyed by relPath.  Files the
+    // entry's filter refuses may be left out: the engine drops them anyway,
+    // so this only saves work where each file costs a request (FTP's MDTM).
+    virtual bool list(const std::string &root, const ExtensionFilter &filter,
                       std::map<std::string, RemoteFileInfo> &out) = 0;
 
     // Download file to localPath.  Must land atomically: write to a temp file

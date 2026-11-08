@@ -369,6 +369,9 @@ Backup=/3ds/MyGame
 ```
 
 - **RemoteName** is the folder on the remote (use `/` for nesting, e.g. `roms/nds`). It is also the name `Only=` refers to.
+  The folder keeps the spelling you write (`GBA=` syncs with `/GBA`), while `Only=` and `[Filter]` match the name in any case.
+  Versions before this one lowercased it; on a server that tells `GBA` from `gba` (FTP, WebDAV, some SMB servers),
+  3DSync keeps using an existing `gba` folder as long as there is no `GBA`.
 - **LocalPath** is the absolute path on the SD card.
 - Bidirectional entries use a **manifest** (`/3ds/3DSync/manifest.json`) to detect which side changed.
 - Upload-only entries push the local file to every remote taking part and never download.

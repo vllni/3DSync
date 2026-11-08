@@ -31,7 +31,8 @@ public:
     bool connect() override;
     bool hasFatalError() const override;
     std::string ensureRoot(const std::string &remoteName) override;
-    bool list(const std::string &root,
+    std::string findRoot(const std::string &remoteName) override;
+    bool list(const std::string &root, const ExtensionFilter &filter,
               std::map<std::string, RemoteFileInfo> &out) override;
     bool download(const RemoteFileInfo &file, const std::string &localPath) override;
     bool upload(const std::string &root, const std::string &relPath,
@@ -69,9 +70,11 @@ private:
     // folder is already there" with 405, on every sync after the first.
     int _performWithRetry(FILE *uploadFile = NULL, long expectedStatus = 0);
     // One PROPFIND at the given depth ("0", "1" or "infinity").
-    // rawBody, when given, receives the response as sent.
+    // rawBody, when given, receives the response as sent; expectedStatus is
+    // passed on to _performWithRetry().
     bool _propfind(const std::string &path, const char *depth,
-                   std::vector<DavEntry> &out, std::string *rawBody = NULL);
+                   std::vector<DavEntry> &out, std::string *rawBody = NULL,
+                   long expectedStatus = 0);
     bool _listDepthOne(const std::string &root, const std::string &prefix,
                        std::map<std::string, RemoteFileInfo> &out);
     bool _mkcol(const std::string &path);

@@ -151,9 +151,12 @@ static std::vector<ConfiguredPath> configuredPaths(const INIReader &reader)
         if (!parsePathKey(kv.first, dir, path.recursive, prefix))
             continue;
         path.entry.localBase = kv.second;
-        path.entry.remoteName = kv.first.substr(prefix.size());
+        // The name is also the remote folder, which a case-sensitive server
+        // (FTP, WebDAV) only finds spelled as the user wrote it (#71).
+        path.entry.name = kv.first.substr(prefix.size());
+        path.entry.remoteName = reader.GetSpelling(kv.first);
         path.entry.direction = dir;
-        path.entry.filter = filters.forEntry(path.entry.remoteName);
+        path.entry.filter = filters.forEntry(path.entry.name);
         paths.push_back(path);
     }
     return paths;
@@ -347,12 +350,12 @@ static void syncAllEntries(std::vector<ActiveRemote> remotes,
         std::vector<const ActiveRemote *> taking;
         for (auto &r : remotes)
         {
-            if (r.config.takesPart(entry.remoteName, uploadOnly))
+            if (r.config.takesPart(entry.name, uploadOnly))
                 taking.push_back(&r);
             else
                 debugf("%s: %s, leaves out %s\n", r.name.c_str(),
-                       r.config.syncs(entry.remoteName) ? "a source, never uploaded to"
-                                                        : "not in its Only=",
+                       r.config.syncs(entry.name) ? "a source, never uploaded to"
+                                                  : "not in its Only=",
                        entry.remoteName.c_str());
         }
         if (taking.empty())
@@ -732,7 +735,7 @@ static void runSync(const INIReader &reader, const std::vector<bool> &selected)
         // SMB or FTP timeout, for a remote with nothing to do is time wasted.
         bool used = false;
         for (auto &entry : syncEntries)
-            used = used || config.takesPart(entry.remoteName,
+            used = used || config.takesPart(entry.name,
                                             entry.direction == SYNC_UPLOAD_ONLY);
         if (!used)
         {

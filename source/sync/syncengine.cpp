@@ -71,14 +71,17 @@ std::string join(const std::vector<std::string> &names)
 // Each records its own failure: one file failing must not stop the rest of
 // the run, and leaves nothing on screen when the provider reported it quietly.
 static bool uploadTo(Side &s, const std::string &relPath, const std::string &localPath,
-                     long long generation, SyncSummary &summary)
+                     long long generation, SyncSummary &summary, SyncUi &ui)
 {
     std::string tag, id;
     if (!s.p->provider->upload(s.p->root, relPath, localPath, s.file, tag, id))
     {
         debugf("upload failed: %s -> %s %s%s\n", localPath.c_str(), s.p->label.c_str(),
                s.p->root.c_str(), relPath.c_str());
-        summary.failures.push_back({localPath, "upload", s.p->label});
+        // START stops a transfer part way; the run says it was cancelled,
+        // and the file is simply still to do.
+        if (!ui.cancelRequested())
+            summary.failures.push_back({localPath, "upload", s.p->label});
         return false;
     }
     if (tag.empty())
@@ -94,7 +97,8 @@ static bool uploadTo(Side &s, const std::string &relPath, const std::string &loc
     return true;
 }
 
-static bool downloadFrom(Side &s, const std::string &localPath, SyncSummary &summary)
+static bool downloadFrom(Side &s, const std::string &localPath, SyncSummary &summary,
+                         SyncUi &ui)
 {
     // A remote folder that does not exist locally yet is the normal case on a
     // first sync, so the destination is prepared here rather than leaving every
@@ -105,7 +109,8 @@ static bool downloadFrom(Side &s, const std::string &localPath, SyncSummary &sum
     {
         debugf("download failed: %s %s -> %s\n", s.p->label.c_str(),
                s.file->relPath.c_str(), localPath.c_str());
-        summary.failures.push_back({localPath, "download", s.p->label});
+        if (!ui.cancelRequested())
+            summary.failures.push_back({localPath, "download", s.p->label});
         return false;
     }
     if (s.file->tag.empty())
@@ -337,7 +342,7 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         // so the sides that hold it are not sent it again.
         if (!(hasBase && !s.changed && s.held == baseGen))
             generation = baseGen + 1;
-        if (!downloadFrom(s, localPath, summary))
+        if (!downloadFrom(s, localPath, summary, ui))
             return true; // nothing is copied from a version that did not arrive
     }
 
@@ -398,7 +403,7 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
             }
             continue;
         }
-        if (uploadTo(s, relPath, localPath, generation, summary))
+        if (uploadTo(s, relPath, localPath, generation, summary, ui))
         {
             manifest.set(s.key, s.rec);
             uploadedTo.push_back(s.p->label);
@@ -418,6 +423,36 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
     if (source < 0 && uploadedTo.empty() && summary.failures.size() == failuresBefore)
         summary.checkedPaths.insert(localPath);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// resolveRoot  — the remote folder for an entry, spelled as the INI has it
+// ---------------------------------------------------------------------------
+// Earlier versions lowercased the name ("GBA" became "gba"), so a remote that
+// tells names apart by case may hold the folder under that spelling.  It is
+// used only when the folder as written is missing, and found without creating
+// either one; otherwise, and on remotes that cannot tell, ensureRoot() as ever.
+// ---------------------------------------------------------------------------
+static std::string resolveRoot(SyncProvider &provider, const std::string &label,
+                               const std::string &remoteName)
+{
+    std::string lowered = asciiLower(remoteName);
+    if (lowered == remoteName)
+        return provider.ensureRoot(remoteName);
+
+    std::string root = provider.findRoot(remoteName);
+    if (!root.empty() || provider.hasFatalError())
+        return root;
+    root = provider.findRoot(lowered);
+    if (!root.empty())
+    {
+        debugf("%s: no folder %s, using %s as earlier versions did\n", label.c_str(),
+               remoteName.c_str(), lowered.c_str());
+        return root;
+    }
+    if (provider.hasFatalError())
+        return "";
+    return provider.ensureRoot(remoteName);
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +482,7 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
             continue;
 
         // Resolve (and create if missing) the remote folder for this entry
-        p.root = provider.ensureRoot(entry.remoteName);
+        p.root = resolveRoot(provider, p.label, entry.remoteName);
         if (p.root.empty() && !entry.remoteName.empty())
         {
             if (provider.hasFatalError())
@@ -460,7 +495,7 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
         }
 
         printf("Listing %s:%s\n", p.label.c_str(), entry.remoteName.c_str());
-        if (!provider.list(p.root, p.files))
+        if (!provider.list(p.root, entry.filter, p.files))
         {
             // A folder that cannot be listed is left out, not treated as
             // empty — which would upload every local file over whatever is

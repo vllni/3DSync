@@ -2,6 +2,7 @@
 #define TESTS_MOCKS_H
 
 #include <map>
+#include <set>
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -37,6 +38,10 @@ public:
     bool failUploads = false;
     bool failDownloads = false;
     bool fatalOnList = false;
+    bool fatalOnFindRoot = false;
+    // Folders already on the remote, by name as passed to findRoot().  Empty:
+    // findRoot() never finds one, like a remote that does not implement it.
+    std::set<std::string> folders;
     bool experimental = true;
     // With contentTags on, tags are derived from file contents, the way Drive's
     // MD5 and Dropbox's content_hash are — which is what makes localTag() work.
@@ -48,6 +53,8 @@ public:
     std::vector<std::string> uploaded;   // relPaths, in call order
     std::vector<std::string> downloaded;
     std::vector<std::string> ensuredRoots;
+    std::vector<std::string> probedRoots; // findRoot() calls
+    std::vector<std::string> listedRoots; // the root each list() was given
 
     // --- SyncProvider ---
     const char *name() const override { return "Mock"; }
@@ -62,9 +69,22 @@ public:
         return "/root/" + remoteName;
     }
 
-    bool list(const std::string &root, std::map<std::string, RemoteFileInfo> &out) override
+    std::string findRoot(const std::string &remoteName) override
     {
-        (void)root;
+        probedRoots.push_back(remoteName);
+        if (fatalOnFindRoot)
+        {
+            _fatalError = true;
+            return "";
+        }
+        return folders.count(remoteName) ? "/root/" + remoteName : "";
+    }
+
+    bool list(const std::string &root, const ExtensionFilter &filter,
+              std::map<std::string, RemoteFileInfo> &out) override
+    {
+        (void)filter;
+        listedRoots.push_back(root);
         listCalls++;
         if (fatalOnList)
         {

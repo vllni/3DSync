@@ -29,7 +29,8 @@ public:
     bool connect() override;
     bool hasFatalError() const override;
     std::string ensureRoot(const std::string &remoteName) override;
-    bool list(const std::string &root,
+    std::string findRoot(const std::string &remoteName) override;
+    bool list(const std::string &root, const ExtensionFilter &filter,
               std::map<std::string, RemoteFileInfo> &out) override;
     bool download(const RemoteFileInfo &file, const std::string &localPath) override;
     bool upload(const std::string &root, const std::string &relPath,
@@ -72,8 +73,11 @@ private:
     // request says what the call was for, which decides whether a refused
     // directory is fatal — see ftpRefusalOutcome().
     int _performWithRetry(FtpRequest request, FILE *uploadFile = NULL);
+    // Files the filter refuses are left out before their MDTM + SIZE: one
+    // round trip each, which on a folder of ROMs and cover art the filter
+    // narrows to a few saves was most of the listing.
     bool _listDir(const std::string &dirPath, const std::string &prefix,
-                  std::map<std::string, RemoteFileInfo> &out);
+                  const ExtensionFilter &filter, std::map<std::string, RemoteFileInfo> &out);
     // MDTM + SIZE for one file, as "<size>:<mtime>".  "" when unavailable.
     std::string _tagFor(const std::string &path);
 };

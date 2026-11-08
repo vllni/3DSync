@@ -85,6 +85,11 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
         long status = _curl.getStatusCode();
         _learnAuthMethods();
 
+        if (Curl::wasCancelled(curlRes))
+        {
+            debugf("  stopped by START: %s\n", _curl.getURL().c_str());
+            return curlRes;
+        }
         if (Curl::isCertificateError(curlRes))
         {
             Curl::printCertificateHelp(displayName().c_str(), curlRes, true);
@@ -154,7 +159,8 @@ bool WebDavRemote::connect()
 }
 
 bool WebDavRemote::_propfind(const std::string &path, const char *depth,
-                             std::vector<DavEntry> &out, std::string *rawBody)
+                             std::vector<DavEntry> &out, std::string *rawBody,
+                             long expectedStatus)
 {
     std::string depthHeader = std::string("Depth: ") + depth;
     struct curl_slist *headers = NULL;
@@ -175,7 +181,7 @@ bool WebDavRemote::_propfind(const std::string &path, const char *depth,
     _curl.setCustomRequest("PROPFIND");
     _curl.setPostData(PROPFIND_BODY);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(NULL, expectedStatus);
     long status = _curl.getStatusCode();
     std::string body = _curl.getResponse();
     curl_slist_free_all(headers);
@@ -257,6 +263,20 @@ std::string WebDavRemote::ensureRoot(const std::string &remoteName)
     return root;
 }
 
+// A Depth 0 PROPFIND: 207 if the collection is there, 404 if not, which is
+// an answer here rather than an error.
+std::string WebDavRemote::findRoot(const std::string &remoteName)
+{
+    std::string root = normalizeRemotePath(remoteName);
+    if (root.empty() || _collections.count(root))
+        return root;
+    std::vector<DavEntry> entries;
+    if (!_propfind(root, "0", entries, NULL, 404))
+        return "";
+    _collections.insert(root);
+    return root;
+}
+
 bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &prefix,
                                  std::map<std::string, RemoteFileInfo> &out)
 {
@@ -289,9 +309,10 @@ bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &pre
     return true;
 }
 
-bool WebDavRemote::list(const std::string &root,
+bool WebDavRemote::list(const std::string &root, const ExtensionFilter &filter,
                         std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     if (!_noInfiniteDepth)
     {
         std::vector<DavEntry> entries;
@@ -346,7 +367,8 @@ bool WebDavRemote::download(const RemoteFileInfo &file, const std::string &local
 
     if (res != 0)
     {
-        printf("WebDAV: download failed for %s\n", file.id.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("WebDAV: download failed for %s\n", file.id.c_str());
         debugf("  %d for %s\n", res, _curl.getURL().c_str());
         // A server error page was streamed into the temp file.
         debugFileBody("  error body", tmpPath);
@@ -402,7 +424,8 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
 
     if (res != 0)
     {
-        printf("WebDAV: upload failed for %s\n", remotePath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("WebDAV: upload failed for %s\n", remotePath.c_str());
         debugf("  PUT of %s returned %d\n", tmpPath.c_str(), res);
         return false;
     }

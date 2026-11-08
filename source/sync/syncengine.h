@@ -22,7 +22,8 @@ enum SyncDirection
 struct SyncEntry
 {
     std::string localBase;               // absolute local path, e.g. /3ds/Checkpoint/saves
-    std::string remoteName;              // Drive folder path, e.g. Checkpoint/saves
+    std::string remoteName;              // remote folder as 3DSync.ini spells it, e.g. Checkpoint/Saves
+    std::string name;                    // the same lowercased, for Only=, [Filter] and Folder.
     std::vector<std::string> localFiles; // relative paths discovered locally
     SyncDirection direction;
     // Files on either side that do not match are left out of the sync.

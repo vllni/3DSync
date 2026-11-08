@@ -112,6 +112,15 @@ std::map<std::string, std::string> INIReader::GetValues() const
     return _values;
 };
 
+string INIReader::GetSpelling(const string &key) const
+{
+    std::map<string, string>::const_iterator pos = _spellings.find(key);
+    if (pos != _spellings.end())
+        return pos->second;
+    size_t eq = key.find('=');
+    return eq == string::npos ? key : key.substr(eq + 1);
+}
+
 int INIReader::ValueHandler(void *user, const char *section, const char *name,
                             const char *value)
 {
@@ -119,6 +128,8 @@ int INIReader::ValueHandler(void *user, const char *section, const char *name,
         return 1;
     INIReader *reader = static_cast<INIReader *>(user);
     string key = MakeKey(section, name);
+    if (!reader->_spellings.count(key))
+        reader->_spellings[key] = name;
     if (reader->_values[key].size() > 0)
         reader->_values[key] += "\n";
     reader->_values[key] += value ? value : "";
