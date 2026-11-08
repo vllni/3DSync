@@ -270,6 +270,28 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
                                                "  Use a name from [Paths]."},
                                               false));
 
+        if (remote.type == REMOTE_DRIVE)
+        {
+            // Folder.<name>= — GetValues() keys are "section=key", lowercased.
+            const std::string prefix = section + "=folder.";
+            for (auto it = values.lower_bound(prefix);
+                 it != values.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
+            {
+                std::string name = it->first.substr(prefix.size());
+                if (name.empty() || it->second.empty())
+                    continue;
+                if (known.count(name))
+                    remote.driveFolders[name] = it->second;
+                else
+                    result.issues.push_back(issue(section, "Folder. names no path",
+                                                  {"A Drive folder is set for a path that",
+                                                   "  is not configured:", "  " + name,
+                                                   "  in [" + section + "]",
+                                                   "  Use a name from [Paths]."},
+                                                  false));
+            }
+        }
+
         found.push_back(remote);
     }
 

@@ -3,6 +3,8 @@
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/hash.h"
+#include "../utils/json.h"
+#include "remoteparse.h"
 #include "../sync/syncengine.h"
 #include <3ds.h>
 #include <errno.h>
@@ -224,11 +226,15 @@ std::string GoogleDrive::_findOrCreateFolder(const std::string &name, const std:
 bool GoogleDrive::_refreshAccessToken()
 {
     printf("Refreshing Google Drive access token...\n");
-    std::string body = "refresh_token=" + _urlEncode(_refreshToken) + "&client_id=" + _urlEncode(_clientId) + "&client_secret=" + _urlEncode(_clientSecret) + "&grant_type=refresh_token";
+    // Without a client secret this is 3DSync's own client, refreshed through
+    // the site's Worker, which holds its secret (driveRefreshRequest()).
+    std::string url;
+    std::string body = driveRefreshRequest(_clientId, _clientSecret, _refreshToken, url);
+    debugf("token refresh via %s\n", url.c_str());
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-    _curl.setURL("https://oauth2.googleapis.com/token");
+    _curl.setURL(url);
     _curl.setHeaders(headers);
     _curl.setPostData(body);
     int result = _performWithRetry();
@@ -243,7 +249,19 @@ bool GoogleDrive::_refreshAccessToken()
     if (result != 0)
     {
         printf("Token refresh request failed\n");
-        debugf("oauth2/token returned %d (HTTP %ld)\n", result, _curl.getStatusCode());
+        debugf("token refresh returned %d (HTTP %ld)\n", result, _curl.getStatusCode());
+        // Google's answer and the Worker's share this shape.
+        std::string error = jsonString(_curl.getResponse(), "error");
+        if (error == "invalid_grant")
+        {
+            printf("  The login has expired or was revoked.\n");
+            printf("  Log in again with the configurator.\n");
+        }
+        else if (_clientSecret.empty() && _curl.getStatusCode() == 503)
+        {
+            printf("  3DSync's Google sign-in is not\n");
+            printf("  available right now; try again later.\n");
+        }
         return false;
     }
 
@@ -885,7 +903,45 @@ std::string GoogleDrive::getServerTime() const
 
 std::string GoogleDrive::ensureRoot(const std::string &remoteName)
 {
+    auto chosen = _pathFolders.find(remoteName);
+    if (chosen != _pathFolders.end())
+        return _checkChosenFolder(remoteName, chosen->second);
     return ensureFolderPath(remoteName);
+}
+
+std::string GoogleDrive::_checkChosenFolder(const std::string &remoteName,
+                                            const std::string &folderId)
+{
+    if (_fatalError)
+        return "";
+    std::string auth = "Authorization: Bearer " + _token;
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, auth.c_str());
+    _curl.setURL("https://www.googleapis.com/drive/v3/files/" + _urlEncode(folderId) +
+                 "?fields=id,mimeType,trashed&supportsAllDrives=true");
+    _curl.setHeaders(headers);
+    _curl.resetToGet();
+    int result = _performWithRetry();
+    curl_slist_free_all(headers);
+
+    const std::string &body = _curl.getResponse();
+    bool folder = result == 0 && _extractJsonString(body, "mimeType") == "application/vnd.google-apps.folder";
+    if (folder && !jsonTrue(body, "trashed"))
+    {
+        debugf("%s: chosen Drive folder %s\n", remoteName.c_str(), folderId.c_str());
+        return folderId;
+    }
+    if (_fatalError)
+        return "";
+    // A 404 is also what a folder no longer shared with 3DSync's client
+    // looks like: drive.file sees only what was picked.
+    debugf("%s: chosen folder %s unusable (%d, folder=%d)\n", remoteName.c_str(),
+           folderId.c_str(), result, folder ? 1 : 0);
+    printf(CONSOLE_RED "  The Drive folder chosen for this path\n"
+           "  is gone, in the trash, or no longer\n"
+           "  shared with 3DSync." CONSOLE_RESET "\n");
+    printf("  Choose it again in the configurator.\n");
+    return "";
 }
 
 bool GoogleDrive::list(const std::string &root,
@@ -939,6 +995,13 @@ bool GoogleDrive::legacyUpload(const std::string &localBase,
                                const std::string &remoteName,
                                const std::vector<std::string> &files, SyncUi &ui)
 {
+    // The flat upload knows only FolderId=; a folder chosen for this entry
+    // is the n-way sync's to upload into.
+    if (_pathFolders.count(remoteName))
+    {
+        debugf("%s has a chosen Drive folder: no legacy upload\n", remoteName.c_str());
+        return false;
+    }
     std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths;
     paths[std::make_pair(localBase, remoteName)] = files;
     // The return value says only whether the run was cancelled or hit a fatal

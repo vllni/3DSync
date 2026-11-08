@@ -55,6 +55,12 @@ public:
     // Ensures the access token is valid; call once before any sync operations.
     bool ensureToken();
 
+    // Folder.<name>= from the INI: entry name (lowercased) -> the Drive folder
+    // chosen for it in the configurator.  ensureRoot() returns such a folder
+    // as it is, with no lookup by name above it, and legacyUpload() leaves
+    // such an entry to the n-way sync, which uploads into it.
+    void setPathFolders(const std::map<std::string, std::string> &folders) { _pathFolders = folders; }
+
     // Legacy flat-name upload (unchanged behaviour).  ui is asked between
     // files whether the user has cancelled.
     bool upload(std::map<std::pair<std::string, std::string>, std::vector<std::string>> paths,
@@ -96,8 +102,12 @@ private:
     int         _uploadCount;
     Curl        _curl;
     std::map<std::string, std::string> _folderCache;
+    std::map<std::string, std::string> _pathFolders;
 
     bool        _refreshAccessToken();
+    // A folder chosen for an entry: "" with a red line when it can no longer
+    // be used (deleted, trashed, not shared with 3DSync any more).
+    std::string _checkChosenFolder(const std::string &remoteName, const std::string &folderId);
     bool        _fatalError;
     // Find or create a single folder segment; returns folder ID or "".
     std::string _findOrCreateFolder(const std::string &name, const std::string &parentId);

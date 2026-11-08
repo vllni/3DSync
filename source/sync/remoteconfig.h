@@ -64,6 +64,11 @@ struct RemoteConfig
     // FTP's TLS=, checked: "none", "try", "require" or "implicit".  An unknown
     // value is an issue and reads as "require", never as a weaker mode.
     std::string ftpTls = "try";
+    // Google Drive's Folder.<name>=: the Drive folder chosen in the
+    // configurator for the entry of that name (lowercased), used as its folder
+    // as it is, with no lookup by name above it.  A name that is no
+    // configured entry is an issue and left out.
+    std::map<std::string, std::string> driveFolders;
 
     // "SMB", or "SMB (backup)" for a labelled one.  The name the log, the
     // conflict prompt and the summary use.
@@ -98,8 +103,8 @@ struct RemoteConfigs
     // FTP, WebDAV), the unnamed one of a type before its labelled ones.
     std::vector<RemoteConfig> remotes;
     // In section order.  A remote section missing a required key, one of an
-    // unknown type behind a ':', an empty label, a bad Role= and an Only=
-    // naming no configured path.
+    // unknown type behind a ':', an empty label, a bad Role=, an Only= naming
+    // no configured path and a Drive Folder.<name>= naming none.
     std::vector<ConfigIssue> issues;
 };
 

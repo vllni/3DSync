@@ -112,6 +112,31 @@ Dropbox app.
 
 ### Google Drive
 
+The configurator logs in with 3DSync's own Google client, so there is nothing
+to set up in Google Cloud (3DSync 0.9.0 or newer):
+
+```ini
+[GoogleDrive]
+RefreshToken=<refresh token from configurator>
+Folder.saves=<Drive folder chosen for [Paths] saves>   ; optional, one per path
+```
+
+3DSync then sees only what it creates itself and what you choose in the
+configurator: in its second step, choose the Drive folder for a path, then the
+saves already in it. A path without a `Folder.` line gets a folder of its own
+in My Drive, named after the path. A save another device adds to a chosen
+folder later is invisible to 3DSync until you add it the same way (**Add
+saves**); the file on the SD card does not change for that. Google keeps
+these choices, and the 3DS refreshes its login through
+`https://3dsync.vllni.dev`, which adds 3DSync's client secret and passes
+nothing else on.
+
+If an app on another device keeps creating new files in a Drive folder, an
+emulator saving there for instance, use **expert mode** instead: your own Google
+Cloud client, with access to your whole Drive (see
+[Google Drive App Setup](#google-drive-app-setup)). It works with every 3DSync
+version:
+
 ```ini
 [GoogleDrive]
 ClientId=<OAuth client ID>
@@ -120,7 +145,8 @@ RefreshToken=<refresh token from configurator>
 FolderId=<optional root folder ID>
 ```
 
-`FolderId` restricts all Drive operations to one folder. Leave it out to use Drive root.
+`FolderId` is the folder the paths' folders are created in. Leave it out to
+use My Drive. `Folder.` lines work here too.
 
 ### SMB file server (NAS, Windows share)
 
@@ -502,6 +528,8 @@ report.
 ---
 
 ## Google Drive App Setup
+
+Only needed for expert mode; the configurator's default needs none of this.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project, enable the **Google Drive API**.

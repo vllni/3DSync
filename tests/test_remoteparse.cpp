@@ -602,3 +602,29 @@ TEST(smbprobe, a_clock_set_backwards_counts_as_idle)
 {
     CHECK(smbShouldProbe(1000, 400, false));
 }
+
+// ---------------------------------------------------------------------------
+// Google Drive token refresh
+// ---------------------------------------------------------------------------
+TEST(driverefresh, an_own_client_refreshes_at_google_with_its_secret)
+{
+    std::string url;
+    std::string body = driveRefreshRequest("id.apps", "s3cr+t", "1//0g-tok/en", url);
+    CHECK_STR_EQ(url, "https://oauth2.googleapis.com/token");
+    // '/' and '+' are encoded: refresh tokens carry '/', secrets may carry '+'.
+    CHECK_STR_EQ(body, "grant_type=refresh_token&refresh_token=1%2F%2F0g-tok%2Fen"
+                       "&client_id=id.apps&client_secret=s3cr%2Bt");
+}
+
+TEST(driverefresh, without_a_secret_it_is_3dsyncs_client_through_the_site)
+{
+    // The Worker adds client_id and client_secret itself, and answers like
+    // Google; nothing about the client is sent from the 3DS.
+    std::string url;
+    std::string body = driveRefreshRequest("", "", "1//0g", url);
+    CHECK_STR_EQ(url, "https://3dsync.vllni.dev/api/google/token");
+    CHECK_STR_EQ(body, "grant_type=refresh_token&refresh_token=1%2F%2F0g");
+    // A client ID left in the file without its secret changes nothing.
+    CHECK_STR_EQ(driveRefreshRequest("id.apps", "", "1//0g", url), body);
+    CHECK_STR_EQ(url, "https://3dsync.vllni.dev/api/google/token");
+}
