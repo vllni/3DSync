@@ -79,7 +79,8 @@ private:
     bool _listDir(const std::string &dirPath, const std::string &prefix,
                   const ExtensionFilter &filter, std::map<std::string, RemoteFileInfo> &out);
     // MDTM + SIZE for one file, as "<size>:<mtime>".  "" when unavailable.
-    std::string _tagFor(const std::string &path);
+    // sizeOut, when given, receives the size alone (-1 when unknown).
+    std::string _tagFor(const std::string &path, long long *sizeOut = NULL);
 };
 
 #endif

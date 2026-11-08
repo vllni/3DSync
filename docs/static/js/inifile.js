@@ -8,6 +8,7 @@
 //                 sealedSection, excluded, driveFolders }],
 //     folders: [{ name, path, recursive, direction, filter }],
 //     filter: '',      // [Filter] Extensions=
+//     sync: { compare, compareUpTo, other },  // [Sync], see below
 //     extras: []       // sections the page has no form for, as read
 //   }
 //
@@ -24,6 +25,13 @@
 // fields['gdrive-expert-mode'] says which.  driveFolders maps a folder name
 // (lowercased) to the Drive folder chosen for it, { id, title }, written as
 // Folder.<name>= in the remote's section.
+//
+// sync is [Sync]: compare is CompareConflicts= (false: a conflict on SMB, FTP
+// or WebDAV is always asked about, without downloading the remote copy to
+// see whether it is the same file), compareUpTo is CompareUpTo= as typed (KB;
+// '' for the 3DS's default of 4096, '0' for no limit), and other holds the
+// section's other lines, written back as they were.  The section is only
+// written when it says something.
 (function (root) {
     'use strict';
 
@@ -165,6 +173,12 @@
         if (config.filter) filters.push(['Extensions', config.filter]);
         config.folders.forEach(function (f) { if (f.filter) filters.push([f.name, f.filter]); });
         if (filters.length) parts.push(sectionText('Filter', filters, false));
+        let sync = config.sync || {};
+        let syncPairs = [];
+        if (sync.compare === false) syncPairs.push(['CompareConflicts', 'false']);
+        if (sync.compareUpTo) syncPairs.push(['CompareUpTo', sync.compareUpTo]);
+        syncPairs = syncPairs.concat(sync.other || []);
+        if (syncPairs.length) parts.push(sectionText('Sync', syncPairs, false));
         tail.forEach(function (x) { parts.push(sectionText(x.name, x.pairs, masked)); });
         return (headText ? headText + '\n' : '') + parts.join('\n');
     }
@@ -291,6 +305,29 @@
         return remote;
     }
 
+    // The 3DS reads CompareConflicts= as on for anything it does not know, and
+    // says so at startup; the page does the same, and keeps a CompareUpTo= it
+    // would refuse in the field, where Confirm points it out.
+    const SWITCH_VALUES = { 'true': true, yes: true, '1': true, on: true,
+        'false': false, no: false, '0': false, off: false };
+
+    function readSync(section, sync, report) {
+        section.pairs.forEach(function (pair) {
+            let key = pair[0].toLowerCase();
+            let value = pair[1].trim();
+            if (key === 'compareconflicts') {
+                let on = SWITCH_VALUES[value.toLowerCase()];
+                if (value === '' || on === undefined) {
+                    if (value !== '')
+                        report.problems.push('[Sync] CompareConflicts=' + value + ' is neither true nor false, so '
+                            + 'conflicts are compared.');
+                    sync.compare = true;
+                } else sync.compare = on;
+            } else if (key === 'compareupto') sync.compareUpTo = value;
+            else sync.other.push(pair);
+        });
+    }
+
     // Returns { config, report }.  report: remotes and folders read, how many
     // values were sealed, the sections kept as they were, and every line
     // that could not be used, for the page to list.  config is null when the
@@ -300,7 +337,8 @@
         let report = { remotes: 0, folders: 0, sealed: 0, kept: [], problems: [] };
         if (parsed.badLines.length)
             report.problems.push('Line ' + parsed.badLines.join(', ') + ' could not be read and was left out.');
-        let config = { remotes: [], folders: [], filter: '', extras: [] };
+        let config = { remotes: [], folders: [], filter: '', sync: { compare: true, compareUpTo: '', other: [] },
+            extras: [] };
         let filterPairs = [];
         parsed.sections.forEach(function (section) {
             let key = section.name.toLowerCase();
@@ -313,6 +351,7 @@
                         direction: kind.direction, filter: '' });
                 });
             } else if (key === 'filter') filterPairs = section.pairs;
+            else if (key === 'sync') readSync(section, config.sync, report);
             else if (section.pairs.length) {
                 config.extras.push(section);
                 report.kept.push(section.name === '' ? 'the lines before the first section' : '[' + section.name + ']');

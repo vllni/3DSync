@@ -547,6 +547,29 @@
                       the one above; <strong>*</strong> syncs every file in that folder.</p>
                     <div id="folder-filters" class="folder-filters"></div>
                   </div>
+                  <div id="conflicts-section" class="conflicts-section">
+                    <h4 class="white-text">Conflicts</h4>
+                    <p class="white-text panel-intro">When a save changed both on the 3DS and on an SMB, FTP or WebDAV
+                      remote, 3DSync first downloads the remote copy to see whether it is the same file. It only asks
+                      you when the two really differ.</p>
+                    <p class="compare-option">
+                      <label>
+                        <input type="checkbox" class="filled-in" id="compare-conflicts" checked>
+                        <span class="white-text" style="font-size:0.88em">Check whether both copies are the same
+                          before asking</span>
+                      </label>
+                    </p>
+                    <div class="row">
+                      <div class="input-field col s12">
+                        <input id="compare-up-to" class="white-text" type="text" inputmode="numeric"
+                          autocomplete="off" spellcheck="false">
+                        <label for="compare-up-to" class="white-text">Largest file to check, in KB (optional)</label>
+                        <span class="helper-text white-text" data-error="">Blank: <strong>4096</strong> (4 MB),
+                          enough for any save. <strong>0</strong>: any size, which can take minutes for a ROM on a
+                          slow server.</span>
+                      </div>
+                    </div>
+                  </div>
                   <br>
                   <div class="step-actions">
                     <a href="#" class="waves-effect waves-dark btn-flat previous-step white-text">Back</a>

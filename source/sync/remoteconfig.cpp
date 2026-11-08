@@ -1,6 +1,7 @@
 #include "remoteconfig.h"
 
 #include <ctype.h>
+#include <limits>
 
 #include "../utils/pathutil.h"
 
@@ -309,4 +310,41 @@ std::string remoteNames(const std::vector<RemoteConfig> &remotes)
 std::string manifestScope(const RemoteConfig &remote, const std::string &providerPrefix)
 {
     return remote.label.empty() ? providerPrefix : providerPrefix + "#" + remote.label;
+}
+
+const long long COMPARE_UP_TO_DEFAULT_KB = 4096;
+const long long COMPARE_UP_TO_UNLIMITED = std::numeric_limits<long long>::max();
+
+bool parseCompareUpTo(const std::string &value, long long &bytes)
+{
+    bytes = COMPARE_UP_TO_DEFAULT_KB * 1024;
+    size_t start = value.find_first_not_of(" \t");
+    if (start == std::string::npos)
+        return true;
+    size_t end = value.find_last_not_of(" \t") + 1;
+    long long kb = 0;
+    for (size_t i = start; i < end; i++)
+    {
+        if (!isdigit((unsigned char)value[i]) || kb > 1000000000LL)
+            return false;
+        kb = kb * 10 + (value[i] - '0');
+    }
+    bytes = kb == 0 ? COMPARE_UP_TO_UNLIMITED : kb * 1024;
+    return true;
+}
+
+bool parseCompareConflicts(const std::string &value, bool &on)
+{
+    on = true;
+    std::string v = asciiLower(value);
+    size_t start = v.find_first_not_of(" \t");
+    if (start == std::string::npos)
+        return true;
+    v = v.substr(start, v.find_last_not_of(" \t") + 1 - start);
+    if (v == "false" || v == "no" || v == "0" || v == "off")
+    {
+        on = false;
+        return true;
+    }
+    return v == "true" || v == "yes" || v == "1" || v == "on";
 }

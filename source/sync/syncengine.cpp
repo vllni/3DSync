@@ -29,6 +29,23 @@ struct Side
     long long held;   // generation it holds as of its last sync, 0: unknown
     bool changed;     // new there, or its tag moved since its last sync
     bool sameAsLocal; // provably holds the 3DS's current bytes
+    // Its copy, fetched to compare with the 3DS's and found different: if
+    // this side wins the conflict, it is moved into place instead of being
+    // downloaded again.  "" when there is none.
+    std::string fetched;
+};
+
+// Removes the comparison copies no side used, however syncFile() returns.
+struct FetchedCopies
+{
+    std::vector<Side> &sides;
+    explicit FetchedCopies(std::vector<Side> &s) : sides(s) {}
+    ~FetchedCopies()
+    {
+        for (auto &s : sides)
+            if (!s.fetched.empty() && remove(s.fetched.c_str()) != 0)
+                debugErrno("removing the comparison copy", s.fetched);
+    }
 };
 
 struct LocalFile
@@ -105,6 +122,20 @@ static bool downloadFrom(Side &s, const std::string &localPath, SyncSummary &sum
     // provider to remember it.
     mkparents(localPath);
 
+    // The conflict check already fetched this version in full.
+    if (!s.fetched.empty())
+    {
+        std::string fetched = s.fetched;
+        s.fetched.clear(); // replaceLocalFile() consumes it either way
+        if (replaceLocalFile(fetched, localPath))
+        {
+            debugf("  used the copy fetched to compare, no second download\n");
+            summary.downloaded++;
+            return true;
+        }
+        debugf("  could not move the compared copy into place, downloading again\n");
+    }
+
     if (!s.p->provider->download(*s.file, localPath))
     {
         debugf("download failed: %s %s -> %s\n", s.p->label.c_str(),
@@ -121,13 +152,64 @@ static bool downloadFrom(Side &s, const std::string &localPath, SyncSummary &sum
 }
 
 // ---------------------------------------------------------------------------
+// sameAsLocalCopy  — is a conflicting side really a different version?
+// ---------------------------------------------------------------------------
+// Drive and Dropbox prove it with a content hash before a conflict is ever
+// raised.  SMB, FTP and WebDAV tag with size and time, which a copy made
+// separately (a remote added with the saves already on it, a file copied
+// back by hand) never matches; the only proof is the bytes.  So within the
+// configured size the remote copy is downloaded to a temp file beside the
+// save and compared: a different size settles it without a download, and
+// anything that cannot be checked is a conflict, as before.
+// ---------------------------------------------------------------------------
+static bool sameAsLocalCopy(Side &s, int index, const std::string &localPath,
+                            long long localSize, long long compareUpTo)
+{
+    const char *label = s.p->label.c_str();
+    if (!s.p->provider->localTag(localPath).empty())
+        return false; // a content hash already said they differ
+    if (s.file->size >= 0 && s.file->size != localSize)
+    {
+        debugf("  %s: %lld bytes against the 3DS's %lld, a real conflict\n", label,
+               s.file->size, localSize);
+        return false;
+    }
+    long long size = s.file->size >= 0 ? s.file->size : localSize;
+    if (size > compareUpTo)
+    {
+        debugf("  %s: %lld bytes, over CompareUpTo=, not compared\n", label, size);
+        return false;
+    }
+
+    // One per side, as several can be compared for one conflict.  Ends in the
+    // transfer suffix, so a leftover is never synced as a save.
+    char suffix[24];
+    snprintf(suffix, sizeof(suffix), ".compare%d", index);
+    std::string tmpPath = localPath + suffix + TEMP_SUFFIX;
+    if (!s.p->provider->download(*s.file, tmpPath))
+    {
+        debugf("  %s: could not fetch it to compare\n", label);
+        remove(tmpPath.c_str());
+        return false;
+    }
+    int same = compareFiles(tmpPath, localPath);
+    debugf("  %s: compared %lld bytes, %s\n", label, size,
+           same == 1 ? "the same as the 3DS" : "they differ");
+    if (same == 0)
+        s.fetched = tmpPath; // kept in case this side wins
+    else if (remove(tmpPath.c_str()) != 0)
+        debugErrno("removing the comparison copy", tmpPath);
+    return same == 1;
+}
+
+// ---------------------------------------------------------------------------
 // syncFile  — decide one file with every side in view
 // ---------------------------------------------------------------------------
 // Returns false only when the user cancelled at a conflict prompt.
 // ---------------------------------------------------------------------------
 static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
                      const std::string &relPath, const std::string &localPath,
-                     SyncSummary &summary, SyncUi &ui)
+                     long long compareUpTo, SyncSummary &summary, SyncUi &ui)
 {
     LocalFile local = statLocal(localPath);
     const std::string localKey = LOCAL_PREFIX + localPath;
@@ -147,6 +229,7 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
         s.sameAsLocal = false;
         sides.push_back(s);
     }
+    FetchedCopies fetchedCopies(sides);
 
     // --- The 3DS's copy as of the last sync ---
     bool hasBase = manifest.has(localKey);
@@ -279,6 +362,24 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
                 candidates.insert(candidates.begin(), -1);
                 break;
             }
+
+    // --- A conflict may be the same bytes, reached separately ---
+    if (candidates.size() > 1 && local.exists && compareUpTo > 0)
+    {
+        for (size_t k = 0; k < candidates.size();)
+        {
+            int c = candidates[k];
+            if (c >= 0 && sameAsLocalCopy(sides[c], c, localPath, local.size, compareUpTo))
+            {
+                sides[c].sameAsLocal = true;
+                candidates.erase(candidates.begin() + k);
+            }
+            else
+                k++;
+        }
+        if (ui.cancelRequested())
+            return false;
+    }
 
     // --- Pick the version every side ends up with ---
     int source = -2; // -2: none
@@ -570,7 +671,8 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
         if (live.empty())
             break;
 
-        if (!syncFile(live, manifest, relPath, entry.localBase + relPath, summary, ui))
+        if (!syncFile(live, manifest, relPath, entry.localBase + relPath, entry.compareUpTo,
+                      summary, ui))
             return false;
     }
 

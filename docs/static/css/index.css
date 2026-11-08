@@ -603,6 +603,15 @@ main {
     margin: 0.2rem 0 0.8rem 0;
 }
 
+/* Step 2: [Sync] CompareConflicts= and CompareUpTo=, for SMB, FTP and WebDAV. */
+.conflicts-section {
+    display: none;
+}
+
+.compare-option {
+    margin: 0.2rem 0 0.4rem 0;
+}
+
 /* Step 2: the Drive folder chosen per folder, for 3DSync's own client */
 .drive-folders-section {
     display: none;

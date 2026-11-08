@@ -19,4 +19,8 @@ FILE *openTempFor(const std::string &localPath, std::string &tmpPathOut);
 // restored if the swap fails.  Removes tmpPath on failure.
 bool replaceLocalFile(const std::string &tmpPath, const std::string &localPath);
 
+// Byte for byte: 1 when the two files are identical, 0 when they differ, -1
+// when either cannot be read (said through debugf()).
+int compareFiles(const std::string &a, const std::string &b);
+
 #endif

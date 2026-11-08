@@ -46,6 +46,8 @@ public:
     // With contentTags on, tags are derived from file contents, the way Drive's
     // MD5 and Dropbox's content_hash are — which is what makes localTag() work.
     bool contentTags = false;
+    // Whether list() reports sizes, as SMB, FTP and WebDAV do.
+    bool reportSizes = true;
     std::string prefix = "mock";
 
     // Recorded calls, for assertions.
@@ -100,6 +102,8 @@ public:
             info.relPath = entry.first;
             info.tag = entry.second.tag;
             info.id = entry.second.id.empty() ? ("id" + entry.first) : entry.second.id;
+            if (reportSizes)
+                info.size = (long long)entry.second.content.size();
             out[entry.first] = info;
         }
         return true;

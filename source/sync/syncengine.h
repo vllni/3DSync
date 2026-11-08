@@ -28,6 +28,11 @@ struct SyncEntry
     SyncDirection direction;
     // Files on either side that do not match are left out of the sync.
     ExtensionFilter filter;
+    // A conflict with a remote that has no content hash: the largest file,
+    // in bytes, downloaded to see whether it really differs from the 3DS's
+    // copy.  0 never compares (an entry built in code); [Sync] CompareUpTo=0
+    // sets no limit instead (COMPARE_UP_TO_UNLIMITED).
+    long long compareUpTo = 0;
 };
 
 // ---------------------------------------------------------------------------

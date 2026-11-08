@@ -432,8 +432,8 @@ If more than one side changed the file, one prompt lists them all.
 
 "Changed" means the local mtime/size, or the remote tag, differs from the last manifest entry.  
 On the first sync of a file (no manifest entry yet), a file on one side only is copied to the
-others. A file already on both is a conflict, unless Google Drive or Dropbox can prove it holds
-the same bytes as the 3DS.
+others. A file already on both is a conflict, unless the remote holds the same bytes as the 3DS
+(see [Conflicts that are the same file](#conflicts-that-are-the-same-file)).
 
 A remote file whose name could reach outside the synced folder (one with a `..`
 segment, an empty segment or a backslash) is never downloaded or compared. The
@@ -444,6 +444,29 @@ MD5 and a Dropbox content hash respectively, both computable on the 3DS — so a
 save whose mtime never moves (some emulators never update it) is still detected,
 and a remote that already holds the same bytes as the 3DS is not a conflict.
 On SMB, FTP and WebDAV an unchanged mtime *and* size is taken as unchanged.
+
+### Conflicts that are the same file
+
+A conflict is often no conflict at all: the same save reached both sides
+separately, say a remote added with the saves already on it, or a file copied
+back by hand. Google Drive and Dropbox prove that with their content hash.
+SMB, FTP and WebDAV cannot, so before asking, 3DSync downloads the remote copy
+and compares it with the 3DS's byte for byte. If they match, nothing is asked
+and nothing is copied. A different size settles it without a download. If they
+differ and you keep the remote's version, the copy already fetched is used, so
+the file is not downloaded twice.
+
+Comparing costs one download per conflicting file, so it is limited by size:
+
+```ini
+[Sync]
+CompareUpTo=4096         ; KB, the default (4 MB); 0 = no limit
+CompareConflicts=false   ; never compare: every such conflict is asked about
+```
+
+A larger file is asked about as before. Saves are almost always far below 4 MB.
+With `0` every conflicting file is compared, however large: on a slow server a
+ROM can take minutes, though START stops it.
 
 ### Subfolder structure on the remote
 
