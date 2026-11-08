@@ -197,15 +197,19 @@ static void findLocalFiles(ConfiguredPath &path)
 }
 
 // ---------------------------------------------------------------------------
-// offerDebugLogSave  — end of a debug run: keep the transcript or drop it
+// offerLogSave  — end of a run: keep the transcript or drop it
 // ---------------------------------------------------------------------------
-// The whole point of debug mode is to produce something that can be attached
-// to a bug report, and a screen that has already scrolled is not that.  The
-// save is offered rather than done, because the transcript is a plaintext file
-// on a shared SD card and the run it came from listed every save path on the
-// console — asking is what makes writing it the user's decision.
+// A screen that has already scrolled is no bug report, and a run that went
+// wrong without debug mode is worth keeping too.  Every run is written to
+// "<name>.part" as it goes (debugLogStart(), redacted line by line), so
+// nothing is lost however long it runs, and a crash still leaves the log up
+// to that point.  Keeping it is offered rather than done, because the
+// transcript sits on a shared SD card and lists every save path on the
+// console: declined, the file is deleted.
 // ---------------------------------------------------------------------------
-static std::string debugLogPath()
+static std::string g_logPath; // where a kept log goes, named when the run starts
+
+static std::string logPath(bool debug)
 {
     time_t now = time(NULL);
     struct tm *lt = (now > 0) ? localtime(&now) : NULL;
@@ -216,34 +220,37 @@ static std::string debugLogPath()
     if (lt == NULL || strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", lt) == 0)
         snprintf(stamp, sizeof(stamp), "unknown-time");
 
-    return std::string("/3ds/3DSync/logs/debug-") + stamp + ".log";
+    return std::string("/3ds/3DSync/logs/") + (debug ? "debug-" : "sync-") + stamp + ".log";
 }
 
-static void offerDebugLogSave()
+static void offerLogSave()
 {
-    if (!debugEnabled() || debugLogSize() == 0)
+    if (debugLogSize() == 0)
+    {
+        debugLogReset();
         return;
+    }
 
     // The question itself is on the bottom screen; the log keeps a line so
     // the saved file and the screen agree about what was asked.
     unsigned kb = (unsigned)((debugLogSize() + 1023) / 1024);
-    printf("\n--- Debug log ---\n");
-    printf("%u KB captured%s.\n", kb,
-           debugLogDropped() > 0 ? ", middle of the run trimmed" : "");
+    printf("\n--- %s ---\n", debugEnabled() ? "Debug log" : "Log");
+    printf("%u KB captured.\n", kb);
+    if (debugLogFailed())
+        printf(CONSOLE_RED "Writing it to the SD card failed part\n"
+               "way; it ends early.\n" CONSOLE_RESET);
 
-    if (!frontend::askSaveDebugLog(kb, debugLogDropped() > 0))
+    if (!frontend::askSaveLog(kb))
     {
-        printf("Debug log discarded.\n");
+        debugLogReset();
+        printf("Log discarded.\n");
         return;
     }
-    std::string path = debugLogPath();
-    // The write itself prints, and the stdout hook would fold that into the
-    // very text being written; it is already snapshotted by then, so the
-    // file just ends a line or two before the screen does.
-    if (debugLogSave(path))
-        printf(CONSOLE_GREEN "Saved to\n  %s\n" CONSOLE_RESET, path.c_str());
+    // What is printed from here on is no longer captured.
+    if (debugLogKeep(g_logPath))
+        printf(CONSOLE_GREEN "Saved to\n  %s\n" CONSOLE_RESET, g_logPath.c_str());
     else
-        printf(CONSOLE_RED "Could not write\n  %s\n" CONSOLE_RESET, path.c_str());
+        printf(CONSOLE_RED "Could not write\n  %s\n" CONSOLE_RESET, g_logPath.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -818,7 +825,7 @@ static void runSync(const INIReader &reader, const std::vector<bool> &selected)
         frontend::setLastResult(summaryResult(summary), true);
     }
 
-    offerDebugLogSave();
+    offerLogSave();
 }
 
 // ---------------------------------------------------------------------------
@@ -959,7 +966,7 @@ static void syncWorker(void *arg)
         printf("Can't load configuration\n");
         debugConfigSummary(reader);
         frontend::setLastResult("configuration not loaded", false);
-        offerDebugLogSave();
+        offerLogSave();
     }
 }
 
@@ -1027,6 +1034,10 @@ int main(int argc, char **argv)
         // Per run, not per session: syncing twice should not offer the first
         // run's transcript along with the second's.
         debugLogReset();
+        g_logPath = logPath(debugEnabled());
+        if (!debugLogStart(g_logPath + ".part"))
+            printf(CONSOLE_RED "The log cannot be written to the SD\n"
+                   "card; this run keeps none.\n" CONSOLE_RESET);
 
         SyncRequest request = {&reader, &selected};
         frontend::runWorker(syncWorker, &request);

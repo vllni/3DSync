@@ -114,10 +114,10 @@ static std::string g_drawnBottom;
 static std::string signature(const BottomModel &m)
 {
     char buf[256];
-    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%d|%lx|%u|%u|%u|%d|%d|%d|%d|%d|%u",
+    snprintf(buf, sizeof(buf), "%d|%d|%d|%d|%d|%u|%u|%d|%d|%u|%lx|%u|%u|%u|%d|%d|%d|%d|%d|%u",
              m.mode,
              m.debugRun, m.starting, m.configLoaded, m.pathCount, m.elapsedSeconds, m.spinnerFrame,
-             m.cancelling, m.applyToAll, m.logKilobytes, m.logTrimmed,
+             m.cancelling, m.applyToAll, m.logKilobytes,
              (unsigned long)m.heldKeys, (unsigned)m.logFirst, (unsigned)m.logEnd,
              (unsigned)m.logTop, m.lastResultOk, m.logVisible, m.conflictPick,
              m.configIssueCount, m.configScroll,
@@ -667,11 +667,10 @@ void setLastResult(const std::string &text, bool ok)
     LightLock_Unlock(&g_stateLock);
 }
 
-bool askSaveDebugLog(unsigned kilobytes, bool trimmed)
+bool askSaveLog(unsigned kilobytes)
 {
     LightLock_Lock(&g_stateLock);
     g_shared.logKilobytes = kilobytes;
-    g_shared.logTrimmed = trimmed;
     LightLock_Unlock(&g_stateLock);
     return ask(SCREEN_SAVE_LOG) == 1;
 }

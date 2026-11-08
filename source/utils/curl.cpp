@@ -165,6 +165,9 @@ void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOp
     }
 }
 
+// How long a transfer may go without receiving a byte; see _applyDefaults().
+static const long STALL_SECONDS = 60;
+
 Curl::Curl() : _downloadFile(nullptr), _bodyFromFile(false), _verifyTls(true)
 {
     curl_global_init(CURL_GLOBAL_ALL);
@@ -181,6 +184,13 @@ void Curl::_applyDefaults()
 {
     curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" APP_VERSION);
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
+    // A transfer that stops receiving gives up instead of waiting for ever.
+    // Wi-Fi dropping mid-file (the lid closed on a normal sync, a phone's FTP
+    // app put to sleep) sends no error: the connection just goes quiet.  After
+    // STALL_SECONDS without a byte it fails with CURLE_OPERATION_TIMEDOUT,
+    // which every provider retries on a fresh connection.
+    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_TIME, STALL_SECONDS);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
     // Not for a progress display: the callback is how START stops a file
     // transfer part way instead of after the whole file.

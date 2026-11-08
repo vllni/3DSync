@@ -48,31 +48,35 @@ std::string debugRedact(const std::string &text);
 // Session log
 // ---------------------------------------------------------------------------
 // The on-screen log can be scrolled back, but it is a screen, and a bug report
-// wants a file.  Everything written to stdout is therefore also kept here while
-// debug mode is on, and the end of the run offers to write it to the SD card.
+// wants a file.  Everything a run writes to stdout, debug mode or not, is
+// therefore also written to a file on the SD card as the run goes: colour
+// codes stripped and every line through debugRedact() before it reaches the
+// card.  The end of the run offers to keep it; otherwise it is deleted.
 //
 // The capture is fed by whoever owns stdout — on the console that is the
 // devoptab ui/frontend.cpp installs, which also feeds the on-screen log, so
-// nothing else has to be routed through debugf() to end up in the log.  The host tests install
-// nothing, and the log simply stays empty there.
+// nothing else has to be routed through debugf() to end up in the log.  The
+// host tests install nothing and call debugLogAppend() themselves.
 // ---------------------------------------------------------------------------
 
-// Drop whatever was captured and start a fresh session.  Called when a run
-// begins, so a second sync does not save the first one's log with it.
+// Start a run's capture into spoolPath (parent directories created).  False
+// when the file cannot be created; nothing is captured then.  Ends any
+// capture still open, as debugLogReset() does.
+bool debugLogStart(const std::string &spoolPath);
+
+// Stop capturing and delete the file: the run's log was not wanted.
 void debugLogReset();
 
-// Append raw console bytes.  A no-op unless debug mode is on.  Only the head
-// and the tail of a long run are kept; see debugLogDropped().
+// Append raw console bytes.  A no-op unless a capture is open.
 void debugLogAppend(const char *data, size_t length);
 
-// Bytes currently held, and how many were dropped from the middle of a run
-// that outgrew the buffer.
+// Bytes captured so far, and whether a write to the card failed part way
+// (the file then ends early).
 size_t debugLogSize();
-size_t debugLogDropped();
+bool debugLogFailed();
 
-// Write the captured session to path: ANSI colour codes stripped, the whole
-// text passed through debugRedact(), parent directories created.  Returns
-// false if the file could not be written.
-bool debugLogSave(const std::string &path);
+// Finish the capture and move it to path.  False if it could not be written
+// in full or moved; the capture is closed either way.
+bool debugLogKeep(const std::string &path);
 
 #endif

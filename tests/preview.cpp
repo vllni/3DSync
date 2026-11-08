@@ -324,6 +324,9 @@ int main()
     drawTop(top, tm, log, scroll);
     drawBottom(bottom, m, bottomButtons(m));
     save("4-save-log", top, bottom);
+    m.debugRun = false;
+    drawBottom(bottom, m, bottomButtons(m));
+    save("4b-save-log-normal-run", top, bottom);
 
     m.mode = SCREEN_MENU;
     m.debugRun = false;

@@ -332,58 +332,21 @@ void debugErrno(const char *what, const std::string &path)
 // ---------------------------------------------------------------------------
 // Session log
 // ---------------------------------------------------------------------------
-// A long sync can print far more than is worth holding in memory on a console
-// with a few megabytes to spare, and the two parts that matter are opposite
-// ends of the run: the head has the version, the init log and the config
-// summary, the tail has whatever went wrong last.  So the head is kept up to
-// LOG_HEAD_MAX and everything after that goes into a tail window of at most
-// LOG_TAIL_MAX, with the bytes squeezed out in between counted rather than
-// quietly lost.
-static const size_t LOG_HEAD_MAX = 96 * 1024;
-static const size_t LOG_TAIL_MAX = 48 * 1024;
-
-static std::string g_logHead;
-static std::string g_logTail;
-static size_t g_logDropped = 0;
-
-void debugLogReset()
-{
-    g_logHead.clear();
-    g_logTail.clear();
-    g_logDropped = 0;
-}
-
-void debugLogAppend(const char *data, size_t length)
-{
-    if (!g_debugEnabled || data == NULL || length == 0)
-        return;
-
-    if (g_logHead.size() < LOG_HEAD_MAX)
-    {
-        size_t take = LOG_HEAD_MAX - g_logHead.size();
-        if (take > length)
-            take = length;
-        g_logHead.append(data, take);
-        data += take;
-        length -= take;
-        if (length == 0)
-            return;
-    }
-
-    g_logTail.append(data, length);
-    // Trimming one write's worth off the front on every append would memmove
-    // the whole window each time, so the tail is allowed to run to twice its
-    // size and then halved in one go.
-    if (g_logTail.size() > LOG_TAIL_MAX * 2)
-    {
-        size_t drop = g_logTail.size() - LOG_TAIL_MAX;
-        g_logTail.erase(0, drop);
-        g_logDropped += drop;
-    }
-}
-
-size_t debugLogSize() { return g_logHead.size() + g_logTail.size(); }
-size_t debugLogDropped() { return g_logDropped; }
+// Written to the SD card as the run goes, not held in memory: a long sync
+// prints far more than the console can spare, and trimming the middle away
+// lost exactly the part a report needed.  Each complete line is stripped of
+// colour codes and passed through debugRedact() on its way out, so the file
+// never holds a token, even while the run is still going.  Lines, because a
+// token may arrive in two console writes but never spans a line break.
+// ---------------------------------------------------------------------------
+static FILE *g_logFile = NULL;
+static std::string g_logSpool;   // the file being written
+static std::string g_logPending; // the start of a line not yet ended
+static size_t g_logWritten = 0;
+static bool g_logFailed = false;
+// A dump without line breaks is written out once it gets this long rather
+// than held: a body is already redacted when it is dumped.
+static const size_t LOG_PENDING_MAX = 64 * 1024;
 
 // Console colours are written as CSI sequences, which are noise in a text file
 // and hide the text they wrap from debugRedact().  Both are stripped here:
@@ -413,39 +376,84 @@ static std::string stripAnsi(const std::string &text)
     return out;
 }
 
-bool debugLogSave(const std::string &path)
+static void logWriteOut(const std::string &text)
 {
-    // Redaction runs over the finished text rather than per write: a token can
-    // straddle two console writes, and by here the sequences that would have
-    // split a match are gone.
-    std::string text = debugRedact(stripAnsi(g_logHead));
-    if (g_logDropped > 0)
+    if (g_logFile == NULL || g_logFailed || text.empty())
+        return;
+    std::string clean = debugRedact(stripAnsi(text));
+    // No printf here: stdout is what feeds this.
+    if (fwrite(clean.data(), 1, clean.size(), g_logFile) != clean.size())
+        g_logFailed = true;
+    else
+        g_logWritten += clean.size();
+}
+
+void debugLogReset()
+{
+    if (g_logFile != NULL)
     {
-        char note[96];
-        snprintf(note, sizeof(note),
-                 "\n... %u bytes dropped from the middle of the run ...\n\n",
-                 (unsigned)g_logDropped);
-        text += note;
+        fclose(g_logFile);
+        remove(g_logSpool.c_str());
     }
-    text += debugRedact(stripAnsi(g_logTail));
+    g_logFile = NULL;
+    g_logSpool.clear();
+    g_logPending.clear();
+    g_logWritten = 0;
+    g_logFailed = false;
+}
 
-    mkparents(path);
-
-    FILE *fp = fopen(path.c_str(), "wb");
-    if (!fp)
-    {
-        debugErrno("fopen", path);
+bool debugLogStart(const std::string &spoolPath)
+{
+    debugLogReset();
+    mkparents(spoolPath);
+    g_logFile = fopen(spoolPath.c_str(), "wb");
+    if (g_logFile == NULL)
         return false;
-    }
+    // Whole blocks to the card, not a write per console line.
+    setvbuf(g_logFile, NULL, _IOFBF, 16 * 1024);
+    g_logSpool = spoolPath;
+    return true;
+}
 
-    size_t written = text.empty() ? 0 : fwrite(text.data(), 1, text.size(), fp);
-    bool ok = (written == text.size());
-    if (!ok)
-        debugErrno("fwrite", path);
-    if (fclose(fp) != 0)
+void debugLogAppend(const char *data, size_t length)
+{
+    if (g_logFile == NULL || data == NULL || length == 0)
+        return;
+    g_logPending.append(data, length);
+    size_t end = g_logPending.rfind('\n');
+    if (end != std::string::npos)
     {
-        debugErrno("fclose", path);
+        logWriteOut(g_logPending.substr(0, end + 1));
+        g_logPending.erase(0, end + 1);
+    }
+    if (g_logPending.size() > LOG_PENDING_MAX)
+    {
+        logWriteOut(g_logPending);
+        g_logPending.clear();
+    }
+}
+
+size_t debugLogSize() { return g_logWritten + g_logPending.size(); }
+bool debugLogFailed() { return g_logFailed; }
+
+bool debugLogKeep(const std::string &path)
+{
+    if (g_logFile == NULL)
+        return false;
+    logWriteOut(g_logPending);
+    g_logPending.clear();
+    bool ok = !g_logFailed;
+    if (fclose(g_logFile) != 0)
+        ok = false;
+    g_logFile = NULL;
+    // FAT will not rename over an existing file.
+    remove(path.c_str());
+    if (rename(g_logSpool.c_str(), path.c_str()) != 0)
+    {
+        debugErrno("rename", path);
         ok = false;
     }
+    g_logSpool.clear();
+    g_logWritten = 0;
     return ok;
 }
