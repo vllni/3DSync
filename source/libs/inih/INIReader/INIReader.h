@@ -69,9 +69,16 @@ public:
     // of the code reads plaintext through Get() as before.
     void Set(const std::string &section, const std::string &name, const std::string &value);
 
+    // The name part of a GetValues() key as the file spelled it ("paths=gba"
+    // -> "GBA"), the first spelling where a key repeats; the lowercased name
+    // for a key the file did not have.  Local addition: lookups stay
+    // case-insensitive, but a [Paths] name is also a folder on the remote.
+    std::string GetSpelling(const std::string &key) const;
+
 private:
     int _error;
     std::map<std::string, std::string> _values;
+    std::map<std::string, std::string> _spellings;
     static std::string MakeKey(const std::string &section, const std::string &name);
     static int ValueHandler(void *user, const char *section, const char *name,
                             const char *value);

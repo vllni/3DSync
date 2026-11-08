@@ -65,6 +65,18 @@ public:
     // "" on failure.  The handle is passed back to list() and upload().
     virtual std::string ensureRoot(const std::string &remoteName) = 0;
 
+    // The root handle for remoteName if that folder already exists, ""
+    // if it does not or the remote cannot tell; never creates anything.
+    // Only asked about a name with capitals, and only needed where folder
+    // names are case-sensitive: earlier versions sent a [Paths] name to the
+    // remote lowercased, so an existing setup may hold "gba" where the INI
+    // says "GBA" (#71).  Dropbox and Drive compare names ignoring case.
+    virtual std::string findRoot(const std::string &remoteName)
+    {
+        (void)remoteName;
+        return "";
+    }
+
     // List every file (not folder) under root, keyed by relPath.
     virtual bool list(const std::string &root,
                       std::map<std::string, RemoteFileInfo> &out) = 0;

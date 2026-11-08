@@ -4,6 +4,7 @@
 #include "../utils/fsutil.h"
 #include "../utils/hash.h"
 #include "../utils/json.h"
+#include "../utils/pathutil.h"
 #include "remoteparse.h"
 #include "../sync/syncengine.h"
 #include <3ds.h>
@@ -903,7 +904,8 @@ std::string GoogleDrive::getServerTime() const
 
 std::string GoogleDrive::ensureRoot(const std::string &remoteName)
 {
-    auto chosen = _pathFolders.find(remoteName);
+    // Folder.<name>= keys are lowercased; remoteName is spelled as written.
+    auto chosen = _pathFolders.find(asciiLower(remoteName));
     if (chosen != _pathFolders.end())
         return _checkChosenFolder(remoteName, chosen->second);
     return ensureFolderPath(remoteName);
@@ -997,7 +999,7 @@ bool GoogleDrive::legacyUpload(const std::string &localBase,
 {
     // The flat upload knows only FolderId=; a folder chosen for this entry
     // is the n-way sync's to upload into.
-    if (_pathFolders.count(remoteName))
+    if (_pathFolders.count(asciiLower(remoteName)))
     {
         debugf("%s has a chosen Drive folder: no legacy upload\n", remoteName.c_str());
         return false;

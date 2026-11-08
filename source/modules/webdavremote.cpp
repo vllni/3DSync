@@ -154,7 +154,8 @@ bool WebDavRemote::connect()
 }
 
 bool WebDavRemote::_propfind(const std::string &path, const char *depth,
-                             std::vector<DavEntry> &out, std::string *rawBody)
+                             std::vector<DavEntry> &out, std::string *rawBody,
+                             long expectedStatus)
 {
     std::string depthHeader = std::string("Depth: ") + depth;
     struct curl_slist *headers = NULL;
@@ -175,7 +176,7 @@ bool WebDavRemote::_propfind(const std::string &path, const char *depth,
     _curl.setCustomRequest("PROPFIND");
     _curl.setPostData(PROPFIND_BODY);
 
-    int res = _performWithRetry();
+    int res = _performWithRetry(NULL, expectedStatus);
     long status = _curl.getStatusCode();
     std::string body = _curl.getResponse();
     curl_slist_free_all(headers);
@@ -254,6 +255,20 @@ std::string WebDavRemote::ensureRoot(const std::string &remoteName)
         if (!_mkcol(part))
             return "";
     }
+    return root;
+}
+
+// A Depth 0 PROPFIND: 207 if the collection is there, 404 if not, which is
+// an answer here rather than an error.
+std::string WebDavRemote::findRoot(const std::string &remoteName)
+{
+    std::string root = normalizeRemotePath(remoteName);
+    if (root.empty() || _collections.count(root))
+        return root;
+    std::vector<DavEntry> entries;
+    if (!_propfind(root, "0", entries, NULL, 404))
+        return "";
+    _collections.insert(root);
     return root;
 }
 

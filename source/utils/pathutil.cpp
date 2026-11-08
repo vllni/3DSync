@@ -1,5 +1,7 @@
 #include "pathutil.h"
 
+#include <ctype.h>
+
 const char *TEMP_SUFFIX = ".3dstmp";
 
 std::string normalizeRemotePath(const std::string &path, bool leadingSlash)
@@ -49,4 +51,12 @@ bool isSafeRelativePath(const std::string &relPath)
         if (c == '\\' || (unsigned char)c < 0x20 || c == 0x7f)
             return false;
     return true;
+}
+
+std::string asciiLower(const std::string &s)
+{
+    std::string out(s);
+    for (char &c : out)
+        c = (char)tolower((unsigned char)c);
+    return out;
 }

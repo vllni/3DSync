@@ -421,6 +421,36 @@ static bool syncFile(std::vector<Participant *> &live, Manifest &manifest,
 }
 
 // ---------------------------------------------------------------------------
+// resolveRoot  — the remote folder for an entry, spelled as the INI has it
+// ---------------------------------------------------------------------------
+// Earlier versions lowercased the name ("GBA" became "gba"), so a remote that
+// tells names apart by case may hold the folder under that spelling.  It is
+// used only when the folder as written is missing, and found without creating
+// either one; otherwise, and on remotes that cannot tell, ensureRoot() as ever.
+// ---------------------------------------------------------------------------
+static std::string resolveRoot(SyncProvider &provider, const std::string &label,
+                               const std::string &remoteName)
+{
+    std::string lowered = asciiLower(remoteName);
+    if (lowered == remoteName)
+        return provider.ensureRoot(remoteName);
+
+    std::string root = provider.findRoot(remoteName);
+    if (!root.empty() || provider.hasFatalError())
+        return root;
+    root = provider.findRoot(lowered);
+    if (!root.empty())
+    {
+        debugf("%s: no folder %s, using %s as earlier versions did\n", label.c_str(),
+               remoteName.c_str(), lowered.c_str());
+        return root;
+    }
+    if (provider.hasFatalError())
+        return "";
+    return provider.ensureRoot(remoteName);
+}
+
+// ---------------------------------------------------------------------------
 // syncEntry
 // ---------------------------------------------------------------------------
 bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
@@ -447,7 +477,7 @@ bool syncEntry(std::vector<Participant> &participants, Manifest &manifest,
             continue;
 
         // Resolve (and create if missing) the remote folder for this entry
-        p.root = provider.ensureRoot(entry.remoteName);
+        p.root = resolveRoot(provider, p.label, entry.remoteName);
         if (p.root.empty() && !entry.remoteName.empty())
         {
             if (provider.hasFatalError())

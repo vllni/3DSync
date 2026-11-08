@@ -22,4 +22,8 @@ bool isTempTransferName(const std::string &path);
 // engine refuses it before deciding anything.
 bool isSafeRelativePath(const std::string &relPath);
 
+// ASCII lowercase, as INIReader keys sections and names: what Only=, [Filter]
+// and Folder.<name>= compare path names in.
+std::string asciiLower(const std::string &s);
+
 #endif

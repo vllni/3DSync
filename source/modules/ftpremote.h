@@ -29,6 +29,7 @@ public:
     bool connect() override;
     bool hasFatalError() const override;
     std::string ensureRoot(const std::string &remoteName) override;
+    std::string findRoot(const std::string &remoteName) override;
     bool list(const std::string &root,
               std::map<std::string, RemoteFileInfo> &out) override;
     bool download(const RemoteFileInfo &file, const std::string &localPath) override;

@@ -2,6 +2,8 @@
 
 #include <ctype.h>
 
+#include "../utils/pathutil.h"
+
 namespace
 {
 
@@ -114,14 +116,6 @@ std::set<std::string> splitNames(const std::string &list)
     return out;
 }
 
-std::string lower(const std::string &s)
-{
-    std::string out = s;
-    for (char &c : out)
-        c = (char)tolower((unsigned char)c);
-    return out;
-}
-
 } // namespace
 
 std::string RemoteConfig::displayName() const
@@ -135,7 +129,7 @@ std::string RemoteConfig::displayName() const
 
 bool RemoteConfig::syncs(const std::string &entryName) const
 {
-    return only.empty() || only.count(lower(entryName)) > 0;
+    return only.empty() || only.count(asciiLower(entryName)) > 0;
 }
 
 bool RemoteConfig::takesPart(const std::string &entryName, bool uploadOnly) const
@@ -160,7 +154,7 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
 
     std::set<std::string> known;
     for (auto &name : entryNames)
-        known.insert(lower(name));
+        known.insert(asciiLower(name));
 
     std::vector<RemoteConfig> found;
     for (auto &section : sections)
@@ -201,7 +195,7 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
             continue;
         }
 
-        std::string role = lower(valueOf(values, section, "role"));
+        std::string role = asciiLower(valueOf(values, section, "role"));
         if (role == "backup")
             remote.role = ROLE_BACKUP;
         else if (role == "source")
@@ -220,7 +214,7 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
             continue;
         }
 
-        std::string verify = lower(valueOf(values, section, "verifytls"));
+        std::string verify = asciiLower(valueOf(values, section, "verifytls"));
         bool canSkipVerify = remote.type == REMOTE_WEBDAV || remote.type == REMOTE_FTP;
         if (verify == "false" || verify == "no" || verify == "0" || verify == "off")
         {
@@ -243,7 +237,7 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
 
         if (remote.type == REMOTE_FTP)
         {
-            std::string tls = lower(valueOf(values, section, "tls"));
+            std::string tls = asciiLower(valueOf(values, section, "tls"));
             if (tls.empty() || tls == "try")
                 remote.ftpTls = "try";
             else if (tls == "none" || tls == "implicit")

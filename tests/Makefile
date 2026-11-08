@@ -8,7 +8,7 @@
 
 CXX ?= g++
 CXXFLAGS ?= -std=gnu++11 -Wall -Wextra -O1 -g
-# As in the app's Makefile: the INI reader is compiled into the sealing tests.
+# As in the app's Makefile: the INI reader is compiled into the tests.
 CXXFLAGS += -DINI_MAX_LINE=2048
 BUILD := build
 BIN := $(BUILD)/run-tests
@@ -27,6 +27,8 @@ UNITS := \
 	../source/sync/extfilter.cpp \
 	../source/sync/remoteconfig.cpp \
 	../source/sync/syncengine.cpp \
+	../source/libs/inih/INIReader/INIReader.cpp \
+	../source/libs/inih/ini.c \
 	../source/ui/canvas.cpp \
 	../source/ui/fontdata.cpp \
 	../source/ui/logbuffer.cpp \
@@ -39,7 +41,7 @@ UI_UNITS := ../source/ui/canvas.cpp ../source/ui/fontdata.cpp \
 
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
 	test_debug.cpp test_engine.cpp test_extfilter.cpp test_json.cpp test_manifest.cpp test_nway.cpp \
-	test_remoteconfig.cpp \
+	test_remoteconfig.cpp test_rootname.cpp \
 	test_path.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
 	test_ui.cpp
@@ -50,8 +52,7 @@ TEST_SRC := framework.cpp mocks.cpp main.cpp \
 MBEDTLS_PROBE := $(shell printf '#include <mbedtls/sha256.h>\nint main(){return 0;}\n' > /tmp/3dsync-mbedtls-probe.cpp 2>/dev/null && $(CXX) /tmp/3dsync-mbedtls-probe.cpp -lmbedcrypto -o /tmp/3dsync-mbedtls-probe 2>/dev/null && echo yes)
 
 ifeq ($(MBEDTLS_PROBE),yes)
-UNITS += ../source/utils/hash.cpp ../source/utils/secrets.cpp ../source/utils/configseal.cpp \
-	../source/libs/inih/INIReader/INIReader.cpp ../source/libs/inih/ini.c
+UNITS += ../source/utils/hash.cpp ../source/utils/secrets.cpp ../source/utils/configseal.cpp
 TEST_SRC += test_hash.cpp test_secrets.cpp
 CXXFLAGS += -DHAVE_MBEDTLS
 LDLIBS += -lmbedcrypto

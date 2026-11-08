@@ -254,6 +254,19 @@ std::string FtpRemote::ensureRoot(const std::string &remoteName)
     return root;
 }
 
+// A name-only listing, as connect() sends for Path=.  A refused one is
+// "not there" (FTP cannot tell a missing folder from a forbidden one, and
+// some servers refuse NLST of an empty folder); the caller then creates
+// nothing it would not have created anyway.
+std::string FtpRemote::findRoot(const std::string &remoteName)
+{
+    std::string root = ensureRoot(remoteName);
+    _prepare();
+    _curl.setURL(_urlFor(root + "/"));
+    _curl.setDirListOnly(true);
+    return _performWithRetry(FTP_REQUEST_LIST) == CURLE_OK ? root : "";
+}
+
 long FtpRemote::_onListEntry(const void *transferInfo, void *userdata, int remains)
 {
     (void)remains;

@@ -3,13 +3,7 @@
 #include <ctype.h>
 #include <set>
 
-static std::string lower(const std::string &s)
-{
-    std::string out(s);
-    for (char &c : out)
-        c = (char)tolower((unsigned char)c);
-    return out;
-}
+#include "../utils/pathutil.h"
 
 static bool isSeparator(char c)
 {
@@ -27,7 +21,7 @@ ExtensionFilter ExtensionFilter::parse(const std::string &spec)
         size_t start = i;
         while (i < spec.size() && !isSeparator(spec[i]))
             i++;
-        std::string token = lower(spec.substr(start, i - start));
+        std::string token = asciiLower(spec.substr(start, i - start));
 
         // A bare "*" (or "*.*") asks for everything, whatever else is listed.
         if (token == "*" || token == "*.*")
@@ -56,7 +50,7 @@ bool ExtensionFilter::matches(const std::string &path) const
         return true;
 
     size_t slash = path.rfind('/');
-    std::string name = lower(slash == std::string::npos ? path : path.substr(slash + 1));
+    std::string name = asciiLower(slash == std::string::npos ? path : path.substr(slash + 1));
     for (auto &ext : _extensions)
     {
         // At least one character before the dot: ".sav" alone is a hidden
@@ -85,7 +79,7 @@ std::string ExtensionFilter::describe() const
 // ---------------------------------------------------------------------------
 const ExtensionFilter &PathFilters::forEntry(const std::string &entryName) const
 {
-    auto it = perPath.find(lower(entryName));
+    auto it = perPath.find(asciiLower(entryName));
     return it != perPath.end() ? it->second : defaults;
 }
 
@@ -100,14 +94,14 @@ PathFilters parsePathFilters(const std::map<std::string, std::string> &values,
     static const std::string SECTION = "filter=";
     std::set<std::string> known;
     for (auto &name : entryNames)
-        known.insert(lower(name));
+        known.insert(asciiLower(name));
 
     PathFilters filters;
     for (auto &kv : values)
     {
         if (kv.first.compare(0, SECTION.size(), SECTION) != 0)
             continue;
-        std::string key = lower(kv.first.substr(SECTION.size()));
+        std::string key = asciiLower(kv.first.substr(SECTION.size()));
         if (key == "extensions")
             filters.defaults = ExtensionFilter::parse(kv.second);
         else if (known.count(key))
