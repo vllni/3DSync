@@ -40,7 +40,7 @@ label says which, so either works:
 | Choosing paths | Tap a path to tick or untick it, or move with **D-pad ↑/↓** and press **A**. **Y** ticks all (or clears all), **B** goes back. The choice lasts until 3DSync is closed; a remote that none of the ticked paths go to is not connected |
 | During a sync | **START** stops after the current file |
 | Conflict | The versions that changed are listed; **A** keeps the highlighted one (the 3DS's at first). Tap a version, or move to it with **R** or **D-pad ↑/↓**. **X** skips the file, **L** applies the answer to every remaining conflict, **START** stops. The log still scrolls with ←/→, the Circle Pad and the scroll strip |
-| End of a debug run | **A** save the log, **B** discard it |
+| End of a run | **A** save its log, **B** discard it |
 | Problems in 3DSync.ini, at startup | **A** continue to the menu, **START** exit; the list scrolls like the log |
 
 The log can be scrolled at any time, including while a sync is running:
@@ -514,12 +514,16 @@ The rest is not filtered — a debug run prints one line per file examined. The
 log on the top screen can be scrolled back while the run is going (see
 [Controls](#controls)), but for a bug report a file beats a photo.
 
-So a debug run does not leave it at the screen: when the sync ends, 3DSync
-offers to write everything it printed to the SD card as
-`/3ds/3DSync/logs/debug-<date>-<time>.log`. Press **A** to save it or **B** to
-discard it. That file is the whole run, colour codes removed and secrets masked
-— attach it to the issue instead of photographing the screen. A very long run
-keeps its beginning and its end and notes in the middle how much was dropped.
+So a run does not leave it at the screen: when the sync ends, 3DSync offers to
+write everything it printed to the SD card, as
+`/3ds/3DSync/logs/debug-<date>-<time>.log` after a debug run and
+`sync-<date>-<time>.log` after a normal one. Press **A** to save it or **B** to
+discard it. That file is the whole run, however long, colour codes removed and
+secrets masked — attach it to the issue instead of photographing the screen.
+It is written as the run goes (as `…log.part`, deleted if you discard it), so
+if 3DSync crashes, the log up to that point is still on the card. A normal
+run's log holds only what the screen showed; for a report, a debug run says far
+more.
 
 The log holds the same text the screen did, which includes the local paths you
 sync. Worth a look before sharing it, and it stays on your SD card until you

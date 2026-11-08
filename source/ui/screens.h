@@ -72,7 +72,7 @@ enum ScreenMode
     SCREEN_MENU,     // waiting for A / Y / START
     SCREEN_RUNNING,  // a sync is in progress
     SCREEN_CONFLICT, // the engine is waiting for a conflict answer
-    SCREEN_SAVE_LOG, // end of a debug run: keep the transcript or not
+    SCREEN_SAVE_LOG, // end of a run: keep its log or not
     SCREEN_CONFIG_ISSUES, // at startup: 3DSync.ini has problems; go on or exit
     SCREEN_PATHS          // from the menu: tick the paths the next syncs take
 };
@@ -112,7 +112,6 @@ struct BottomModel
 
     // SCREEN_SAVE_LOG
     unsigned logKilobytes;
-    bool logTrimmed;
 
     // SCREEN_CONFIG_ISSUES: every line of every problem, as printed to the
     // log (a line without indent starts one), and the first row shown.

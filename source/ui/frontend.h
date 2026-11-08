@@ -71,8 +71,8 @@ void setActivity(const std::string &provider, const std::string &entry);
 // The menu card's "last run" line.
 void setLastResult(const std::string &text, bool ok);
 
-// End of a debug run: true to save the captured log.
-bool askSaveDebugLog(unsigned kilobytes, bool trimmed);
+// End of a run: true to keep its log.
+bool askSaveLog(unsigned kilobytes);
 
 // SyncUi for one run.  Cancellation is START (or its touch button) on the UI
 // thread; conflicts are asked on the bottom screen.  "For all" (L) lives here

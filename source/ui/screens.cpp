@@ -44,7 +44,7 @@ static const Color kLogColors[] = {
 BottomModel::BottomModel()
     : mode(SCREEN_MENU), debugRun(false), starting(true), configLoaded(false), pathCount(0),
       pathSelected(0), lastResultOk(true), configIssueCount(0), elapsedSeconds(0), spinnerFrame(0), cancelling(false),
-      conflictPick(0), applyToAll(false), logKilobytes(0), logTrimmed(false), configScroll(0), pathPick(0), heldKeys(0), logFirst(0),
+      conflictPick(0), applyToAll(false), logKilobytes(0), configScroll(0), pathPick(0), heldKeys(0), logFirst(0),
       logEnd(0), logTop(0), logVisible(LOG_ROWS)
 {
 }
@@ -546,7 +546,8 @@ static void drawHeader(Canvas &c, const BottomModel &m)
         drawStatusPill(c, BOTTOM_W - 6, "Your call", C_WARN);
         break;
     case SCREEN_SAVE_LOG:
-        drawStatusPill(c, BOTTOM_W - 6, "Debug log", C_DEBUG);
+        drawStatusPill(c, BOTTOM_W - 6, m.debugRun ? "Debug log" : "Log",
+                       m.debugRun ? C_DEBUG : C_ACCENT);
         break;
     case SCREEN_PATHS:
         drawStatusPill(c, BOTTOM_W - 6, "Choose paths", C_ACCENT);
@@ -783,10 +784,10 @@ static void drawConfigIssuesCard(Canvas &c, const BottomModel &m)
 static void drawSaveLogCard(Canvas &c, const BottomModel &m)
 {
     c.roundRect(CARD_X, CARD_Y, CARD_W, ROW2_Y - GAP - CARD_Y, 12, C_PANEL);
-    c.text(kFontTitle, CARD_IN, CARD_Y + 8, "Save the debug log?", C_TEXT);
+    c.text(kFontTitle, CARD_IN, CARD_Y + 8, m.debugRun ? "Save the debug log?" : "Save the log?",
+           C_TEXT);
     char size[64];
-    snprintf(size, sizeof(size), "%u KB captured%s", m.logKilobytes,
-             m.logTrimmed ? ", middle of the run trimmed" : "");
+    snprintf(size, sizeof(size), "%u KB captured", m.logKilobytes);
     c.text(kFontBody, CARD_IN, CARD_Y + 38, size, C_DIM, CARD_TEXT_W);
     drawLines(c, kFontBody, CARD_IN, CARD_Y + 64, 17,
               wrapText(kFontBody, "Tokens and passwords are masked, but save paths are not "

@@ -213,6 +213,11 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
             debugf("  curl %d on %s\n", res, _curl.getURL().c_str());
             if (attempt < 2)
             {
+                // A download that stalled part way has written what arrived;
+                // the retry starts the file again, on a new connection: the
+                // old one may be the one that went quiet.  reset() clears it.
+                _curl.rewindDownloadFile();
+                _curl.setFreshConnect(true);
                 svcSleepThread(2000000000LL);
                 continue;
             }

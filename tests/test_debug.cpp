@@ -67,81 +67,94 @@ TEST(debug, is_off_until_asked_for)
 // betray that are worth pinning: keeping bytes when nobody asked for debug
 // mode, and writing a token into a file on a shared SD card.
 
-TEST(debuglog, captures_nothing_outside_debug_mode)
+TEST(debuglog, captures_nothing_without_a_run)
 {
-    bool was = debugEnabled();
-    setDebugEnabled(false);
     debugLogReset();
     debugLogAppend("Syncing [/test] <-> Dropbox:test\n", 33);
     CHECK_EQ(debugLogSize(), (size_t)0);
-    setDebugEnabled(was);
-    debugLogReset();
 }
 
-TEST(debuglog, keeps_what_is_appended_in_debug_mode)
+TEST(debuglog, a_normal_run_is_captured_too)
 {
     bool was = debugEnabled();
-    setDebugEnabled(true);
-    debugLogReset();
-    debugLogAppend("abc", 3);
-    debugLogAppend("de", 2);
-    CHECK_EQ(debugLogSize(), (size_t)5);
-    CHECK_EQ(debugLogDropped(), (size_t)0);
-    setDebugEnabled(was);
-    debugLogReset();
-}
-
-TEST(debuglog, drops_the_middle_of_an_oversized_run_and_says_so)
-{
-    bool was = debugEnabled();
-    setDebugEnabled(true);
-    debugLogReset();
-
-    // Comfortably past head + twice the tail window.
-    std::string chunk(4096, 'x');
-    for (int i = 0; i < 80; i++)
-        debugLogAppend(chunk.data(), chunk.size());
-
-    CHECK(debugLogDropped() > 0);
-    // Whatever was dropped, the buffer stays bounded rather than growing with
-    // the run.
-    CHECK(debugLogSize() < 320u * 1024u);
-
-    setDebugEnabled(was);
-    debugLogReset();
-}
-
-TEST(debuglog, saves_without_colour_codes_or_secrets)
-{
-    bool was = debugEnabled();
-    setDebugEnabled(true);
-    debugLogReset();
-
-    std::string line = "\x1b[31;1m  Dropbox API error: HTTP 409\x1b[0m\n"
-                       "dbg: {\"access_token\":\"ya29.secret\"}\n";
-    debugLogAppend(line.data(), line.size());
-
+    setDebugEnabled(false);
     TempDir dir;
-    std::string path = dir.path() + "/logs/debug.log";
-    CHECK(debugLogSave(path));
-
-    std::string saved = dir.read("/logs/debug.log");
-    CHECK_STR_EQ(saved, "  Dropbox API error: HTTP 409\n"
-                        "dbg: {\"access_token\":\"<redacted>\"}\n");
-
+    CHECK(debugLogStart(dir.path() + "/sync.log.part"));
+    debugLogAppend("Syncing [/test]\n", 16);
+    CHECK(debugLogKeep(dir.path() + "/sync.log"));
+    CHECK_STR_EQ(dir.read("/sync.log"), "Syncing [/test]\n");
     setDebugEnabled(was);
-    debugLogReset();
 }
 
-TEST(debuglog, a_new_run_does_not_carry_the_previous_one)
+TEST(debuglog, keeps_every_line_of_a_long_run)
 {
     bool was = debugEnabled();
     setDebugEnabled(true);
-    debugLogReset();
+    TempDir dir;
+    CHECK(debugLogStart(dir.path() + "/logs/debug.log.part"));
+
+    // Far past what the old in-memory head and tail kept (144 KB).
+    std::string line(99, 'x');
+    line += "\n";
+    for (int i = 0; i < 4000; i++)
+        debugLogAppend(line.data(), line.size());
+    debugLogAppend("the last line\n", 14);
+    CHECK_EQ(debugLogSize(), (size_t)(4000 * 100 + 14));
+
+    CHECK(debugLogKeep(dir.path() + "/logs/debug.log"));
+    std::string saved = dir.read("/logs/debug.log");
+    CHECK_EQ(saved.size(), (size_t)(4000 * 100 + 14));
+    CHECK(saved.compare(saved.size() - 14, 14, "the last line\n") == 0);
+    CHECK(!dir.exists("/logs/debug.log.part"));
+    setDebugEnabled(was);
+}
+
+TEST(debuglog, the_card_never_holds_colour_codes_or_secrets)
+{
+    bool was = debugEnabled();
+    setDebugEnabled(true);
+    TempDir dir;
+    CHECK(debugLogStart(dir.path() + "/debug.log.part"));
+
+    // A token split over two console writes, as a body dump can arrive.
+    std::string first = "\x1b[31;1m  Dropbox API error: HTTP 409\x1b[0m\n"
+                        "dbg: {\"access_token\":\"ya29.se";
+    std::string second = "cret\"}\n";
+    debugLogAppend(first.data(), first.size());
+    debugLogAppend(second.data(), second.size());
+
+    // Already on the card while the run goes on, and already clean.
+    std::string spooled = dir.read("/debug.log.part");
+    CHECK(spooled.find("ya29") == std::string::npos);
+
+    CHECK(debugLogKeep(dir.path() + "/debug.log"));
+    CHECK_STR_EQ(dir.read("/debug.log"), "  Dropbox API error: HTTP 409\n"
+                                        "dbg: {\"access_token\":\"<redacted>\"}\n");
+    setDebugEnabled(was);
+}
+
+TEST(debuglog, a_declined_log_is_deleted)
+{
+    bool was = debugEnabled();
+    setDebugEnabled(true);
+    TempDir dir;
+    CHECK(debugLogStart(dir.path() + "/debug.log.part"));
     debugLogAppend("first run\n", 10);
     debugLogReset();
+    CHECK(!dir.exists("/debug.log.part"));
     CHECK_EQ(debugLogSize(), (size_t)0);
-    CHECK_EQ(debugLogDropped(), (size_t)0);
+    setDebugEnabled(was);
+}
+
+TEST(debuglog, a_line_still_open_at_the_end_is_kept)
+{
+    bool was = debugEnabled();
+    setDebugEnabled(true);
+    TempDir dir;
+    CHECK(debugLogStart(dir.path() + "/debug.log.part"));
+    debugLogAppend("no line break", 13);
+    CHECK(debugLogKeep(dir.path() + "/debug.log"));
+    CHECK_STR_EQ(dir.read("/debug.log"), "no line break");
     setDebugEnabled(was);
 }
 
