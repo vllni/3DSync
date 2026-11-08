@@ -80,8 +80,10 @@ public:
         return folders.count(remoteName) ? "/root/" + remoteName : "";
     }
 
-    bool list(const std::string &root, std::map<std::string, RemoteFileInfo> &out) override
+    bool list(const std::string &root, const ExtensionFilter &filter,
+              std::map<std::string, RemoteFileInfo> &out) override
     {
+        (void)filter;
         listedRoots.push_back(root);
         listCalls++;
         if (fatalOnList)

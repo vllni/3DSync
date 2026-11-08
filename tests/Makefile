@@ -15,6 +15,7 @@ BIN := $(BUILD)/run-tests
 
 # Units under test, compiled from the app sources.
 UNITS := \
+	../source/utils/cancel.cpp \
 	../source/utils/debug.cpp \
 	../source/utils/json.cpp \
 	../source/utils/pathutil.cpp \

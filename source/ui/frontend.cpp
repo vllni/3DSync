@@ -6,6 +6,7 @@
 
 #include <3ds.h>
 
+#include "../utils/cancel.h"
 #include "../utils/debug.h"
 #include "canvas.h"
 #include "logbuffer.h"
@@ -306,6 +307,16 @@ static bool frame(u32 &pressed)
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
+// What a file transfer polls on the worker thread (utils/cancel.h): START,
+// without the announcement WorkerSyncUi::cancelRequested() prints.
+static bool cancelPending()
+{
+    LightLock_Lock(&g_stateLock);
+    bool cancel = g_cancel;
+    LightLock_Unlock(&g_stateLock);
+    return cancel;
+}
+
 bool init()
 {
     gfxInit(GSP_RGB565_OES, GSP_RGB565_OES, false);
@@ -317,6 +328,7 @@ bool init()
     g_top = new Canvas(TOP_W, TOP_H);
     g_bottom = new Canvas(BOTTOM_W, BOTTOM_H);
     installStdout();
+    setTransferCancelCheck(cancelPending);
 
     u32 ignored;
     return frame(ignored);

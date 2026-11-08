@@ -85,6 +85,11 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
         long status = _curl.getStatusCode();
         _learnAuthMethods();
 
+        if (Curl::wasCancelled(curlRes))
+        {
+            debugf("  stopped by START: %s\n", _curl.getURL().c_str());
+            return curlRes;
+        }
         if (Curl::isCertificateError(curlRes))
         {
             Curl::printCertificateHelp(displayName().c_str(), curlRes, true);
@@ -304,9 +309,10 @@ bool WebDavRemote::_listDepthOne(const std::string &root, const std::string &pre
     return true;
 }
 
-bool WebDavRemote::list(const std::string &root,
+bool WebDavRemote::list(const std::string &root, const ExtensionFilter &filter,
                         std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     if (!_noInfiniteDepth)
     {
         std::vector<DavEntry> entries;
@@ -361,7 +367,8 @@ bool WebDavRemote::download(const RemoteFileInfo &file, const std::string &local
 
     if (res != 0)
     {
-        printf("WebDAV: download failed for %s\n", file.id.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("WebDAV: download failed for %s\n", file.id.c_str());
         debugf("  %d for %s\n", res, _curl.getURL().c_str());
         // A server error page was streamed into the temp file.
         debugFileBody("  error body", tmpPath);
@@ -417,7 +424,8 @@ bool WebDavRemote::upload(const std::string &root, const std::string &relPath,
 
     if (res != 0)
     {
-        printf("WebDAV: upload failed for %s\n", remotePath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("WebDAV: upload failed for %s\n", remotePath.c_str());
         debugf("  PUT of %s returned %d\n", tmpPath.c_str(), res);
         return false;
     }

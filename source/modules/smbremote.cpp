@@ -15,6 +15,7 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 
+#include "../utils/cancel.h"
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
@@ -281,9 +282,10 @@ bool SmbRemote::_listInto(const std::string &dirPath, const std::string &prefix,
     return true;
 }
 
-bool SmbRemote::list(const std::string &root,
+bool SmbRemote::list(const std::string &root, const ExtensionFilter &filter,
                      std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     if (!_ensureSession())
         return false;
     bool ok = _listInto(root, "", out);
@@ -339,6 +341,11 @@ bool SmbRemote::_download(const RemoteFileInfo &file, const std::string &localPa
 
     while (true)
     {
+        if (transferCancelled())
+        {
+            ok = false; // START: the engine says so
+            break;
+        }
         int n = smb2_pread(_smb2, fh, &buf[0], chunk, offset);
         if (n == 0)
             break; // EOF
@@ -409,6 +416,12 @@ bool SmbRemote::_upload(const std::string &root, const std::string &relPath,
 
     while ((n = fread(&buf[0], 1, chunk, fp)) > 0)
     {
+        if (transferCancelled())
+        {
+            debugf("upload of %s stopped by START\n", tmpRemote.c_str());
+            ok = false;
+            break;
+        }
         size_t written = 0;
         while (written < n)
         {

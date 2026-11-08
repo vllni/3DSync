@@ -13,6 +13,7 @@
 #include <time.h>
 
 #include "../version.h"
+#include "cancel.h"
 #include "debug.h"
 
 // ---------------------------------------------------------------------------
@@ -134,6 +135,11 @@ bool Curl::isCertificateError(int curlCode)
     return curlCode == CURLE_PEER_FAILED_VERIFICATION || curlCode == CURLE_SSL_CACERT_BADFILE;
 }
 
+bool Curl::wasCancelled(int curlCode)
+{
+    return curlCode == CURLE_ABORTED_BY_CALLBACK;
+}
+
 void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut)
 {
     if (curlCode == CURLE_SSL_CACERT_BADFILE)
@@ -159,7 +165,7 @@ void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOp
     }
 }
 
-Curl::Curl() : _downloadFile(nullptr), _verifyTls(true)
+Curl::Curl() : _downloadFile(nullptr), _bodyFromFile(false), _verifyTls(true)
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
@@ -176,7 +182,11 @@ void Curl::_applyDefaults()
     curl_easy_setopt(_curl, CURLOPT_USERAGENT, "3DSync/" APP_VERSION);
     curl_easy_setopt(_curl, CURLOPT_CONNECTTIMEOUT, 50L);
     curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 1L);
+    // Not for a progress display: the callback is how START stops a file
+    // transfer part way instead of after the whole file.
+    curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(_curl, CURLOPT_XFERINFOFUNCTION, _progress_callback);
+    curl_easy_setopt(_curl, CURLOPT_XFERINFODATA, this);
     if (_verifyTls)
     {
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
@@ -252,11 +262,13 @@ void Curl::setReadData(void *pointer, curl_off_t size)
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, NULL);
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE_LARGE, size);
+    _bodyFromFile = true;
 }
 
 void Curl::setPostData(const std::string &data)
 {
     _postData = data;
+    _bodyFromFile = false;
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDS, _postData.data());
     curl_easy_setopt(_curl, CURLOPT_POSTFIELDSIZE, _postData.size());
     curl_easy_setopt(_curl, CURLOPT_POST, 1L);
@@ -265,6 +277,7 @@ void Curl::setPostData(const std::string &data)
 void Curl::resetToGet()
 {
     _postData.clear();
+    _bodyFromFile = false;
     curl_easy_setopt(_curl, CURLOPT_HTTPGET, 1L);
 }
 
@@ -397,6 +410,7 @@ void Curl::reset()
     curl_easy_reset(_curl);
     _postData.clear();
     _downloadFile = nullptr;
+    _bodyFromFile = false;
     _applyDefaults();
 }
 
@@ -436,6 +450,7 @@ void Curl::setUploadFile(FILE *fp, curl_off_t size)
     curl_easy_setopt(_curl, CURLOPT_SEEKFUNCTION, _seek_callback);
     curl_easy_setopt(_curl, CURLOPT_SEEKDATA, fp);
     curl_easy_setopt(_curl, CURLOPT_INFILESIZE_LARGE, size);
+    _bodyFromFile = true;
 }
 
 void Curl::setUseSSL(long level)
@@ -530,6 +545,19 @@ size_t Curl::_write_callback(void *data, size_t size, size_t nmemb, void *userda
     }
     self->_responseData.append(static_cast<char *>(data), totalSize);
     return totalSize;
+}
+
+int Curl::_progress_callback(void *userdata, curl_off_t dltotal, curl_off_t dlnow,
+                             curl_off_t ultotal, curl_off_t ulnow)
+{
+    (void)dltotal;
+    (void)dlnow;
+    (void)ultotal;
+    (void)ulnow;
+    // Only file transfers: a listing or a token refresh cut short would turn
+    // a cancel into an error report for the remote.
+    Curl *self = static_cast<Curl *>(userdata);
+    return (self->_downloadFile != nullptr || self->_bodyFromFile) && transferCancelled();
 }
 
 size_t Curl::_header_callback(void *data, size_t size, size_t nmemb, void *userdata)

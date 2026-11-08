@@ -5,6 +5,8 @@
 #include "framework.h"
 #include "mocks.h"
 
+#include "../source/utils/cancel.h"
+
 namespace
 {
 
@@ -448,6 +450,45 @@ TEST(engine, cancellation_stops_before_the_next_file)
     // What did happen is recorded, so a resumed sync does not redo it.
     CHECK_EQ(f.manifest.has(f.key("/a.sav")), true);
     CHECK(!f.manifest.has(f.key("/b.sav")));
+}
+
+TEST(engine, a_transfer_stopped_by_start_is_not_a_failure)
+{
+    Fixture f;
+    f.local.write("/a.sav", "a", 1700000000);
+    f.localFiles({"/a.sav"});
+    // START arrives while the upload runs: the provider reports it failed,
+    // and the engine's next poll sees the cancel.
+    f.remote.failUploads = true;
+    f.ui.cancelAfterPolls = 2;
+
+    CHECK(!f.run());
+    CHECK(f.summary.failures.empty());
+    CHECK(!f.manifest.has(f.key("/a.sav")));
+}
+
+TEST(engine, a_failed_transfer_without_start_is_a_failure)
+{
+    Fixture f;
+    f.local.write("/a.sav", "a", 1700000000);
+    f.localFiles({"/a.sav"});
+    f.remote.failUploads = true;
+
+    CHECK(f.run());
+    CHECK_EQ(f.summary.failures.size(), (size_t)1);
+}
+
+TEST(engine, transfers_see_the_installed_cancel_check)
+{
+    CHECK(!transferCancelled()); // nothing installed: never cancelled
+    struct Check
+    {
+        static bool yes() { return true; }
+    };
+    setTransferCancelCheck(Check::yes);
+    CHECK(transferCancelled());
+    setTransferCancelCheck(0);
+    CHECK(!transferCancelled());
 }
 
 TEST(engine, manifest_keys_are_scoped_per_remote)

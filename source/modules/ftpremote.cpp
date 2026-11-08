@@ -6,6 +6,7 @@
 
 #include <3ds.h>
 
+#include "../sync/extfilter.h"
 #include "../utils/debug.h"
 #include "../utils/fsutil.h"
 #include "../utils/pathutil.h"
@@ -110,6 +111,9 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
 
         switch (res)
         {
+        case CURLE_ABORTED_BY_CALLBACK: // see Curl::wasCancelled()
+            debugf("  stopped by START: %s\n", _curl.getURL().c_str());
+            return res;
         // Wrong credentials or no access to the tree — nothing else will work,
         // with one exception: see ftpShouldRetryWithoutTls().
         case CURLE_LOGIN_DENIED:
@@ -312,6 +316,7 @@ std::string FtpRemote::_tagFor(const std::string &path)
 }
 
 bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
+                         const ExtensionFilter &filter,
                          std::map<std::string, RemoteFileInfo> &out)
 {
     ListingContext ctx;
@@ -345,6 +350,8 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
     debugf("\"%s\": %d file(s), %d dir(s)\n", dirPath.c_str(), (int)ctx.files.size(),
            (int)ctx.dirs.size());
 
+    int filtered = 0;
+
     for (auto &fileName : ctx.files)
     {
         std::string childPath = dirPath.empty() ? fileName : dirPath + "/" + fileName;
@@ -353,6 +360,11 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
         // Skip our own interrupted transfers.
         if (isTempTransferName(childRel))
             continue;
+        if (!filter.matches(childRel))
+        {
+            filtered++;
+            continue;
+        }
 
         RemoteFileInfo info;
         info.id = childPath;
@@ -360,20 +372,23 @@ bool FtpRemote::_listDir(const std::string &dirPath, const std::string &prefix,
         info.tag = _tagFor(childPath);
         out[childRel] = info;
     }
+    if (filtered > 0)
+        debugf("\"%s\": %d file(s) left out by the filter, not tagged\n", dirPath.c_str(),
+               filtered);
 
     for (auto &dirName : ctx.dirs)
     {
         std::string childPath = dirPath.empty() ? dirName : dirPath + "/" + dirName;
-        if (!_listDir(childPath, prefix + "/" + dirName, out))
+        if (!_listDir(childPath, prefix + "/" + dirName, filter, out))
             return false;
     }
     return true;
 }
 
-bool FtpRemote::list(const std::string &root,
+bool FtpRemote::list(const std::string &root, const ExtensionFilter &filter,
                      std::map<std::string, RemoteFileInfo> &out)
 {
-    return _listDir(root, "", out);
+    return _listDir(root, "", filter, out);
 }
 
 bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPath)
@@ -393,7 +408,8 @@ bool FtpRemote::download(const RemoteFileInfo &file, const std::string &localPat
 
     if (res != 0)
     {
-        printf("FTP: download failed for %s\n", file.id.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("FTP: download failed for %s\n", file.id.c_str());
         debugf("  curl %d for %s\n", res, _curl.getURL().c_str());
         debugFileBody("  partial download", tmpPath);
         remove(tmpPath.c_str());
@@ -456,7 +472,8 @@ bool FtpRemote::upload(const std::string &root, const std::string &relPath,
 
     if (res != 0)
     {
-        printf("FTP: upload failed for\n  %s\n", remotePath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("FTP: upload failed for\n  %s\n", remotePath.c_str());
         if (res == CURLE_REMOTE_ACCESS_DENIED)
         {
             // A CWD or MKD on the way was refused.  Listing read the same 550

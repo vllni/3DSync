@@ -425,6 +425,11 @@ int GoogleDrive::_performWithRetry()
         int curlRes = _curl.perform();
         long status = _curl.getStatusCode();
 
+        if (Curl::wasCancelled(curlRes))
+        {
+            debugf("  stopped by START: %s\n", _curl.getURL().c_str());
+            return curlRes;
+        }
         if (Curl::isCertificateError(curlRes))
         {
             Curl::printCertificateHelp(displayName().c_str(), curlRes, false);
@@ -878,7 +883,8 @@ bool GoogleDrive::downloadFile(const DriveFileInfo &file, const std::string &loc
 
     if (res != 0)
     {
-        printf("downloadFile failed for %s\n", localPath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("downloadFile failed for %s\n", localPath.c_str());
         debugf("download of Drive id %s returned %d (HTTP %ld)\n", file.id.c_str(),
                res, _curl.getStatusCode());
         // The API error went into the temp file, which is deleted next.
@@ -946,9 +952,10 @@ std::string GoogleDrive::_checkChosenFolder(const std::string &remoteName,
     return "";
 }
 
-bool GoogleDrive::list(const std::string &root,
+bool GoogleDrive::list(const std::string &root, const ExtensionFilter &filter,
                        std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     std::map<std::string, DriveFileInfo> driveFiles = listFolderRecursive(root);
     if (_fatalError)
         return false;

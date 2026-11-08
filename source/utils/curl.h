@@ -24,6 +24,9 @@ public:
     // makes every certificate look expired or not yet valid), and, where the
     // remote allows it, VerifyTLS=false for a server with its own certificate.
     static void printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut);
+    // A file transfer stopped part way because the user pressed START (see
+    // utils/cancel.h): not a failure to retry or announce.
+    static bool wasCancelled(int curlCode);
     void setHeaders(curl_slist *headers);
     // Stream the request body from a FILE*.  When size >= 0 the body length is
     // announced with Content-Length; without it libcurl falls back to chunked
@@ -109,6 +112,9 @@ private:
     // back the URL once the handle has been reset.
     std::string _lastUrl;
     FILE *_downloadFile;
+    // The request body is read from a file (an upload), which, like a body
+    // streamed to _downloadFile, START may stop part way.
+    bool _bodyFromFile;
     bool _verifyTls;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
@@ -117,6 +123,9 @@ private:
     static int _seek_callback(void *userdata, curl_off_t offset, int origin);
     static size_t _write_callback(void *data, size_t size, size_t nmemb, void *userdata);
     static size_t _header_callback(void *data, size_t size, size_t nmemb, void *userdata);
+    // Aborts a file transfer once transferCancelled() says so.
+    static int _progress_callback(void *userdata, curl_off_t dltotal, curl_off_t dlnow,
+                                  curl_off_t ultotal, curl_off_t ulnow);
     // libcurl's own protocol trace, wired up only in debug mode.
     static int _trace_callback(CURL *handle, curl_infotype type, char *data,
                                size_t size, void *userdata);

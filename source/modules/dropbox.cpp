@@ -159,6 +159,11 @@ int Dropbox::_performWithRetry(FILE *uploadFile, long expectedStatus)
         if (!date.empty())
             _lastServerTime = date;
 
+        if (Curl::wasCancelled(curlRes))
+        {
+            debugf("  stopped by START: %s\n", _curl.getURL().c_str());
+            return curlRes;
+        }
         if (Curl::isCertificateError(curlRes))
         {
             Curl::printCertificateHelp(displayName().c_str(), curlRes, false);
@@ -330,9 +335,10 @@ std::string Dropbox::_createFolder(const std::string &root)
     return "";
 }
 
-bool Dropbox::list(const std::string &root,
+bool Dropbox::list(const std::string &root, const ExtensionFilter &filter,
                    std::map<std::string, RemoteFileInfo> &out)
 {
+    (void)filter; // every file costs the same here, filtered or not
     std::string body = "{\"path\":\"" + jsonEscape(root) +
                        "\",\"recursive\":true,\"include_deleted\":false}";
     std::string endpoint = "https://api.dropboxapi.com/2/files/list_folder";
@@ -410,7 +416,8 @@ bool Dropbox::download(const RemoteFileInfo &file, const std::string &localPath)
     {
         // On an error the body is the JSON error, which went into the temp file
         // and is about to be deleted with the reason still in it.
-        printf("Dropbox: download failed for %s\n", file.relPath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("Dropbox: download failed for %s\n", file.relPath.c_str());
         debugf("download of %s (%s) returned %d\n", file.relPath.c_str(),
                file.id.c_str(), res);
         debugFileBody("  error body", tmpPath);
@@ -473,7 +480,8 @@ bool Dropbox::upload(const std::string &root, const std::string &relPath,
 
     if (res != 0)
     {
-        printf("Dropbox: upload failed for %s\n", relPath.c_str());
+        if (!Curl::wasCancelled(res)) // START: the engine says so
+            printf("Dropbox: upload failed for %s\n", relPath.c_str());
         debugf("upload of %s returned %d\n", remotePath.c_str(), res);
         return false;
     }
