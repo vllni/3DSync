@@ -47,6 +47,7 @@ static volatile bool g_workerDone;
 static u64 g_runStarted;
 static bool g_unattended;       // setUnattended(): sleep refused, lid watched
 static bool g_lidClosed;        // as last seen while unattended
+static bool g_ptmuOpen;         // ptm:u, open only while unattended
 
 static Canvas *g_top;
 static Canvas *g_bottom;
@@ -344,6 +345,9 @@ bool init()
 
 void exit()
 {
+    if (g_ptmuOpen)
+        ptmuExit();
+    g_ptmuOpen = false;
     delete g_top;
     delete g_bottom;
     g_top = g_bottom = NULL;
@@ -712,12 +716,44 @@ void setUnattended(bool on)
     LightLock_Unlock(&g_stateLock);
 }
 
+// gsp::Lcd is opened for the one call and closed again.  The system needs
+// that service itself, to dim the screens after a while without input among
+// other things: an app that kept a session open from start to exit froze the
+// whole console at the menu, HOME included.
+static void setBacklights(bool on)
+{
+    Result res = gspLcdInit();
+    if (R_FAILED(res))
+    {
+        debugf("gspLcdInit failed (0x%08lx), backlights left as they are\n", (unsigned long)res);
+        return;
+    }
+    if (on)
+        GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTH);
+    else
+        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTH);
+    gspLcdExit();
+}
+
 // Called from frame(): dark screens while the lid is closed during an
-// unattended run, lit again when it opens or the run ends.
+// unattended run, lit again when it opens or the run ends.  ptm:u, which
+// reads the lid, is held only for that run, for the same reason as gsp::Lcd.
 static void watchLid(bool unattended)
 {
+    if (unattended && !g_ptmuOpen)
+    {
+        Result res = ptmuInit();
+        g_ptmuOpen = R_SUCCEEDED(res);
+        if (!g_ptmuOpen)
+            debugf("ptmuInit failed (0x%08lx), the lid is not watched\n", (unsigned long)res);
+    }
+    else if (!unattended && g_ptmuOpen)
+    {
+        ptmuExit();
+        g_ptmuOpen = false;
+    }
     bool closed = false;
-    if (unattended)
+    if (g_ptmuOpen)
     {
         u8 open = 1;
         if (R_SUCCEEDED(PTMU_GetShellState(&open)))
@@ -726,10 +762,7 @@ static void watchLid(bool unattended)
     if (closed == g_lidClosed)
         return;
     g_lidClosed = closed;
-    if (closed)
-        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTH);
-    else
-        GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTH);
+    setBacklights(!closed);
 }
 
 // ---------------------------------------------------------------------------

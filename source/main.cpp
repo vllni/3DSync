@@ -582,10 +582,6 @@ bool componentsInit()
     initStep("pxiDevInit", pxiDevInit());
     initStep("amInit", amInit());
     initStep("acInit", acInit());
-    // A review-first sync keeps running with the lid closed: these watch the
-    // lid and switch the screens off meanwhile.
-    initStep("ptmuInit", ptmuInit());
-    initStep("gspLcdInit", gspLcdInit());
 
     u32 *socketBuffer = (u32 *)memalign(0x1000, 0x100000);
     if (socketBuffer == NULL)
@@ -612,8 +608,6 @@ void componentsExit()
     sslcExit();
     httpcExit();
     socExit();
-    gspLcdExit();
-    ptmuExit();
     acExit();
     pxiDevExit();
     romfsExit();
