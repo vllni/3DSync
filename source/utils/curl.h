@@ -6,24 +6,33 @@
 
 #include <curl/curl.h>
 
+#include "certtrust.h"
+
+// What a TLS connection of this handle checks and what it saw; curl.cpp.
+struct TlsCheckState;
+
 class Curl
 {
 public:
     Curl();
     ~Curl();
+    Curl(const Curl &) = delete;
+    Curl &operator=(const Curl &) = delete;
     void setURL(std::string URL);
-    // Check the server's TLS certificate against the CA bundle in romfs and
-    // its name against the host (the default).  Off only for a WebDAV or FTP
-    // remote whose section says VerifyTLS=false.  Survives reset().
-    void setVerifyTls(bool enabled);
+    // How the server's TLS certificate is checked.  The default is against
+    // the CA bundle in romfs, and its name against the host.  A WebDAV or FTP
+    // remote may pin a key, bring its own CAs, or (VerifyTLS=false) not check
+    // at all.  Survives reset().
+    void setTrust(const TlsTrust &trust);
 
     // A failed certificate check (curl 60) or a CA bundle that could not be
     // loaded (77): not a network hiccup to retry, but a reason to stop.
     static bool isCertificateError(int curlCode);
     // Says why on the console: which remote, the 3DS's date (an unset clock
     // makes every certificate look expired or not yet valid), and, where the
-    // remote allows it, VerifyTLS=false for a server with its own certificate.
-    static void printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut);
+    // remote allows it (canOptOut: WebDAV, FTP), the PinnedKey= line that
+    // would trust the key the server presented.
+    void printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut) const;
     // A file transfer stopped part way because the user pressed START (see
     // utils/cancel.h): not a failure to retry or announce.
     static bool wasCancelled(int curlCode);
@@ -115,7 +124,7 @@ private:
     // The request body is read from a file (an upload), which, like a body
     // streamed to _downloadFile, START may stop part way.
     bool _bodyFromFile;
-    bool _verifyTls;
+    TlsCheckState *_tls;
     void _applyDefaults();
     static size_t _read_callback(void *ptr, size_t size, size_t nmemb, void *userdata);
     // Lets libcurl rewind a request body read from a file, which it must do to

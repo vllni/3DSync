@@ -140,7 +140,7 @@ TEST(remoteconfig, certificates_are_checked_unless_webdav_or_ftp_opt_out)
     RemoteConfigs r = parseRemotes(v, ENTRIES);
     CHECK_EQ(r.remotes.size(), (size_t)3);
     for (auto &remote : r.remotes)
-        CHECK_EQ(remote.verifyTls, remote.type != REMOTE_WEBDAV);
+        CHECK_EQ(remote.tls.verify, remote.type != REMOTE_WEBDAV);
     // Dropbox cannot opt out, and is told so.
     CHECK_EQ(r.issues.size(), (size_t)1);
     CHECK_STR_EQ(r.issues[0].section, "dropbox");
@@ -151,8 +151,92 @@ TEST(remoteconfig, an_unknown_verifytls_keeps_checking)
 {
     Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=verifytls", "nope"}};
     RemoteConfigs r = parseRemotes(v, ENTRIES);
-    CHECK(r.remotes[0].verifyTls);
+    CHECK(r.remotes[0].tls.verify);
     CHECK_EQ(r.issues.size(), (size_t)1);
+}
+
+namespace
+{
+const char PIN[] = "b444c9f346c9c75a699584fe4ecc694e121c795b05621aaa0984f57c5eaafe07";
+const char CA[] =
+    "MIIBfTCCASOgAwIBAgIUDuaYMN3Z2l7FIDsXuwma49fNmYQwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ"
+    "bmFzLmxvY2FsMB4XDTI2MTEwOTE5MDU0MVoXDTM2MTEwNjE5MDU0MVowFDESMBAGA1UEAwwJbmFzLmxv"
+    "Y2FsMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgwVJmXz+c1oXyG3XyLcTJO6Ki3VU/sarBVVNTPYH"
+    "HKjIMN7SzEpNlCorf64VhMBdMdlrJG4JxnrvbMrnHXZDxqNTMFEwHQYDVR0OBBYEFDW072mtvcv9p4us"
+    "UqQP8JARYdUCMB8GA1UdIwQYMBaAFDW072mtvcv9p4usUqQP8JARYdUCMA8GA1UdEwEB/wQFMAMBAf8w"
+    "CgYIKoZIzj0EAwIDSAAwRQIgIakhQamB3hx+eo+t1lnGs4vrb9A1vLp5+mc79bB0NzgCIQC9FWsyCKzk"
+    "RqRKz5DUnw8bDGij2A41yvkh2MG66K7Ghg==";
+} // namespace
+
+TEST(remoteconfig, webdav_and_ftp_can_pin_a_key_or_bring_their_ca)
+{
+    Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=pinnedkey", PIN},
+                {"ftp=host", "h"}, {"ftp=cacert", CA}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)2);
+    CHECK(r.issues.empty());
+    const RemoteConfig &ftp = r.remotes[0], &dav = r.remotes[1];
+    CHECK_EQ(dav.type, REMOTE_WEBDAV);
+    CHECK_EQ(dav.tls.pinnedKeys.size(), (size_t)1);
+    CHECK(dav.tls.caCerts.empty());
+    CHECK(dav.tls.verify);
+    CHECK_EQ(ftp.tls.caCerts.size(), (size_t)1);
+    CHECK(ftp.tls.pinnedKeys.empty());
+}
+
+TEST(remoteconfig, a_pin_or_ca_that_does_not_parse_leaves_the_remote_out)
+{
+    // Neither the public roots nor no check at all is what the line meant.
+    Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=pinnedkey", "b444c9"},
+                {"ftp=host", "h"}, {"ftp=cacert", "-----BEGIN CERTIFICATE-----"},
+                {"ftp=verifytls", "false"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK(r.remotes.empty());
+    CHECK_EQ(r.issues.size(), (size_t)2);
+    for (auto &i : r.issues)
+        CHECK(i.leftOut);
+    CHECK_STR_EQ(r.issues[0].brief, "[ftp] CACert= is no certificate");
+    CHECK_STR_EQ(r.issues[1].brief, "[webdav] PinnedKey= is no SHA-256");
+}
+
+TEST(remoteconfig, a_pin_or_ca_wins_over_verifytls_false)
+{
+    Values v = {{"webdav=url", "https://nas/dav/"}, {"webdav=pinnedkey", PIN},
+                {"webdav=verifytls", "false"}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)1);
+    CHECK(r.remotes[0].tls.verify);
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK(!r.issues[0].leftOut);
+    CHECK(joined(r.issues[0].lines).find("PinnedKey=") != std::string::npos);
+}
+
+TEST(remoteconfig, with_both_the_pin_decides_and_the_ca_is_dropped)
+{
+    Values v = {{"ftp=host", "h"}, {"ftp=pinnedkey", PIN}, {"ftp=cacert", CA}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)1);
+    CHECK_EQ(r.remotes[0].tls.pinnedKeys.size(), (size_t)1);
+    CHECK(r.remotes[0].tls.caCerts.empty());
+    CHECK_EQ(r.issues.size(), (size_t)1);
+    CHECK_STR_EQ(r.issues[0].brief, "[ftp] CACert= unused");
+}
+
+TEST(remoteconfig, dropbox_and_drive_keep_the_public_roots)
+{
+    Values v = {{"dropbox=refreshtoken", "t"}, {"dropbox=pinnedkey", PIN},
+                {"googledrive=refreshtoken", "t"}, {"googledrive=cacert", CA},
+                {"smb=server", "nas"}, {"smb=share", "s"}, {"smb=pinnedkey", PIN}};
+    RemoteConfigs r = parseRemotes(v, ENTRIES);
+    CHECK_EQ(r.remotes.size(), (size_t)3);
+    for (auto &remote : r.remotes)
+    {
+        CHECK(remote.tls.pinnedKeys.empty());
+        CHECK(remote.tls.caCerts.empty());
+    }
+    CHECK_EQ(r.issues.size(), (size_t)3);
+    for (auto &i : r.issues)
+        CHECK(!i.leftOut);
 }
 
 TEST(remoteconfig, ftp_tls_is_checked_and_a_typo_requires_tls)

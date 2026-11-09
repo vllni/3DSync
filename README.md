@@ -193,7 +193,9 @@ Password=<password>
 Path=                     ; optional base directory
 TLS=try                   ; none | try | require | implicit
 Mode=passive              ; passive | active
-VerifyTLS=                ; optional, false for a self-signed certificate
+PinnedKey=                ; optional, see "Server certificates"
+CACert=                   ; optional, see "Server certificates"
+VerifyTLS=                ; optional, false: don't check the certificate
 ```
 
 `TLS=try` (the default) encrypts the session when the server offers `AUTH TLS`
@@ -228,6 +230,9 @@ SFTP is **not** supported: the 3DS build of libcurl has no libssh2.
 Url=https://nas.example/remote.php/dav/files/username/
 User=<username>
 Password=<app password>
+PinnedKey=                ; optional, see "Server certificates"
+CACert=                   ; optional, see "Server certificates"
+VerifyTLS=                ; optional, false: don't check the certificate
 ```
 
 Works with Nextcloud/ownCloud and any NAS with WebDAV enabled. Use an app
@@ -243,10 +248,37 @@ check stops that remote with an explanation instead of connecting anyway.
 - **The 3DS clock** matters: a date that was never set makes every certificate
   look not yet valid. The message shows the date the 3DS has.
 - **A server with its own certificate** — most NAS out of the box — fails the
-  check. Add `VerifyTLS=false` to that `[WebDAV]` or `[FTP]` section (the
-  configurator has a checkbox for it). The connection is still encrypted, but
-  no longer protected against someone on the network posing as the server.
-  Dropbox and Google Drive always check.
+  check. Tell 3DSync what to trust instead, in that `[WebDAV]` or `[FTP]`
+  section; the configurator's *Server certificate* choice writes each of these.
+  Dropbox and Google Drive always check against the public roots.
+
+  - `PinnedKey=` — **a self-signed certificate**, or a server reached by its IP
+    address. The SHA-256 of the server's public key: exactly that key is
+    accepted, whoever signed the certificate and whatever name it carries. To
+    find it, sync once: the 3DS shows the key the server presented, in two
+    lines to write after `PinnedKey=` as one, and a saved log keeps it. Chrome
+    shows it too (the padlock → certificate → *SHA-256 fingerprint, Public
+    key*), and so does
+    `openssl s_client -connect nas:443 </dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256`.
+    Hex with or without colons and curl's `sha256//<base64>` are all read; put
+    a comma between two keys to accept both while a server changes its key.
+    The pin stays valid as long as the server keeps its key, which many
+    renewals do. A *certificate's* SHA-256 fingerprint (what Firefox shows)
+    works too, but changes with every renewal.
+  - `CACert=` — **a home or router CA** that signs your servers' certificates.
+    The CA's certificate, as base64 on one line (several separated by commas);
+    the configurator writes it from the `.pem` file, so nothing else has to be
+    copied to the SD card. That remote then trusts only these CAs, not the
+    public roots, and the server's certificate must still name the host
+    3DSync connects to. Survives every renewal of the server's certificate.
+  - `VerifyTLS=false` — don't check at all. The connection is still encrypted,
+    but no longer protected against someone on the network posing as the
+    server, who would then see the password and every file.
+
+  A `PinnedKey=` or `CACert=` that cannot be read is reported at startup, and
+  the remote is left out until it is fixed; it never falls back to not
+  checking. With both, `PinnedKey=` alone decides. Either one overrides
+  `VerifyTLS=false`.
 
 ### Several remotes
 
@@ -303,7 +335,8 @@ that remote as new, so its first sync compares every file again.
 On startup 3DSync checks the file, and if something is wrong it lists every
 problem, with what to do, before the main menu: a remote missing a setting
 (`[SMB]` without `Share=`), a remote with no login, a misspelled remote type, a
-`Role=`, `Only=`, `TLS=` or `VerifyTLS=` that does not make sense, a
+`Role=`, `Only=`, `TLS=`, `VerifyTLS=`, `PinnedKey=` or `CACert=` that does
+not make sense, a
 `[Filter]` line naming no configured path, a password sealed on another
 console, a credential that could not be sealed (written on more than one line,
 or too long), or a line the file cannot be read at. Press **A** to continue anyway

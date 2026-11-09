@@ -216,11 +216,11 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
         }
 
         std::string verify = asciiLower(valueOf(values, section, "verifytls"));
-        bool canSkipVerify = remote.type == REMOTE_WEBDAV || remote.type == REMOTE_FTP;
+        bool ownTls = remote.type == REMOTE_WEBDAV || remote.type == REMOTE_FTP;
         if (verify == "false" || verify == "no" || verify == "0" || verify == "off")
         {
-            if (canSkipVerify)
-                remote.verifyTls = false;
+            if (ownTls)
+                remote.tls.verify = false;
             else
                 result.issues.push_back(issue(section, "VerifyTLS=false ignored",
                                               {"VerifyTLS=false is ignored in",
@@ -235,6 +235,64 @@ RemoteConfigs parseRemotes(const std::map<std::string, std::string> &values,
                                            "  [" + section + "]",
                                            "  Certificates are checked until fixed."},
                                           false));
+
+        std::string pinned = valueOf(values, section, "pinnedkey");
+        std::string ca = valueOf(values, section, "cacert");
+        if ((!pinned.empty() || !ca.empty()) && !ownTls)
+        {
+            std::string key = !pinned.empty() ? "PinnedKey=" : "CACert=";
+            result.issues.push_back(issue(section, key + " ignored",
+                                          {key + " is ignored in", "  [" + section + "]",
+                                           "  Its certificate is always checked",
+                                           "  against the public roots."},
+                                          false));
+        }
+        else if (!pinned.empty() || !ca.empty())
+        {
+            // Left out rather than synced with the public roots or none: the
+            // line says which server to trust, and guessing either way is
+            // wrong — one fails every connection, the other trusts anyone.
+            if (!pinned.empty() && !parsePinnedKeys(pinned, remote.tls.pinnedKeys))
+            {
+                result.issues.push_back(issue(section, "PinnedKey= is no SHA-256",
+                                              {"PinnedKey= is not a SHA-256 hash, so",
+                                               "  this remote is left out:",
+                                               "  [" + section + "]",
+                                               "  64 hex digits (colons allowed), or",
+                                               "  sha256// and base64; commas between."},
+                                              true));
+                continue;
+            }
+            if (!ca.empty() && !parseCaCerts(ca, remote.tls.caCerts))
+            {
+                result.issues.push_back(issue(section, "CACert= is no certificate",
+                                              {"CACert= is not a certificate, so this",
+                                               "  remote is left out:",
+                                               "  [" + section + "]",
+                                               "  Choose the CA's file again in the",
+                                               "  configurator; it writes the line."},
+                                              true));
+                continue;
+            }
+            if (!remote.tls.pinnedKeys.empty() && !remote.tls.caCerts.empty())
+            {
+                remote.tls.caCerts.clear();
+                result.issues.push_back(issue(section, "CACert= unused",
+                                              {"CACert= is not used in", "  [" + section + "]",
+                                               "  because PinnedKey= decides alone."},
+                                              false));
+            }
+            if (!remote.tls.verify)
+            {
+                remote.tls.verify = true;
+                result.issues.push_back(issue(section, "VerifyTLS=false ignored",
+                                              {"VerifyTLS=false is ignored in",
+                                               "  [" + section + "]",
+                                               "  because " + std::string(pinned.empty() ? "CACert=" : "PinnedKey=") +
+                                                   " says what to trust."},
+                                              false));
+            }
+        }
 
         if (remote.type == REMOTE_FTP)
         {

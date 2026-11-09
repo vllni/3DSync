@@ -9,13 +9,14 @@
 CXX ?= g++
 CXXFLAGS ?= -std=gnu++11 -Wall -Wextra -O1 -g
 # As in the app's Makefile: the INI reader is compiled into the tests.
-CXXFLAGS += -DINI_MAX_LINE=2048
+CXXFLAGS += -DINI_MAX_LINE=16384 -DINI_USE_STACK=0 -DINI_INITIAL_ALLOC=16384
 BUILD := build
 BIN := $(BUILD)/run-tests
 
 # Units under test, compiled from the app sources.
 UNITS := \
 	../source/utils/cancel.cpp \
+	../source/utils/certtrust.cpp \
 	../source/utils/debug.cpp \
 	../source/utils/json.cpp \
 	../source/utils/pathutil.cpp \
@@ -43,7 +44,7 @@ UI_UNITS := ../source/ui/canvas.cpp ../source/ui/fontdata.cpp \
 TEST_SRC := framework.cpp mocks.cpp main.cpp \
 	test_debug.cpp test_engine.cpp test_extfilter.cpp test_json.cpp test_manifest.cpp test_nway.cpp \
 	test_remoteconfig.cpp test_rootname.cpp test_compare.cpp test_review.cpp \
-	test_path.cpp \
+	test_path.cpp test_certtrust.cpp \
 	test_remoteparse.cpp test_time.cpp test_url.cpp test_xml.cpp \
 	test_ui.cpp
 

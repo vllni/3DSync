@@ -13,7 +13,7 @@
 #include "debug.h"
 
 #ifndef INI_MAX_LINE
-#define INI_MAX_LINE 2048
+#define INI_MAX_LINE 16384
 #endif
 
 static const char kPrefix[] = "enc:v1:";

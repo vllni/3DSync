@@ -598,9 +598,27 @@ main {
     color: #ffcc80;
 }
 
-/* WebDAV and FTP: VerifyTLS=false. */
+/* WebDAV and FTP: which certificate to trust (PinnedKey=, CACert=,
+   VerifyTLS=false).  A panel shows for the select's mode only. */
 .cert-option {
-    margin: 0.2rem 0 0.8rem 0;
+    margin: 0.2rem 0 0.4rem 0;
+}
+
+.cert-panel {
+    display: none;
+}
+
+.cert-panel.active {
+    display: block;
+}
+
+.cert-status {
+    font-size: 0.88em;
+    margin-left: 0.5rem;
+}
+
+.cert-status.fail {
+    color: #ffcc80;
 }
 
 /* Step 2: [Sync] CompareConflicts= and CompareUpTo=, for SMB, FTP and WebDAV. */

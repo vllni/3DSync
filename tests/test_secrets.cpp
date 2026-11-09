@@ -201,7 +201,8 @@ TEST(sealini, leaves_values_inih_would_join)
 
 TEST(sealini, leaves_a_value_that_would_overflow_the_line)
 {
-    std::string ini = "[Dropbox]\nToken=" + std::string(1900, 'x') + "\n";
+    // Fits as it is, but not once sealing has grown it by a third.
+    std::string ini = "[Dropbox]\nToken=" + std::string(INI_MAX_LINE - 200, 'x') + "\n";
     SealResult r = sealIniText(ini, kKey, countingRandom);
     CHECK_EQ(r.sealed, 0);
     CHECK_EQ(r.skipped, 1);

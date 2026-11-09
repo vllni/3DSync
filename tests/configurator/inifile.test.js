@@ -96,15 +96,88 @@ test('a file with neither remotes nor folders is not a config', () => {
     assert.match(report.problems[0], /No remotes or folders/);
 });
 
-test('VerifyTLS=false ticks the certificate box, and is written back', () => {
+test('VerifyTLS=false picks "don\'t check", and is written back', () => {
     let { config } = IniFile.fromIni('[WebDAV]\nUrl=https://nas/dav/\nVerifyTLS=False\n[FTP]\nHost=h\nVerifyTLS=maybe\n');
     let [webdav, ftp] = config.remotes;
-    assert.equal(webdav.fields['webdav-insecure'], true);
+    assert.equal(webdav.fields['webdav-cert'], 'off');
     assert.deepEqual(webdav.carry, []);
-    // A value the box cannot show is kept as it was.
-    assert.equal(ftp.fields['ftp-insecure'], undefined);
+    // A value the select cannot show is kept as it was.
+    assert.equal(ftp.fields['ftp-cert'], 'public');
     assert.deepEqual(ftp.carry, [['VerifyTLS', 'maybe']]);
     assert.match(IniFile.toIni(config, false), /\[WebDAV\]\nUrl=https:\/\/nas\/dav\/\nVerifyTLS=False\n/);
+});
+
+// --- Server certificates: PinnedKey= and CACert= ---
+
+// A self-signed EC certificate (CN=nas.local), as tests/test_certtrust.cpp.
+const CERT_B64 =
+    'MIIBfTCCASOgAwIBAgIUDuaYMN3Z2l7FIDsXuwma49fNmYQwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ' +
+    'bmFzLmxvY2FsMB4XDTI2MTEwOTE5MDU0MVoXDTM2MTEwNjE5MDU0MVowFDESMBAGA1UEAwwJbmFzLmxv' +
+    'Y2FsMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgwVJmXz+c1oXyG3XyLcTJO6Ki3VU/sarBVVNTPYH' +
+    'HKjIMN7SzEpNlCorf64VhMBdMdlrJG4JxnrvbMrnHXZDxqNTMFEwHQYDVR0OBBYEFDW072mtvcv9p4us' +
+    'UqQP8JARYdUCMB8GA1UdIwQYMBaAFDW072mtvcv9p4usUqQP8JARYdUCMA8GA1UdEwEB/wQFMAMBAf8w' +
+    'CgYIKoZIzj0EAwIDSAAwRQIgIakhQamB3hx+eo+t1lnGs4vrb9A1vLp5+mc79bB0NzgCIQC9FWsyCKzk' +
+    'RqRKz5DUnw8bDGij2A41yvkh2MG66K7Ghg==';
+const KEY_HEX = 'b444c9f346c9c75a699584fe4ecc694e121c795b05621aaa0984f57c5eaafe07';
+
+function bytesOf(text) {
+    return Uint8Array.from(Buffer.from(text, 'binary'));
+}
+
+test('a pinned key is accepted in every form the 3DS reads', () => {
+    let colons = KEY_HEX.toUpperCase().match(/../g).join(':');
+    [KEY_HEX, colons, colons.replace(/:/g, ' '), 'sha256//tETJ80bJx1pplYT+TsxpThIceVsFYhqqCYT1fF6q/gc=',
+        KEY_HEX + ', ' + colons].forEach(function (value) {
+        assert.equal(IniFile.pinnedKeyProblem(value), null, value);
+    });
+    [KEY_HEX.slice(1), KEY_HEX + '0', 'sha256//tETJ80bJx1pplYT+Tsxp', '', ',', KEY_HEX + ',abc',
+        'da39a3ee5e6b4b0d3255bfef95601890afd80709'].forEach(function (value) {
+        assert.ok(IniFile.pinnedKeyProblem(value), value);
+    });
+});
+
+test('a CA file becomes one line of base64 DER, from PEM or DER', () => {
+    let pem = '-----BEGIN CERTIFICATE-----\n' + CERT_B64.match(/.{1,64}/g).join('\n') + '\n-----END CERTIFICATE-----\n';
+    assert.deepEqual(IniFile.caCertFromFile(bytesOf(pem)), { value: CERT_B64, count: 1 });
+    // A chain, with openssl's text around it.
+    let two = IniFile.caCertFromFile(bytesOf('subject=CN=nas.local\n' + pem + pem));
+    assert.deepEqual(two, { value: CERT_B64 + ',' + CERT_B64, count: 2 });
+    let der = Uint8Array.from(Buffer.from(CERT_B64, 'base64'));
+    assert.deepEqual(IniFile.caCertFromFile(der), { value: CERT_B64, count: 1 });
+});
+
+test('a CA file that is no certificate is refused with a reason', () => {
+    assert.match(IniFile.caCertFromFile(bytesOf('-----BEGIN PRIVATE KEY-----\nMIGH\n-----END PRIVATE KEY-----\n')).error,
+        /no certificate/);
+    assert.match(IniFile.caCertFromFile(bytesOf('hello')).error, /Not a certificate/);
+    // Cut short: still base64, but the DER length says otherwise.
+    assert.ok(IniFile.caCertProblem(CERT_B64.slice(0, 400)));
+    assert.equal(IniFile.caCertProblem(CERT_B64), null);
+});
+
+test('PinnedKey= and CACert= pick their entry of the select, and round-trip', () => {
+    let text = '[WebDAV]\nUrl=https://nas/dav/\nPinnedKey=' + KEY_HEX + '\n\n[FTP]\nHost=h\nCACert=' + CERT_B64 + '\n';
+    let { config, report } = IniFile.fromIni(text);
+    let [webdav, ftp] = config.remotes;
+    assert.equal(webdav.fields['webdav-cert'], 'key');
+    assert.equal(webdav.fields['webdav-pinned-key'], KEY_HEX);
+    assert.equal(ftp.fields['ftp-cert'], 'ca');
+    assert.equal(ftp.fields['ftp-ca-cert'], CERT_B64);
+    assert.deepEqual(report.problems, []);
+    assert.equal(IniFile.toIni(config, false), text);
+    // The preview cuts the certificate short; the download keeps it whole.
+    assert.match(IniFile.toIni(config, true), /\nCACert=MIIBfTCCASOgAwIBAgIUDuaYMN3Z2l7F… \(516 characters\)\n/);
+});
+
+test('an import says what the 3DS makes of contradicting or broken certificate lines', () => {
+    let { config, report } = IniFile.fromIni('[WebDAV]\nUrl=https://nas/dav/\nPinnedKey=' + KEY_HEX
+        + '\nCACert=' + CERT_B64 + '\nVerifyTLS=false\n[FTP]\nHost=h\nPinnedKey=abc\n');
+    assert.equal(config.remotes[0].fields['webdav-cert'], 'key');
+    assert.equal(config.remotes[1].fields['ftp-cert'], 'key');
+    assert.equal(report.problems.length, 3);
+    assert.match(report.problems[0], /only PinnedKey=/);
+    assert.match(report.problems[1], /VerifyTLS=false with PinnedKey=/);
+    assert.match(report.problems[2], /FTP: PinnedKey= is not a SHA-256 hash/);
 });
 
 // --- Google Drive with 3DSync's own client, and the folders chosen for it ---

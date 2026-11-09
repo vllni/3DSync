@@ -364,13 +364,45 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="ftp-tls-note"></p>
-                    <p class="cert-option">
-                      <label>
-                        <input type="checkbox" class="filled-in" id="ftp-insecure">
-                        <span class="white-text" style="font-size:0.88em">The server uses its own certificate
-                          (self-signed, as many NAS do): don't check it</span>
-                      </label>
-                    </p>
+                    <div class="row cert-option">
+                      <div class="col s12">
+                        <label class="white-text select-label" for="ftp-cert">Server certificate</label>
+                        <select id="ftp-cert" class="browser-default dark-select cert-mode" data-provider="ftp">
+                          <option value="public" selected>Check it against the public authorities (Let's Encrypt
+                            and the like)</option>
+                          <option value="key">Trust this server's key (self-signed, as many NAS have)</option>
+                          <option value="ca">Trust certificates from my own CA (home or router CA)</option>
+                          <option value="off">Don't check it &mdash; anyone on the network could pose as the
+                            server</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="row cert-panel" data-provider="ftp" data-mode="key">
+                      <div class="input-field col s12">
+                        <input id="ftp-pinned-key" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="ftp-pinned-key" class="white-text">Public key SHA-256</label>
+                        <span class="helper-text white-text" data-error="">In Chrome: the padlock &rarr;
+                          certificate &rarr; <strong>SHA-256 fingerprint, Public key</strong>. Or sync once from
+                          the 3DS: it shows the key the server presented, and the saved log keeps it. Stays valid
+                          as long as the server keeps its key; a certificate fingerprint works too, but changes with
+                          every renewal.</span>
+                      </div>
+                    </div>
+                    <div class="row cert-panel" data-provider="ftp" data-mode="ca">
+                      <div class="col s12">
+                        <input id="ftp-ca-cert" type="hidden">
+                        <input id="ftp-ca-file" class="cert-file" data-provider="ftp" type="file"
+                          accept=".pem,.crt,.cer,.der,application/x-x509-ca-cert,application/x-pem-file" hidden>
+                        <a href="#" class="btn-flat white-text cert-choose" data-provider="ftp"><i
+                            class="material-icons left">upload_file</i>Choose CA certificate</a>
+                        <span class="white-text cert-status" id="ftp-ca-status" role="status"></span>
+                        <p class="white-text field-note">The certificate of the authority that signed the
+                          server's, not the server's own. It is written into 3DSync.ini, so nothing else needs
+                          copying to the SD card. The server's certificate must name the address in
+                          Host.</p>
+                      </div>
+                    </div>
                     <div class="test-row test-unavailable">
                       <i class="material-icons">info_outline</i>
                       <span>A web page cannot open FTP connections, so these settings can only be tried from the
@@ -412,13 +444,45 @@
                       </div>
                     </div>
                     <p class="white-text field-note" id="webdav-url-note"></p>
-                    <p class="cert-option">
-                      <label>
-                        <input type="checkbox" class="filled-in" id="webdav-insecure">
-                        <span class="white-text" style="font-size:0.88em">The server uses its own certificate
-                          (self-signed, as many NAS do): don't check it</span>
-                      </label>
-                    </p>
+                    <div class="row cert-option">
+                      <div class="col s12">
+                        <label class="white-text select-label" for="webdav-cert">Server certificate</label>
+                        <select id="webdav-cert" class="browser-default dark-select cert-mode" data-provider="webdav">
+                          <option value="public" selected>Check it against the public authorities (Let's Encrypt
+                            and the like)</option>
+                          <option value="key">Trust this server's key (self-signed, as many NAS have)</option>
+                          <option value="ca">Trust certificates from my own CA (home or router CA)</option>
+                          <option value="off">Don't check it &mdash; anyone on the network could pose as the
+                            server</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="row cert-panel" data-provider="webdav" data-mode="key">
+                      <div class="input-field col s12">
+                        <input id="webdav-pinned-key" class="white-text remote-field" type="text" autocomplete="off"
+                          spellcheck="false">
+                        <label for="webdav-pinned-key" class="white-text">Public key SHA-256</label>
+                        <span class="helper-text white-text" data-error="">In Chrome: the padlock &rarr;
+                          certificate &rarr; <strong>SHA-256 fingerprint, Public key</strong>. Or sync once from
+                          the 3DS: it shows the key the server presented, and the saved log keeps it. Stays valid
+                          as long as the server keeps its key; a certificate fingerprint works too, but changes with
+                          every renewal.</span>
+                      </div>
+                    </div>
+                    <div class="row cert-panel" data-provider="webdav" data-mode="ca">
+                      <div class="col s12">
+                        <input id="webdav-ca-cert" type="hidden">
+                        <input id="webdav-ca-file" class="cert-file" data-provider="webdav" type="file"
+                          accept=".pem,.crt,.cer,.der,application/x-x509-ca-cert,application/x-pem-file" hidden>
+                        <a href="#" class="btn-flat white-text cert-choose" data-provider="webdav"><i
+                            class="material-icons left">upload_file</i>Choose CA certificate</a>
+                        <span class="white-text cert-status" id="webdav-ca-status" role="status"></span>
+                        <p class="white-text field-note">The certificate of the authority that signed the
+                          server's, not the server's own. It is written into 3DSync.ini, so nothing else needs
+                          copying to the SD card. The server's certificate must name the address in
+                          the URL.</p>
+                      </div>
+                    </div>
                     <div class="test-row">
                       <a href="#" class="btn white blue-text text-darken-3 test-connection" data-provider="webdav"><i
                           class="material-icons left">network_check</i>Test connection</a>
