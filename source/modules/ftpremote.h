@@ -21,7 +21,7 @@ class FtpRemote : public SyncProvider
 public:
     FtpRemote(const std::string &host, int port, const std::string &user,
               const std::string &password, const std::string &basePath,
-              FtpTlsMode tls, bool activeMode, bool verifyTls = true);
+              FtpTlsMode tls, bool activeMode, const TlsTrust &trust = TlsTrust());
 
     const char *name() const override { return "FTP"; }
     bool isExperimental() const override { return false; }

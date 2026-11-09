@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "../utils/certtrust.h"
+
 // ---------------------------------------------------------------------------
 // RemoteConfig  — which remotes 3DSync.ini configures, and how each takes part
 // ---------------------------------------------------------------------------
@@ -26,6 +28,12 @@
 //   VerifyTLS=false   WebDAV and FTP only: accept a server certificate that
 //                     cannot be verified (a NAS with a self-signed one).
 //                     Default true; Dropbox and Google Drive always verify.
+//   PinnedKey=, CACert=
+//                     WebDAV and FTP only: trust this key, or these CAs,
+//                     instead (see utils/certtrust.h).  One that does not
+//                     parse leaves the remote out; either one overrides
+//                     VerifyTLS=false, and PinnedKey= alone decides when
+//                     both are given.
 //   Only=saves, gba   the [Paths]-style names this remote takes part in.
 //                     Missing or empty: every one.  Commas and whitespace
 //                     separate, as in [Filter] Extensions=.
@@ -59,8 +67,9 @@ struct RemoteConfig
     std::string label;   // "" for the unnamed one
     RemoteRole role;
     std::set<std::string> only; // entry names; empty = every entry
-    // Check the server's TLS certificate.  Only WebDAV and FTP can turn it off.
-    bool verifyTls = true;
+    // How the server's TLS certificate is checked.  Only WebDAV and FTP can
+    // change it from the public roots, or turn it off.
+    TlsTrust tls;
     // FTP's TLS=, checked: "none", "try", "require" or "implicit".  An unknown
     // value is an issue and reads as "require", never as a weaker mode.
     std::string ftpTls = "try";

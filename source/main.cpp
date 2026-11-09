@@ -726,10 +726,10 @@ static SyncProvider *makeProvider(const INIReader &reader, const RemoteConfig &r
                              reader.Get(s, "user", "anonymous"),
                              reader.Get(s, "password", ""), reader.Get(s, "path", ""),
                              parseTlsMode(remote.ftpTls),
-                             reader.Get(s, "mode", "passive") == "active", remote.verifyTls);
+                             reader.Get(s, "mode", "passive") == "active", remote.tls);
     case REMOTE_WEBDAV:
         return new WebDavRemote(reader.Get(s, "url", ""), reader.Get(s, "user", ""),
-                                reader.Get(s, "password", ""), remote.verifyTls);
+                                reader.Get(s, "password", ""), remote.tls);
     }
     return NULL;
 }

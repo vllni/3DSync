@@ -16,11 +16,14 @@ address — no NAT between the 3DS and passive or active FTP.
 
 Everything except the anonymous servers uses user `3dsync`, password
 `3dsync` (change both in `.env`).
-TLS certificates are self-signed and generated on first start. 3DSync checks
-certificates, so every FTPS and HTTPS case here needs `VerifyTLS=false` in
-its section ("The server uses its own certificate" in the configurator).
-Without it the remote stops with "the server's certificate could not be
-verified" — which is itself worth testing once.
+TLS certificates are self-signed, generated on first start, and name
+`HOST_IP` (and `localhost`) as subject alternative names. 3DSync checks
+certificates, so every FTPS and HTTPS case here needs one of three lines in
+its section, the configurator's *Server certificate* choice: `PinnedKey=`
+(the server's key), `CACert=` (the server's certificate, which as a
+self-signed one is its own CA), or `VerifyTLS=false`. Without any of them the
+remote stops with "the server's certificate could not be verified" and shows
+the `PinnedKey=` line to add — see "Server certificates" below.
 
 ## Starting
 
@@ -123,7 +126,7 @@ User=3dsync
 Password=3dsync
 TLS=try                   ; none | try | require
 Mode=passive              ; or active
-VerifyTLS=false           ; the certificates here are self-signed
+VerifyTLS=false           ; or PinnedKey= / CACert=, see "Server certificates"
 ; Port=2990 with TLS=implicit for ftps-implicit
 ; Port=2122 for ftp-plain
 
@@ -133,8 +136,37 @@ Url=http://192.168.1.10:8080/dav/
 ; Url=https://192.168.1.10:8443/dav-nodepth/
 User=3dsync
 Password=3dsync
-VerifyTLS=false           ; for the https:// ones: self-signed
+VerifyTLS=false           ; for the https:// ones: or PinnedKey= / CACert=
 ```
+
+### Server certificates
+
+Each TLS service makes its certificate inside its container: it survives a
+restart, but a recreated container (`compose down`, `up --build`) has a new
+key, and a pin then has to be replaced — the renewal case, worth trying once.
+To get what each line needs:
+
+```sh
+# PinnedKey= for the HTTPS WebDAV (use -starttls ftp -connect …:2121 for FTPS)
+openssl s_client -connect 192.168.1.10:8443 </dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256
+# CACert=: the certificate itself, to choose in the configurator
+podman compose cp webdav:/etc/ssl/webdav/cert.pem webdav.pem
+```
+
+| Case | Lines | Expected |
+|---|---|---|
+| Nothing set | — | refused; the 3DS prints the `PinnedKey=` line for the key the server presented |
+| Pinned key | `PinnedKey=` from the 3DS's message or the command above | works |
+| Pinned key in another form | the same key as `AA:BB:…`, plain hex, or `sha256//…` (base64) | works |
+| Wrong pin | `PinnedKey=` of another server (the FTP's key in `[WebDAV]`) | refused: "Its key is not the one PinnedKey= names", with the key to use instead |
+| Certificate as pin | `openssl x509 -noout -fingerprint -sha256` of the certificate | works |
+| Own CA, by address | `CACert=` from `webdav.pem` via the configurator, `Url=https://192.168.1.10:8443/dav/` | works: the certificate lists `HOST_IP` |
+| Own CA, wrong name | the same, with `Url=` naming the machine by a host name the certificate lacks | refused |
+| Own CA, other server | `CACert=` from the FTP's certificate in `[WebDAV]` | refused |
+| Broken line | `PinnedKey=abc`, or `CACert=` cut short | startup check names it; the remote is left out |
+| Both and `VerifyTLS=false` | all three lines | startup check: `CACert=` unused, `VerifyTLS=false` ignored; works through the pin |
 
 ### Anonymous
 

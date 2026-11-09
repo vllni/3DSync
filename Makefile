@@ -19,7 +19,12 @@ EXTRA_OUTPUT_FILES :=
 # and Google's run past a kilobyte, and an over-long line is cut at the buffer
 # with its tail parsed as the next line -- the credential reaches the handler
 # truncated, and the only complaint is a syntax error blamed on the fragment.
-BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=2048
+# A CACert= line is a CA certificate in base64, about 2.6 KB for an RSA-4096
+# one and more for two, so the buffer holds 16 KB, and is on the heap rather
+# than taking that much of the main thread's stack.  Not INI_ALLOW_REALLOC:
+# its code does not compile as C++, which the host tests build ini.c as.
+BUILD_FLAGS := -Wno-format-truncation -DINI_MAX_LINE=16384 -DINI_USE_STACK=0 \
+	-DINI_INITIAL_ALLOC=16384
 
 # Link-time hooks into libcurl's mbedTLS teardown so TLS connections end with
 # a close_notify, which libcurl 8.4 never sends and vsftpd requires of a TLS

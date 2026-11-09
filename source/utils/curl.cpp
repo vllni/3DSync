@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <3ds.h>
+#include <mbedtls/sha256.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <time.h>
@@ -116,17 +117,137 @@ static const mbedtls_x509_crt *caChain()
     return g_caState > 0 ? &g_caChain : NULL;
 }
 
+// What one handle's TLS connections check, and what the last one saw.  The
+// verify callback writes it during a handshake, on the worker thread like
+// every libcurl call, and printCertificateHelp() reads it afterwards.
+struct TlsCheckState
+{
+    TlsTrust trust;
+    // The host of the last URL set, for a certificate made out to an IP.
+    std::string host;
+    // CACert= parsed, once per handle: 0 not tried, 1 loaded, -1 failed.
+    mbedtls_x509_crt ownCa;
+    int ownCaState;
+    // SHA-256 of the public key the server presented in the last handshake,
+    // raw; empty before one.  What a PinnedKey= line would hold.
+    std::string presentedKey;
+    // Flags of the chain above the server's certificate, held back until
+    // the callback reaches the certificate itself (always last) and knows
+    // whether the pinned key makes them irrelevant.
+    uint32_t chainFlags;
+    // The last handshake failed because the key was not a pinned one.
+    bool keyRefused;
+
+    TlsCheckState() : ownCaState(0), chainFlags(0), keyRefused(false)
+    {
+        mbedtls_x509_crt_init(&ownCa);
+    }
+    ~TlsCheckState() { mbedtls_x509_crt_free(&ownCa); }
+};
+
+static const mbedtls_x509_crt *ownCaChain(TlsCheckState *st)
+{
+    if (st->ownCaState == 0)
+    {
+        st->ownCaState = 1;
+        for (auto &der : st->trust.caCerts)
+        {
+            int ret = mbedtls_x509_crt_parse_der(&st->ownCa, (const unsigned char *)der.data(),
+                                                 der.size());
+            if (ret != 0)
+            {
+                debugf("CACert=: a certificate did not parse (mbedTLS -0x%04x)\n",
+                       (unsigned)-ret);
+                st->ownCaState = -1;
+                break;
+            }
+        }
+        if (st->ownCaState > 0)
+            debugf("TLS: checking certificates against %u CA(s) from CACert=\n",
+                   (unsigned)st->trust.caCerts.size());
+    }
+    return st->ownCaState > 0 ? &st->ownCa : NULL;
+}
+
+// mbedTLS calls this for each certificate of the chain it built, from the
+// top down to the server's own (depth 0), with the problems found in it.
+// Clearing them accepts the certificate; libcurl reads the sum afterwards
+// (it sets MBEDTLS_SSL_VERIFY_OPTIONAL and checks the result itself).
+static int _verifyCertificate(void *userdata, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
+{
+    TlsCheckState *st = (TlsCheckState *)userdata;
+    bool pinned = !st->trust.pinnedKeys.empty();
+    if (depth > 0)
+    {
+        if (pinned)
+        {
+            st->chainFlags |= *flags;
+            *flags = 0;
+        }
+        return 0;
+    }
+
+    unsigned char key[32], cert[32];
+    mbedtls_sha256_ret(crt->pk_raw.p, crt->pk_raw.len, key, 0);
+    mbedtls_sha256_ret(crt->raw.p, crt->raw.len, cert, 0);
+    st->presentedKey.assign((const char *)key, sizeof(key));
+    // A home CA's certificate for a server reached by its address lists the
+    // address as an iPAddress, which mbedTLS 2.28 never compares: without
+    // this CACert= could not work for a NAS at 192.168.x.x.  Only with
+    // CACert=, so the public roots are checked exactly as before.
+    if (!pinned && !st->trust.caCerts.empty() && (*flags & MBEDTLS_X509_BADCERT_CN_MISMATCH) &&
+        certificateListsIp(std::string((const char *)crt->raw.p, crt->raw.len), st->host))
+    {
+        debugf("TLS: the certificate names %s by address\n", st->host.c_str());
+        *flags &= ~MBEDTLS_X509_BADCERT_CN_MISMATCH;
+    }
+    if (pinned)
+    {
+        // Either hash: a browser shows the certificate's more readily, and
+        // pinning the key is what survives a renewal.
+        std::string certHash((const char *)cert, sizeof(cert));
+        bool match = false;
+        for (auto &pin : st->trust.pinnedKeys)
+            match = match || pin == st->presentedKey || pin == certHash;
+        if (match)
+        {
+            // Self-signed, an unknown issuer, a name other than the host,
+            // even expired: none of it matters for a key named outright.
+            debugf("TLS: the server's key is the pinned one\n");
+            *flags = 0;
+        }
+        else
+        {
+            *flags |= st->chainFlags | MBEDTLS_X509_BADCERT_OTHER;
+            st->keyRefused = true;
+        }
+    }
+    if (*flags && debugEnabled())
+    {
+        char why[512];
+        if (mbedtls_x509_crt_verify_info(why, sizeof(why), "  ", *flags) > 0)
+            debugf("TLS: certificate refused%s:\n%s",
+                   st->keyRefused ? " (not the pinned key)" : "", why);
+    }
+    return 0;
+}
+
 // Runs for every new TLS connection, after libcurl has set mbedTLS up and
-// before the handshake: the place to give it the trusted roots.
+// before the handshake: the place to give it the trusted roots, and the
+// callback that knows about PinnedKey=.
 static CURLcode _sslContext(CURL *handle, void *sslConfig, void *userdata)
 {
     (void)handle;
-    (void)userdata;
-    const mbedtls_x509_crt *ca = caChain();
+    TlsCheckState *st = (TlsCheckState *)userdata;
+    st->presentedKey.clear();
+    st->chainFlags = 0;
+    st->keyRefused = false;
+    const mbedtls_x509_crt *ca = st->trust.caCerts.empty() ? caChain() : ownCaChain(st);
     if (!ca)
         return CURLE_SSL_CACERT_BADFILE;
-    mbedtls_ssl_conf_ca_chain((mbedtls_ssl_config *)sslConfig,
-                              const_cast<mbedtls_x509_crt *>(ca), NULL);
+    mbedtls_ssl_config *conf = (mbedtls_ssl_config *)sslConfig;
+    mbedtls_ssl_conf_ca_chain(conf, const_cast<mbedtls_x509_crt *>(ca), NULL);
+    mbedtls_ssl_conf_verify(conf, _verifyCertificate, st);
     return CURLE_OK;
 }
 
@@ -140,10 +261,18 @@ bool Curl::wasCancelled(int curlCode)
     return curlCode == CURLE_ABORTED_BY_CALLBACK;
 }
 
-void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut)
+void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOptOut) const
 {
     if (curlCode == CURLE_SSL_CACERT_BADFILE)
     {
+        if (!_tls->trust.caCerts.empty())
+        {
+            printf(CONSOLE_RED "%s: CACert= could not be read,\n" CONSOLE_RESET, remoteName);
+            printf(CONSOLE_RED "  so 3DSync did not connect.\n" CONSOLE_RESET);
+            printf("  Choose the CA's file again in the\n");
+            printf("  configurator; it writes the line.\n");
+            return;
+        }
         printf(CONSOLE_RED "%s: the list of trusted certificates\n" CONSOLE_RESET, remoteName);
         printf(CONSOLE_RED "  is missing, so 3DSync did not connect.\n" CONSOLE_RESET);
         printf("  Reinstall 3DSync.\n");
@@ -151,24 +280,50 @@ void Curl::printCertificateHelp(const char *remoteName, int curlCode, bool canOp
     }
     printf(CONSOLE_RED "%s: the server's certificate could not\n" CONSOLE_RESET, remoteName);
     printf(CONSOLE_RED "  be verified, so 3DSync did not connect.\n" CONSOLE_RESET);
-    // A clock that was never set (2000, 2011) makes every certificate look
-    // not yet valid: the most likely cause on a 3DS, and easy to fix.
-    time_t now = time(NULL);
-    struct tm *t = gmtime(&now);
-    if (t)
-        printf("  The 3DS date is %04d-%02d-%02d; if that is\n  wrong, set it in System Settings.\n",
-               t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
-    if (canOptOut)
+    if (_tls->keyRefused)
+        printf("  Its key is not the one PinnedKey= names.\n");
+    else
+    {
+        // A clock that was never set (2000, 2011) makes every certificate
+        // look not yet valid: the most likely cause on a 3DS, and easy to fix.
+        time_t now = time(NULL);
+        struct tm *t = gmtime(&now);
+        if (t)
+            printf("  The 3DS date is %04d-%02d-%02d; if that is\n  wrong, set it in System Settings.\n",
+                   t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
+    }
+    if (!canOptOut)
+        return;
+    if (_tls->presentedKey.empty())
+    {
+        // Refused before a certificate was seen; nothing to offer to pin.
+        printf("  A server with its own certificate (a\n");
+        printf("  NAS)? See \"Server certificates\" in\n");
+        printf("  the README.\n");
+        return;
+    }
+    if (_tls->keyRefused)
+    {
+        printf("  If its key changed on purpose, replace\n");
+        printf("  the line in its section with:\n");
+    }
+    else
     {
         printf("  A server with its own certificate (a\n");
-        printf("  NAS)? Add VerifyTLS=false to its section.\n");
+        printf("  NAS)? To trust its key, add this line\n");
+        printf("  to its section, all on one line:\n");
     }
+    // Copied from the saved log, which keeps it: one digit wrong and the
+    // next sync refuses the server again, with the same message.
+    printf("  PinnedKey=\n");
+    for (auto &line : fingerprintLines(_tls->presentedKey))
+        printf("  %s\n", line.c_str());
 }
 
 // How long a transfer may go without receiving a byte; see _applyDefaults().
 static const long STALL_SECONDS = 60;
 
-Curl::Curl() : _downloadFile(nullptr), _bodyFromFile(false), _verifyTls(true)
+Curl::Curl() : _downloadFile(nullptr), _bodyFromFile(false), _tls(new TlsCheckState())
 {
     curl_global_init(CURL_GLOBAL_ALL);
     _curl = curl_easy_init();
@@ -197,7 +352,7 @@ void Curl::_applyDefaults()
     curl_easy_setopt(_curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(_curl, CURLOPT_XFERINFOFUNCTION, _progress_callback);
     curl_easy_setopt(_curl, CURLOPT_XFERINFODATA, this);
-    if (_verifyTls)
+    if (_tls->trust.verify)
     {
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 2L);
@@ -208,8 +363,15 @@ void Curl::_applyDefaults()
         curl_easy_setopt(_curl, CURLOPT_CAPATH, (char *)NULL);
         // A libcurl without SSL_CTX_FUNCTION for its TLS backend refuses the
         // option; it then reads the bundle itself, once per connection.
-        if (curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, _sslContext) != CURLE_OK)
+        if (curl_easy_setopt(_curl, CURLOPT_SSL_CTX_FUNCTION, _sslContext) == CURLE_OK)
+            curl_easy_setopt(_curl, CURLOPT_SSL_CTX_DATA, _tls);
+        else
+        {
+            // Then PinnedKey= and CACert= cannot work either: such a server
+            // is checked against the public roots, and most likely refused.
+            debugf("TLS: no SSL_CTX_FUNCTION, using %s as it is\n", CA_BUNDLE);
             curl_easy_setopt(_curl, CURLOPT_CAINFO, CA_BUNDLE);
+        }
     }
     else
     {
@@ -238,11 +400,16 @@ void Curl::_applyDefaults()
 Curl::~Curl()
 {
     curl_easy_cleanup(_curl);
+    delete _tls;
 }
 
-void Curl::setVerifyTls(bool enabled)
+void Curl::setTrust(const TlsTrust &trust)
 {
-    _verifyTls = enabled;
+    // A chain parsed for the previous CACert= must not outlive it.
+    mbedtls_x509_crt_free(&_tls->ownCa);
+    mbedtls_x509_crt_init(&_tls->ownCa);
+    _tls->ownCaState = 0;
+    _tls->trust = trust;
     if (_curl)
         _applyDefaults();
 }
@@ -250,6 +417,7 @@ void Curl::setVerifyTls(bool enabled)
 void Curl::setURL(std::string URL)
 {
     _lastUrl = URL;
+    _tls->host = urlHost(URL);
     curl_easy_setopt(_curl, CURLOPT_URL, URL.c_str());
 }
 

@@ -115,8 +115,10 @@ $(function () {
         dropbox: ['dropbox-expert-mode', 'dropbox-client-id'],
         googledrive: ['gdrive-expert-mode', 'gdrive-client-id', 'gdrive-client-secret', 'gdrive-folder-id'],
         smb: ['smb-server', 'smb-share', 'smb-user', 'smb-password', 'smb-domain', 'smb-path'],
-        ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode', 'ftp-insecure'],
-        webdav: ['webdav-url', 'webdav-user', 'webdav-password', 'webdav-insecure']
+        ftp: ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path', 'ftp-tls', 'ftp-mode', 'ftp-cert',
+            'ftp-pinned-key', 'ftp-ca-cert'],
+        webdav: ['webdav-url', 'webdav-user', 'webdav-password', 'webdav-cert', 'webdav-pinned-key',
+            'webdav-ca-cert']
     };
 
     // What the steps build, and what the file is written from (IniFile in
@@ -213,6 +215,7 @@ $(function () {
         $('#test-result-' + type).removeClass('ok fail unknown').empty();
         $('#login-status-' + type).removeClass('ok fail unknown').empty();
         $('#gdrive-json-status').empty();
+        $('#' + type + '-ca-status').removeClass('fail').empty();
     }
 
     function loadFields(type, fields) {
@@ -254,6 +257,7 @@ $(function () {
         updateLabelHint();
         updateFtpNote();
         updateWebdavNote();
+        if (type === 'ftp' || type === 'webdav') updateCertPanel(type);
         renderLoginStatus();
 
         $('#remote-editor-title').text(remote ? 'Edit ' + displayName(remote) : 'New ' + TYPES[type].name + ' remote');
@@ -960,6 +964,79 @@ $(function () {
         return pairs.filter(function (p) { return p[1] !== ''; });
     }
 
+    // --- Server certificate (WebDAV, FTP) ---
+    // One select says what to trust; only its mode's line is written, so the
+    // 3DS never sees two that disagree.  A CA file is read in the tab and
+    // written into the INI as base64 (CACert=), never uploaded.
+    function updateCertPanel(type) {
+        let mode = $('#' + type + '-cert').val();
+        $('.cert-panel[data-provider="' + type + '"]').each(function () {
+            $(this).toggleClass('active', $(this).data('mode') === mode);
+        });
+        // A remote opened again, or imported, has the line but no file name.
+        let ca = $('#' + type + '-ca-cert').val();
+        let $status = $('#' + type + '-ca-status');
+        if (ca && $status.text() === '') {
+            let count = ca.split(',').length;
+            $status.text(count === 1 ? 'A certificate is set.' : count + ' certificates are set.');
+        }
+        M.updateTextFields();
+    }
+
+    $('.cert-mode').on('change', function () {
+        updateCertPanel($(this).data('provider'));
+    });
+
+    $('.cert-choose').on('click', function (e) {
+        e.preventDefault();
+        $('#' + $(this).data('provider') + '-ca-file').val('').trigger('click');
+    });
+
+    $('.cert-file').on('change', function () {
+        let type = $(this).data('provider');
+        let file = this.files && this.files[0];
+        if (!file) return;
+        let reader = new FileReader();
+        reader.onload = function () {
+            let result = IniFile.caCertFromFile(new Uint8Array(reader.result));
+            let $status = $('#' + type + '-ca-status');
+            if (result.error) {
+                $status.addClass('fail').text(result.error);
+                return;
+            }
+            $('#' + type + '-ca-cert').val(result.value);
+            $status.removeClass('fail').text(file.name + (result.count > 1 ? ' — ' + result.count
+                + ' certificates' : ''));
+            updateCertPanel(type);
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // false when a field is marked, a string saying what to do, null when
+    // the certificate settings are fine.
+    function certProblem(type) {
+        let mode = $('#' + type + '-cert').val();
+        if (mode === 'key') {
+            let $key = $('#' + type + '-pinned-key');
+            $key.val($key.val().trim());
+            let problem = iniValueProblem($key.val()) || IniFile.pinnedKeyProblem($key.val());
+            setFieldError($key, problem);
+            return problem ? false : null;
+        }
+        if (mode === 'ca' && IniFile.caCertProblem($('#' + type + '-ca-cert').val()))
+            return 'Choose the CA certificate the server\'s was signed with, or pick another way to check it.';
+        return null;
+    }
+
+    function certEntries(type) {
+        let mode = $('#' + type + '-cert').val();
+        return [
+            ['VerifyTLS', mode === 'off' ? 'false' : ''],
+            ['PinnedKey', mode === 'key' ? $('#' + type + '-pinned-key').val() : ''],
+            ['CACert', mode === 'ca' ? $('#' + type + '-ca-cert').val() : '']
+        ];
+    }
+
     // One per type: validates the open form and returns the section's
     // entries, null when a field is marked, or a string saying what to do.
     const remoteForms = {
@@ -1012,6 +1089,8 @@ $(function () {
             ['ftp-host', 'ftp-port', 'ftp-user', 'ftp-path'].forEach(trimField);
             normalizeFtp();
             let ok = checkFields(['ftp-host', 'ftp-port', 'ftp-user', 'ftp-password', 'ftp-path'], ['ftp-host']);
+            let cert = certProblem('ftp');
+            if (cert === false) ok = false;
             let port = $('#ftp-port').val();
             if (port !== '' && !(/^\d+$/.test(port) && +port >= 1 && +port <= 65535)) {
                 setFieldError($('#ftp-port'), 'A number from 1 to 65535');
@@ -1033,6 +1112,7 @@ $(function () {
                 ok = false;
             }
             if (!ok) return null;
+            if (cert) return cert;
             return entriesFrom([
                 ['Host', $('#ftp-host').val()],
                 ['Port', port],
@@ -1040,25 +1120,26 @@ $(function () {
                 ['Password', $('#ftp-password').val()],
                 ['Path', $('#ftp-path').val()],
                 ['TLS', $('#ftp-tls').val()],
-                ['Mode', $('#ftp-mode').val()],
-                ['VerifyTLS', $('#ftp-insecure').prop('checked') ? 'false' : '']
-            ]);
+                ['Mode', $('#ftp-mode').val()]
+            ].concat(certEntries('ftp')));
         },
         webdav: function () {
             ['webdav-url', 'webdav-user'].forEach(trimField);
             normalizeWebdav();
             let ok = checkFields(['webdav-url', 'webdav-user', 'webdav-password'], ['webdav-url']);
+            let cert = certProblem('webdav');
+            if (cert === false) ok = false;
             if (ok && !/^https?:\/\/[^\/\s]+\//i.test($('#webdav-url').val())) {
                 setFieldError($('#webdav-url'), 'An http:// or https:// address');
                 ok = false;
             }
             if (!ok) return null;
+            if (cert) return cert;
             return entriesFrom([
                 ['Url', $('#webdav-url').val()],
                 ['User', $('#webdav-user').val()],
-                ['Password', $('#webdav-password').val()],
-                ['VerifyTLS', $('#webdav-insecure').prop('checked') ? 'false' : '']
-            ]);
+                ['Password', $('#webdav-password').val()]
+            ].concat(certEntries('webdav')));
         }
     };
 

@@ -15,14 +15,14 @@
 
 FtpRemote::FtpRemote(const std::string &host, int port, const std::string &user,
                      const std::string &password, const std::string &basePath,
-                     FtpTlsMode tls, bool activeMode, bool verifyTls)
+                     FtpTlsMode tls, bool activeMode, const TlsTrust &trust)
     : _host(host), _port(port > 0 ? port : (tls == FTP_TLS_IMPLICIT ? 990 : 21)),
       _user(user), _password(password), _tls(tls), _tlsDropped(false), _activeMode(activeMode),
       _fatalError(false)
 {
     // Strip the separators so paths can be joined without doubling them.
     _basePath = normalizeRemotePath(basePath);
-    _curl.setVerifyTls(verifyTls);
+    _curl.setTrust(trust);
 }
 
 std::string FtpRemote::manifestPrefix() const
@@ -161,7 +161,7 @@ int FtpRemote::_performWithRetry(FtpRequest request, FILE *uploadFile)
             return res;
         case CURLE_PEER_FAILED_VERIFICATION:
         case CURLE_SSL_CACERT_BADFILE:
-            Curl::printCertificateHelp(displayName().c_str(), res, true);
+            _curl.printCertificateHelp(displayName().c_str(), res, true);
             _fatalError = true;
             return res;
         case CURLE_USE_SSL_FAILED:

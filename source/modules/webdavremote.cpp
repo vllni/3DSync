@@ -20,11 +20,11 @@ static const char *PROPFIND_BODY =
     "</d:prop></d:propfind>";
 
 WebDavRemote::WebDavRemote(const std::string &baseUrl, const std::string &user,
-                           const std::string &password, bool verifyTls)
+                           const std::string &password, const TlsTrust &trust)
     : _baseUrl(baseUrl), _user(user), _password(password), _fatalError(false),
       _noInfiniteDepth(false), _authMethods(CURLAUTH_ANY)
 {
-    _curl.setVerifyTls(verifyTls);
+    _curl.setTrust(trust);
     if (_baseUrl.empty() || _baseUrl[_baseUrl.size() - 1] != '/')
         _baseUrl += '/';
 
@@ -92,7 +92,7 @@ int WebDavRemote::_performWithRetry(FILE *uploadFile, long expectedStatus)
         }
         if (Curl::isCertificateError(curlRes))
         {
-            Curl::printCertificateHelp(displayName().c_str(), curlRes, true);
+            _curl.printCertificateHelp(displayName().c_str(), curlRes, true);
             _fatalError = true;
             return curlRes;
         }

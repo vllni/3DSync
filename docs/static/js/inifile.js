@@ -60,15 +60,18 @@
         smb: { server: 'smb-server', share: 'smb-share', user: 'smb-user', password: 'smb-password',
             domain: 'smb-domain', path: 'smb-path' },
         ftp: { host: 'ftp-host', port: 'ftp-port', user: 'ftp-user', password: 'ftp-password', path: 'ftp-path',
-            tls: 'ftp-tls', mode: 'ftp-mode', verifytls: 'ftp-insecure' },
-        webdav: { url: 'webdav-url', user: 'webdav-user', password: 'webdav-password', verifytls: 'webdav-insecure' }
+            tls: 'ftp-tls', mode: 'ftp-mode', verifytls: 'ftp-cert', pinnedkey: 'ftp-pinned-key',
+            cacert: 'ftp-ca-cert' },
+        webdav: { url: 'webdav-url', user: 'webdav-user', password: 'webdav-password', verifytls: 'webdav-cert',
+            pinnedkey: 'webdav-pinned-key', cacert: 'webdav-ca-cert' }
     };
-    // Checkboxes, by the INI values that tick them (VerifyTLS=false ticks
-    // "don't check the certificate").  Another value is kept as it was.
-    const CHECKBOX_VALUES = {
-        'ftp-insecure': { 'false': true, no: true, '0': true, off: true, 'true': false, yes: false, '1': false, on: false },
-        'webdav-insecure': { 'false': true, no: true, '0': true, off: true, 'true': false, yes: false, '1': false, on: false }
-    };
+    // Inputs whose value follows from the INI value through a table, as
+    // VerifyTLS=false picks "don't check" in the certificate select.  Another
+    // value is kept as it was.  PinnedKey= and CACert= pick their own entries
+    // of that select (certMode() below).
+    const VERIFY_TLS = { 'false': 'off', no: 'off', '0': 'off', off: 'off',
+        'true': 'public', yes: 'public', '1': 'public', on: 'public' };
+    const MAPPED_VALUES = { 'ftp-cert': VERIFY_TLS, 'webdav-cert': VERIFY_TLS };
     // The editor's selects; a value outside them is kept as it was instead.
     const SELECT_OPTIONS = {
         'ftp-tls': ['none', 'try', 'require', 'implicit'],
@@ -126,8 +129,13 @@
     }
 
     // --- Writing ---
+    // masked is the preview: secrets hidden, and a CA certificate, kilobytes
+    // of base64 on one line, cut to its start.
     function line(key, value, masked) {
-        return key + '=' + (masked && SECRET_KEY.test(key) ? MASK : value);
+        if (masked && SECRET_KEY.test(key)) return key + '=' + MASK;
+        if (masked && /^cacert$/i.test(key) && value.length > 40)
+            return key + '=' + value.slice(0, 32) + '… (' + value.length + ' characters)';
+        return key + '=' + value;
     }
 
     function sectionText(name, pairs, masked) {
@@ -272,7 +280,7 @@
             let sealed = isSealed(value) && SEALABLE[type].indexOf(key) >= 0;
             let input = fields[key];
             let options = input && SELECT_OPTIONS[input];
-            let ticks = input && CHECKBOX_VALUES[input];
+            let ticks = input && MAPPED_VALUES[input];
             let fits = input && (ticks ? Object.prototype.hasOwnProperty.call(ticks, value.toLowerCase())
                 : !options || options.indexOf(value.toLowerCase()) >= 0);
             let formKey = !!input || (oauth && key === 'refreshtoken');
@@ -282,6 +290,7 @@
             if (fits) remote.fields[input] = ticks ? ticks[value.toLowerCase()] : options ? value.toLowerCase() : plain;
             if (key === 'refreshtoken') refreshToken = plain;
         });
+        if (type === 'ftp' || type === 'webdav') certMode(remote, type, name, report);
         if (type === 'dropbox') {
             let appKey = remote.fields['dropbox-client-id'] || DEFAULT_DROPBOX_APP_KEY;
             remote.fields['dropbox-expert-mode'] = appKey !== DEFAULT_DROPBOX_APP_KEY;
@@ -303,6 +312,119 @@
         if (label !== '' && !/^[A-Za-z0-9_-]+$/.test(label))
             report.problems.push(name + ': the label may only hold letters, digits, - and _; change it when you edit it.');
         return remote;
+    }
+
+    // The certificate select of a WebDAV or FTP remote, from the three keys
+    // the 3DS reads: PinnedKey= first, as there, then CACert=, then
+    // VerifyTLS=.  The lines themselves stay in entries, written as read.
+    function certMode(remote, type, name, report) {
+        let f = remote.fields;
+        let pin = f[type + '-pinned-key'], ca = f[type + '-ca-cert'];
+        let off = f[type + '-cert'] === 'off';
+        if (pin) f[type + '-cert'] = 'key';
+        else if (ca) f[type + '-cert'] = 'ca';
+        else if (!f[type + '-cert']) f[type + '-cert'] = 'public';
+        if (pin && ca)
+            report.problems.push(name + ' has PinnedKey= and CACert=: the 3DS uses only PinnedKey=, and so does '
+                + 'the form.');
+        if ((pin || ca) && off)
+            report.problems.push(name + ' has VerifyTLS=false with ' + (pin ? 'PinnedKey=' : 'CACert=')
+                + ': the 3DS checks the certificate, as the form shows.');
+        if (pin && pinnedKeyProblem(pin))
+            report.problems.push(name + ': PinnedKey= is not a SHA-256 hash; the 3DS leaves the remote out.');
+        if (ca && !pin && caCertProblem(ca))
+            report.problems.push(name + ': CACert= is not a certificate; the 3DS leaves the remote out.');
+    }
+
+    // --- Server certificates (WebDAV, FTP) ---
+    // The same rules as parsePinnedKeys() and parseCaCerts() in
+    // source/utils/certtrust.cpp, so the page refuses what the 3DS would.
+
+    function base64Bytes(b64) {
+        if (b64 === '' || b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return null;
+        try {
+            let bin = atob(b64);
+            let bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function bytesBase64(bytes) {
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+
+    // PinnedKey=: SHA-256 hashes separated by commas, each 64 hex digits
+    // (colons and spaces allowed, as browsers show them) or sha256// and
+    // base64.  null when the 3DS takes it.
+    function pinnedKeyProblem(value) {
+        let items = value.split(',').filter(function (item) { return item.trim() !== ''; });
+        if (!items.length) return 'Paste the server\'s SHA-256 key hash';
+        let bad = items.some(function (item) {
+            let s = item.replace(/[\s:]/g, '');
+            if (/^sha256\/\//i.test(s)) {
+                let bytes = base64Bytes(s.slice(8));
+                return !bytes || bytes.length !== 32;
+            }
+            return !/^[0-9a-f]{64}$/i.test(s);
+        });
+        return bad ? 'Not a SHA-256 hash: 64 hex digits (colons allowed), or sha256// and base64' : null;
+    }
+
+    // One DER element filling the buffer, a SEQUENCE as every certificate
+    // is: what the 3DS checks before mbedTLS reads it.
+    function isOneDerSequence(der) {
+        if (der.length < 2 || der[0] !== 0x30) return false;
+        let len = der[1], header = 2;
+        if (len & 0x80) {
+            let n = len & 0x7f;
+            if (n === 0 || n > 4 || der.length < 2 + n) return false;
+            len = 0;
+            for (let i = 0; i < n; i++) len = len * 256 + der[2 + i];
+            header += n;
+        }
+        return header + len === der.length;
+    }
+
+    function caItems(value) {
+        return value.replace(/-----(BEGIN|END) CERTIFICATE-----/g, ',').split(',')
+            .map(function (item) { return item.replace(/\s/g, ''); })
+            .filter(function (item) { return item !== ''; });
+    }
+
+    // CACert=: null when the 3DS takes it.
+    function caCertProblem(value) {
+        let items = caItems(value);
+        if (!items.length) return 'No certificate';
+        let bad = items.some(function (b64) {
+            let der = base64Bytes(b64);
+            return !der || !isOneDerSequence(der);
+        });
+        return bad ? 'Not a certificate' : null;
+    }
+
+    // A CA certificate file as chosen in the form, read as bytes: PEM (one
+    // or more BEGIN CERTIFICATE blocks; anything around them, such as
+    // openssl's text dump, is skipped) or a single DER certificate.  Returns
+    // { value, count } with value the CACert= line, base64 DER separated by
+    // commas, or { error }.
+    function caCertFromFile(bytes) {
+        let text = '';
+        for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
+        let blocks = text.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+        let items;
+        if (blocks) items = blocks.map(function (b) { return caItems(b)[0] || ''; });
+        else if (/-----BEGIN /.test(text))
+            return { error: 'This file holds no certificate (a private key, perhaps?). Choose the CA\'s certificate.' };
+        else items = [bytesBase64(bytes)];
+        let value = items.join(',');
+        if (caCertProblem(value))
+            return { error: 'Not a certificate file. Choose the CA\'s certificate (.pem, .crt or .cer).' };
+        return { value: value, count: items.length };
     }
 
     // The 3DS reads CompareConflicts= as on for anything it does not know, and
@@ -394,7 +516,8 @@
     let api = {
         TYPES: TYPES, DEFAULT_DROPBOX_APP_KEY: DEFAULT_DROPBOX_APP_KEY, INI_FIELDS: INI_FIELDS,
         isSealed: isSealed, sectionName: sectionName, displayName: displayName, syncsFolder: syncsFolder,
-        onlyFolders: onlyFolders, withCarried: withCarried, toIni: toIni, parseIni: parseIni, fromIni: fromIni
+        onlyFolders: onlyFolders, withCarried: withCarried, toIni: toIni, parseIni: parseIni, fromIni: fromIni,
+        pinnedKeyProblem: pinnedKeyProblem, caCertProblem: caCertProblem, caCertFromFile: caCertFromFile
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.IniFile = api;

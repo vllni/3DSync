@@ -12,8 +12,8 @@ fi
 echo "$TEST_USER:$TEST_PASSWORD" | chpasswd
 mkdir -p /srv/ftp && chown "$TEST_USER" /srv/ftp
 
-# 3DSync turns off peer verification, but the SAN keeps desktop clients
-# that do check from tripping over the address.
+# The SAN names the address, so the certificate works for 3DSync's CACert=
+# (and for desktop clients that check) as well as for PinnedKey=.
 if [ ! -f /etc/ssl/ftp/cert.pem ]; then
     mkdir -p /etc/ssl/ftp
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=3dsync-test" \
